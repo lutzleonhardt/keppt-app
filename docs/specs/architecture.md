@@ -841,6 +841,25 @@ archive/
 - `"archive"` → `archive/daily/*.md`
 - `"all"` → alles zusammen
 
+### Durchsetzung der Scope-Regeln (Zwei-Schichten-Modell)
+
+Die Scope-Regeln werden bewusst **nicht** im `FileRepository` erzwungen, sondern in der **LLM-Tool-Schicht** (siehe „LLM Tool Definitions"). Grund: das Repository wird nicht nur vom LLM genutzt, sondern auch vom Server-Side-Lifecycle (Tageswechsel/Archive-Move, siehe nächster Abschnitt). Eine repository-seitige Whitelist der GTD-Pfade würde den Lifecycle blockieren, weil dieser gerade Schreibzugriff auf `archive/daily/` benötigt.
+
+**Schicht 1 — `FileRepository` (low-level):**
+- Akzeptiert beliebige Pfade innerhalb des `basePath` / `user_id`-Scopes.
+- Einzige Prüfung: **Pfad-Sicherheit** (keine `..`-Segmente, keine absoluten Pfade, keine Symlink-Escapes). Verletzung ist ein Bug, kein User-Fehler → Exception.
+- Keine Kenntnis der GTD-Struktur (`tasks/`, `daily/`, `archive/`).
+
+**Schicht 2 — LLM-Tool-Schicht (die 5 Tools):**
+- Setzt die Scope-Regeln aus der Tabelle oben durch. Konkret:
+  - `read_file`: `tasks/*.md`, `daily/YYYY-MM-DD.md` (beliebiges Datum), `archive/daily/*.md`
+  - `write_file` / `edit_file`: `tasks/*.md`, `daily/${today}.md` — **nicht** `archive/daily/` (Lifecycle-verwaltet)
+  - `list_files`: Prefix muss `tasks/`, `daily/` oder `archive/daily/` sein
+  - `search_files`: Scope-Parameter wie in der Tabelle
+- Verletzung → strukturierter Error als Tool-Result (wie `EditResult { ok: false, ... }`), kein Throw. Das LLM bekommt Feedback und kann im nächsten Step reagieren.
+
+So bleibt die Repository-Abstraktion sauber austauschbar (Local/Supabase/InMemory) und die GTD-Semantik liegt dort wo sie hingehört: an der Grenze zum LLM.
+
 ### Automatischer Tageswechsel (Server-Side)
 
 Der Archive-Move der Daily Note und das Anlegen einer neuen Session sind **Server-Side-Lifecycle-Operationen**, kein LLM-Tool-Call. Sie passieren beim ersten Request des Users an einem neuen Kalendertag (`current_date != latest_session.date`), bevor der LLM-Request gebaut wird:
