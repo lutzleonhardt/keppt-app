@@ -43,9 +43,12 @@ export function buildHistoryEntry(input: BuildHistoryInput): HistoryEntry {
   };
 }
 
-// History append is not atomic w.r.t. the preceding fs.writeFile — acceptable
-// in Phase 1 (single-user, single-process). Never truncate this file; it is
-// the only rollback/audit trail.
+// Append a history entry. Callers must append BEFORE mutating the
+// corresponding on-disk file so that contentBefore is durable even if the
+// subsequent write fails (see LocalFileRepository.write). This file is the
+// only rollback/audit trail — never truncate it. Phantom entries (append
+// succeeded, file write failed) are tolerated: contentBefore stays accurate
+// and a rollback against them is a no-op.
 export async function appendHistoryEntry(
   basePath: string,
   input: BuildHistoryInput,

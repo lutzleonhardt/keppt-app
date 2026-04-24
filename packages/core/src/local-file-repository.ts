@@ -1,9 +1,10 @@
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { FileRepository, SearchResult, SearchScope } from "./file-repository.js";
-import { FileNotFoundError } from "./file-repository.js";
-import { appendHistoryEntry, HISTORY_DIR, type ChangeActor } from "./history-log.js";
+import { FileNotFoundError, InvalidPathError, validateFilePath } from "./file-repository.js";
+import { appendHistoryEntry, type ChangeActor } from "./history-log.js";
 import { findMatches, formatToday, isInScope } from "./search.js";
 
 export interface LocalFileRepositoryOptions {
@@ -23,8 +24,14 @@ export class LocalFileRepository implements FileRepository {
   }
 
   private resolve(filePath: string): string {
+    validateFilePath(filePath);
     const normalized = filePath.split("/").join(path.sep);
-    return path.join(this.basePath, normalized);
+    const abs = path.resolve(this.basePath, normalized);
+    const rel = path.relative(this.basePath, abs);
+    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+      throw new InvalidPathError(filePath, "resolves outside the repository base path");
+    }
+    return abs;
   }
 
   async read(filePath: string): Promise<string> {
@@ -41,7 +48,18 @@ export class LocalFileRepository implements FileRepository {
     const abs = this.resolve(filePath);
     const before = await readIfExists(abs);
     await mkdir(path.dirname(abs), { recursive: true });
-    await writeFile(abs, content, "utf8");
+    // Persist history before touching the file so that contentBefore (the
+    // rollback snapshot) is always durable before any on-disk mutation. The
+    // reverse order would risk an unlogged write if the history append fails,
+    // permanently losing the old content.
+    //
+    // Tradeoff: if writeFile or rename below fails after this append succeeds,
+    // the log keeps a "phantom" entry describing a change that never landed.
+    // That is acceptable because contentBefore still matches the real disk
+    // state at log time, retries simply append another entry with the same
+    // contentBefore, and rolling back a phantom entry is a no-op. A two-phase
+    // pending/committed log would remove the noise but is deferred until we
+    // build a rollback UI that actually consumes it.
     await appendHistoryEntry(this.basePath, {
       filePath,
       contentBefore: before,
@@ -50,6 +68,14 @@ export class LocalFileRepository implements FileRepository {
       changedBy: this.changedBy,
       now: this.now,
     });
+    const tempPath = `${abs}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(tempPath, content, "utf8");
+      await rename(tempPath, abs);
+    } catch (err) {
+      await rm(tempPath, { force: true }).catch(() => {});
+      throw err;
+    }
   }
 
   async list(prefix?: string): Promise<string[]> {
@@ -81,11 +107,13 @@ async function walk(root: string, dir: string, out: string[]): Promise<void> {
     throw err;
   }
   for (const entry of entries) {
-    if (entry.name === HISTORY_DIR) continue;
+    // Skip dot-directories (.git, .obsidian, .gtd-companion, ...). Keeps
+    // Obsidian config, git metadata, and our own audit trail out of list().
+    if (entry.isDirectory() && entry.name.startsWith(".")) continue;
     const abs = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       await walk(root, abs, out);
-    } else if (entry.isFile()) {
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
       const rel = path.relative(root, abs).split(path.sep).join("/");
       out.push(rel);
     }

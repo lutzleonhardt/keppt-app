@@ -8,3 +8,7 @@ coverage/
 
 # Brokk session artifacts
 .brokk
+
+# GTD Companion internal state (audit trail, session state).
+# Guard against dogfooding the CLI against the repo root.
+.gtd-companion/

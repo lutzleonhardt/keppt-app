@@ -1,5 +1,5 @@
 import type { FileRepository, SearchResult, SearchScope } from "./file-repository.js";
-import { FileNotFoundError } from "./file-repository.js";
+import { FileNotFoundError, validateFilePath } from "./file-repository.js";
 import { buildHistoryEntry, type ChangeActor, type HistoryEntry } from "./history-log.js";
 import { findMatches, formatToday, isInScope } from "./search.js";
 
@@ -20,12 +20,14 @@ export class InMemoryFileRepository implements FileRepository {
   }
 
   async read(filePath: string): Promise<string> {
+    validateFilePath(filePath);
     const existing = this.files.get(filePath);
     if (existing === undefined) throw new FileNotFoundError(filePath);
     return existing;
   }
 
   async write(filePath: string, content: string, changeSummary: string): Promise<void> {
+    validateFilePath(filePath);
     const before = this.files.get(filePath) ?? "";
     this.files.set(filePath, content);
     this.historyEntries.push(
@@ -41,7 +43,9 @@ export class InMemoryFileRepository implements FileRepository {
   }
 
   async list(prefix?: string): Promise<string[]> {
-    const paths = [...this.files.keys()].sort();
+    const paths = [...this.files.keys()]
+      .filter((p) => p.toLowerCase().endsWith(".md"))
+      .sort();
     return prefix ? paths.filter((p) => p.startsWith(prefix)) : paths;
   }
 

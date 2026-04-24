@@ -10,7 +10,7 @@ Lokale CLI, die end-to-end gegen das eigene Obsidian Vault als `LocalFileReposit
 ## SDK-Fixpunkte (aus der Recherche)
 
 - `ai@^7.0.0-beta.111` + `@ai-sdk/anthropic@^4.0.0-beta.37` (beta — prüfen ob stable-Release existiert, sonst beta akzeptieren)
-- Node `>=18`
+- Node `>=20`
 - Modell-IDs: `claude-haiku-4-5` (MVP-Default), `claude-sonnet-4-6` für Planning/Review
 - Agentic Loop: `stopWhen: isStepCount(10)` — **Default ist 1, ohne explizites `stopWhen` gibt es keine Loop**
 - Tool-Errors: SDK konvertiert Throws aus `execute` automatisch in `tool-error`-Parts — kein manuelles Wrapping nötig
@@ -45,7 +45,7 @@ Saubere Basis: pnpm-Monorepo mit zwei Workspaces. Kein LLM, kein CLI — nur das
 **Setup:**
 - pnpm Workspace mit `apps/cli` (leeres Gerüst) und `packages/core`
 - TypeScript (`strict: true`), Vitest, ESLint (zz. optional), Prettier
-- Node-Engine `>=18` in beiden `package.json`
+- Node-Engine `>=20` in beiden `package.json` (matches `.nvmrc`; Node 18 ist EOL)
 - `.gitignore`, `.nvmrc`, `README.md` (minimal)
 
 **`packages/core/file-repository.ts` (Interface):**

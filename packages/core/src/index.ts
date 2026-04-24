@@ -3,7 +3,11 @@ export type {
   SearchResult,
   SearchScope,
 } from "./file-repository.js";
-export { FileNotFoundError } from "./file-repository.js";
+export {
+  FileNotFoundError,
+  InvalidPathError,
+  validateFilePath,
+} from "./file-repository.js";
 export {
   InMemoryFileRepository,
   type InMemoryFileRepositoryOptions,

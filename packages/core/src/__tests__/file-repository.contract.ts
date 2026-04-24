@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { FileRepository } from "../file-repository.js";
-import { FileNotFoundError } from "../file-repository.js";
+import { FileNotFoundError, InvalidPathError } from "../file-repository.js";
 
 export interface ContractHarness {
   repo: FileRepository;
@@ -49,6 +49,16 @@ export function runFileRepositoryContract(
 
       const tasksOnly = await repo.list("tasks/");
       expect(tasksOnly.sort()).toEqual(["tasks/focus.md", "tasks/inbox.md"]);
+    });
+
+    it("list returns paths in lexicographic order", async () => {
+      const { repo } = await makeHarness();
+      await repo.write("z/last.md", "", "");
+      await repo.write("a/first.md", "", "");
+      await repo.write("m/middle.md", "", "");
+
+      const all = await repo.list();
+      expect(all).toEqual(["a/first.md", "m/middle.md", "z/last.md"]);
     });
 
     it("write appends a well-formed history entry", async () => {
@@ -123,6 +133,40 @@ export function runFileRepositoryContract(
       await repo.write("tasks/inbox.md", "Buy MILK", "");
       const hits = await repo.search("milk", "active");
       expect(hits).toHaveLength(1);
+    });
+
+    describe("path validation", () => {
+      const bad: Array<[string, string]> = [
+        ["absolute path", "/etc/passwd"],
+        ["parent traversal", "../outside.md"],
+        ["nested parent traversal", "tasks/../../outside.md"],
+        ["current-dir segment", "./tasks/inbox.md"],
+        ["backslash separator", "tasks\\inbox.md"],
+        ["empty string", ""],
+        ["leading slash segment", "//tasks/inbox.md"],
+        ["reserved history dir", ".gtd-companion/file-history.jsonl"],
+        ["null byte", "tasks/\0bad.md"],
+      ];
+
+      for (const [name, input] of bad) {
+        it(`write rejects ${name}`, async () => {
+          const { repo } = await makeHarness();
+          await expect(repo.write(input, "x", "")).rejects.toBeInstanceOf(InvalidPathError);
+        });
+
+        it(`read rejects ${name}`, async () => {
+          const { repo } = await makeHarness();
+          await expect(repo.read(input)).rejects.toBeInstanceOf(InvalidPathError);
+        });
+      }
+
+      it("rejected writes leave no history entry", async () => {
+        const { repo, readHistory } = await makeHarness();
+        await expect(repo.write("../escape.md", "x", "")).rejects.toBeInstanceOf(
+          InvalidPathError,
+        );
+        expect(await readHistory()).toHaveLength(0);
+      });
     });
   });
 }
