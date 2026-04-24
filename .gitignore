@@ -12,3 +12,7 @@ coverage/
 # GTD Companion internal state (audit trail, session state).
 # Guard against dogfooding the CLI against the repo root.
 .gtd-companion/
+/.idea/.gitignore
+/.idea/GTD-Companion.iml
+/.idea/modules.xml
+/.idea/vcs.xml
