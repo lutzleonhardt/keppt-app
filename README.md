@@ -2,7 +2,7 @@
 
 > **GTD that maintains itself.** You talk, the system files. Chat is the only surface; GTD runs in the engine room; voice is the default input.
 
-[**Live demo → keppt.de**](https://keppt.de) · [Architecture](docs/specs/architecture.md) · [Product spec](docs/specs/product.md) · [Build log](docs/task-log/) · [Dev.to blog](https://dev.to/lutzleonhardt)
+[**Live demo → keppt.de**](https://keppt.de) · [Architecture](docs/specs/architecture.md) · [Product spec](docs/specs/product.md) · [Build log](docs/task-log/) · [Dev.to blog](https://dev.to/lutz_leonhardt)
 
 <p align="center">
   <a href="https://keppt.de">
@@ -82,7 +82,7 @@ In short: a spec is broken into single-commit-sized tasks; each task has a plan,
 
 ## Devlog
 
-Long-form writeups go on Dev.to: **[dev.to/lutzleonhardt](https://dev.to/lutzleonhardt)**. Architecture decisions, prompt iterations, things that broke, what I'd do differently.
+Long-form writeups go on Dev.to: **[dev.to/lutz_leonhardt](https://dev.to/lutz_leonhardt)**. Architecture decisions, prompt iterations, things that broke, what I'd do differently.
 
 Want updates without checking? Beta list on [keppt.de](https://keppt.de).
 
@@ -125,5 +125,5 @@ assets/               # README assets
 
 - **Try the demo** → [keppt.de](https://keppt.de)
 - **Read the build log** → [`docs/task-log/`](docs/task-log/)
-- **Long-form writeups** → [dev.to/lutzleonhardt](https://dev.to/lutzleonhardt)
+- **Long-form writeups** → [dev.to/lutz_leonhardt](https://dev.to/lutz_leonhardt)
 - **The workflow behind it** → [Skill Kit Adjutant Workflow](https://github.com/lutzleonhardt/skill-kit-agentic-workflow)
