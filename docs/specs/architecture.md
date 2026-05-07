@@ -2,9 +2,9 @@
 
 > Product Vision & Requirements: [[GTD Companion]]
 
-## Diagramme
+## Diagrams
 
-### Phase 1: CLI (lokal, kein Server)
+### Phase 1: CLI (local, no server)
 
 ```mermaid
 graph LR
@@ -15,19 +15,19 @@ graph LR
     Local --> Vault[Obsidian Vault]
 ```
 
-Alles in einem Prozess auf dem Dev-Rechner. Kein Server, kein Supabase, kein Auth.
+Everything in a single process on the dev machine. No server, no Supabase, no Auth.
 
-### Phase 2a: Backend + Angular (Chat funktioniert)
+### Phase 2a: Backend + Angular (chat works)
 
 ```mermaid
 graph TD
-    Client[Angular + Capacitor] -->|1 Login oder Dev-Stub| Auth[Supabase Auth - optional in Dev]
-    Auth -->|2 JWT oder DEV_USER_ID| Client
+    Client[Angular + Capacitor] -->|1 Login or Dev Stub| Auth[Supabase Auth - optional in Dev]
+    Auth -->|2 JWT or DEV_USER_ID| Client
     Client -->|3 POST /api/chat| Server[Express/Fastify]
     Server -->|4 SSE Stream| Client
 
     Server --> AuthMW[Auth Middleware]
-    AuthMW -->|JWT validieren oder Dev-Stub| Auth
+    AuthMW -->|Validate JWT or Dev Stub| Auth
     AuthMW -->|user_id| Core[Shared Core]
 
     Core --> AI[Vercel AI SDK]
@@ -39,9 +39,9 @@ graph TD
     SupaRepo --> DB[(PostgreSQL + RLS)]
 ```
 
-Kein Payment, kein App Store. Chat funktioniert end-to-end — Dev primär gegen das Vault (`REPOSITORY=local`), Supabase-Checkpoint als zweiter Dev-Pfad (`REPOSITORY=supabase`). Siehe „Dev vs. Prod Setup".
+No payment, no App Store. Chat works end-to-end — dev primarily against the vault (`REPOSITORY=local`), Supabase checkpoint as a second dev path (`REPOSITORY=supabase`). See "Dev vs. Prod Setup".
 
-### Phase 2b: Features + Trust (App ist komplett)
+### Phase 2b: Features + Trust (app is complete)
 
 ```mermaid
 graph LR
@@ -52,10 +52,10 @@ graph LR
     Files[File Browser] --> Markdown[ngx-markdown]
     Files --> Editor[Edit Mode]
     History[History View] --> FileHistory[file_history]
-    Settings[Settings] --> Profile[GTD-Profil]
+    Settings[Settings] --> Profile[GTD Profile]
 ```
 
-Alle Views, Generative UI Cards, File-Browser, History. Bereit für Beta-Tester.
+All views, Generative UI Cards, file browser, history. Ready for beta testers.
 
 ### Phase 2c: Monetization + Distribution
 
@@ -70,7 +70,7 @@ graph TD
     Client -->|Deploy| PWA[Web App]
 ```
 
-Stripe + RevenueCat + Paywall + App Store Submission. Erst wenn die App validiert ist.
+Stripe + RevenueCat + paywall + App Store submission. Only once the app is validated.
 
 ### Phase 3: Extensions
 
@@ -83,7 +83,7 @@ graph LR
     Export -.-> ZIP[Markdown Export]
 ```
 
-Zusätzliche Provider, Android, Daten-Export. Nur wenn Nachfrage es rechtfertigt.
+Additional providers, Android, data export. Only if demand justifies it.
 
 ### Request Flow: Agentic Loop
 
@@ -95,10 +95,10 @@ sequenceDiagram
     participant LLM as Vercel AI SDK
     participant Repo as FileRepository
 
-    User->>Client: Schieb VW-Task auf Freitag
+    User->>Client: Move VW task to Friday
     Client->>Server: POST /api/chat + JWT
-    Server->>Server: Auth + Request bauen
-    Server->>LLM: streamText mit Tools
+    Server->>Server: Auth + build request
+    Server->>LLM: streamText with tools
 
     loop Agentic Loop (maxSteps=10)
         LLM-->>Server: tool_call read_file
@@ -112,9 +112,9 @@ sequenceDiagram
     Repo-->>Server: ok
     Server-->>LLM: tool result
 
-    LLM-->>Server: Text-Response streamen
+    LLM-->>Server: stream text response
     Server-->>Client: SSE Stream
-    Client-->>User: Erledigt. VW-Task verschoben...
+    Client-->>User: Done. VW task moved...
 ```
 
 ## Tech Stack
@@ -122,13 +122,13 @@ sequenceDiagram
 **Frontend**: Angular 19+ (standalone components, signals)
 **Chat UI / Generative UI**: Hashbrown (by Manfred Steyer / angulararchitects.io)
 **Native Shell**: Capacitor — gives native APIs for Voice (Speech Recognition plugin), Push Notifications, In-App Purchase (for subscriptions), and App Store deployment
-**Backend-Service**: Node.js + Express/Fastify (eigener Prozess, kein Serverless/Edge Functions)
-**LLM-Abstrahierung**: Vercel AI SDK (`ai` npm-Package) — provider-agnostisch (Anthropic, OpenAI, Google, Groq, Ollama)
-**LLM-Modelle (MVP)**: Claude Haiku (simple ops) + Claude Sonnet (planning/review) — smart routing invisible to user
+**Backend Service**: Node.js + Express/Fastify (own process, no Serverless/Edge Functions)
+**LLM Abstraction**: Vercel AI SDK (`ai` npm package) — provider-agnostic (Anthropic, OpenAI, Google, Groq, Ollama)
+**LLM Models (MVP)**: Claude Haiku (simple ops) + Claude Sonnet (planning/review) — smart routing invisible to user
 **Voice Input**: Capacitor Speech Recognition plugin (native iOS/Android speech-to-text) + Whisper API as fallback
-**LLM Streaming**: SSE vom Backend-Service → Angular HttpClient mit `provideHttpClient(withFetch())` + Signals + RxJS
+**LLM Streaming**: SSE from the backend service → Angular HttpClient with `provideHttpClient(withFetch())` + Signals + RxJS
 **Database**: Supabase (PostgreSQL + Auth + RLS)
-**Deployment Backend**: Railway, Render oder ähnliche Container-Plattform
+**Deployment Backend**: Railway, Render or similar container platform
 **Payments**: RevenueCat or native StoreKit via Capacitor plugin for App Store subscriptions
 
 ## Chat UI: Hashbrown + Generative UI
@@ -137,7 +137,7 @@ sequenceDiagram
 
 **Why this matters for the GTD Companion:**
 
-The LLM doesn't just say "Ich habe 3 Tasks verschoben" as text. It can render rich interactive cards in the chat:
+The LLM doesn't just say "I moved 3 tasks" as text. It can render rich interactive cards in the chat:
 
 - A **TaskDiffCard** showing what moved where, with checkmarks and before/after state
 - A **DailyPlanCard** showing tomorrow's proposed schedule, with tap-to-confirm/reject buttons
@@ -176,18 +176,18 @@ Each component is described via schema so the LLM knows when to use which widget
 
 Angular 19+ with `provideHttpClient(withFetch())` supports Server-Sent Events natively. Combined with Signals for chat state management:
 
-- User sends message → Angular-Client sendet POST an Backend-Service
-- Backend-Service baut LLM-Request zusammen (System Prompt + Profile + Files + History)
-- Backend-Service streamt LLM-Response per SSE an den Client
+- User sends message → Angular client sends POST to backend service
+- Backend service assembles the LLM request (system prompt + profile + files + history)
+- Backend service streams the LLM response via SSE to the client
 - Each chunk updates the assistant message Signal → UI re-renders progressively
-- Bei Tool Calls: Backend führt Tool aus, sendet Ergebnis zurück ans LLM, streamt weiter (Agentic Loop)
+- On tool calls: backend executes tool, sends result back to the LLM, continues streaming (Agentic Loop)
 - Stream completes → final message stored in Supabase `messages` table
 
-No third-party streaming library needed. Angular's built-in HttpClient + Signals + RxJS handles the entire client-side flow. Die LLM-Orchestrierung (Agentic Loop, Tool Calls) läuft komplett serverseitig.
+No third-party streaming library needed. Angular's built-in HttpClient + Signals + RxJS handles the entire client-side flow. The LLM orchestration (Agentic Loop, tool calls) runs entirely server-side.
 
 ## Why Supabase
 
-All-in-One-Paket — one service replaces five:
+All-in-one package — one service replaces five:
 
 - **PostgreSQL** — SQL is king. The data is relational: users have files, files have versions, versions have summaries. Fits SQL perfectly.
 - **Auth** — Login, Apple Sign-In, Google Sign-In out of the box. No custom auth system.
@@ -203,25 +203,25 @@ Why not Firebase: proprietary Google lock-in, NoSQL (Firestore), pricing gets ex
 
 ## Authentication: Supabase Auth → JWT → Express
 
-**Kein eigener OAuth2/OpenID-Flow.** Supabase Auth übernimmt die gesamte Authentifizierung — wir pflegen keinen eigenen Identity Provider.
+**No custom OAuth2/OpenID flow.** Supabase Auth handles all authentication — we don't maintain our own identity provider.
 
-### Auth-Flow
+### Auth Flow
 
 ```
-1. User öffnet App → Angular Client zeigt Login-Screen
-2. User wählt Login-Methode (Apple, Google, Email/Password, Magic Link)
-3. Angular Client → Supabase Auth SDK → OAuth2-Flow oder Email-Verification
-4. Supabase Auth gibt JWT zurück → Client speichert Token
-5. Bei jedem Request: Client schickt JWT als Bearer Token an Express-Server
-6. Express Auth Middleware → validiert JWT gegen Supabase → extrahiert user_id
-7. user_id fließt in SupabaseFileRepository → RLS greift automatisch
+1. User opens app → Angular client shows login screen
+2. User chooses login method (Apple, Google, Email/Password, Magic Link)
+3. Angular client → Supabase Auth SDK → OAuth2 flow or email verification
+4. Supabase Auth returns JWT → client stores token
+5. On each request: client sends JWT as Bearer Token to Express server
+6. Express Auth Middleware → validates JWT against Supabase → extracts user_id
+7. user_id flows into SupabaseFileRepository → RLS kicks in automatically
 ```
 
-**Warum kein eigener Auth-Server:**
-Supabase Auth unterstützt out of the box: Apple Sign-In (Pflicht für iOS App Store), Google Sign-In, Email/Password, Magic Links. Alles was wir für MVP und darüber hinaus brauchen. Einen eigenen OAuth2/OIDC-Flow zu pflegen wäre reiner Overhead.
+**Why no custom auth server:**
+Supabase Auth supports out of the box: Apple Sign-In (mandatory for iOS App Store), Google Sign-In, Email/Password, Magic Links. Everything we need for MVP and beyond. Maintaining a custom OAuth2/OIDC flow would be pure overhead.
 
-**JWT-Validierung im Express-Server:**
-Der Supabase JWT enthält die `user_id` als `sub` Claim. Der Express-Server validiert das Token mit dem Supabase-JWT-Secret (Umgebungsvariable, nie im Client) und extrahiert die `user_id`. Keine eigene User-Tabelle nötig für die Identifikation — `auth.users` ist Supabase-managed.
+**JWT validation in the Express server:**
+The Supabase JWT contains the `user_id` as the `sub` claim. The Express server validates the token with the Supabase JWT secret (environment variable, never in the client) and extracts the `user_id`. No custom user table needed for identification — `auth.users` is Supabase-managed.
 
 ```typescript
 // Auth Middleware (Express)
@@ -236,73 +236,73 @@ async function authMiddleware(req, res, next) {
   const { data: { user }, error } = await supabase.auth.getUser(token);
   if (error || !user) return res.status(401).json({ error: 'Invalid token' });
 
-  // user.id ist die user_id für RLS + Usage Tracking
+  // user.id is the user_id for RLS + usage tracking
   req.userId = user.id;
   req.userEmail = user.email;
   next();
 }
 ```
 
-### Login-Methoden (MVP)
+### Login Methods (MVP)
 
-| Methode | Plattform | Warum |
-|---------|-----------|-------|
-| **Apple Sign-In** | iOS | Pflicht für App Store wenn andere Social Logins angeboten werden |
-| **Google Sign-In** | Android + Web | Größte Reichweite |
-| **Email / Password** | Alle | Fallback für User ohne Social Accounts |
-| **Magic Link** | Alle | Passwordless, geringere Hürde als Email/Password |
+| Method | Platform | Why |
+|--------|----------|-----|
+| **Apple Sign-In** | iOS | Mandatory for App Store when other social logins are offered |
+| **Google Sign-In** | Android + Web | Largest reach |
+| **Email / Password** | All | Fallback for users without social accounts |
+| **Magic Link** | All | Passwordless, lower barrier than Email/Password |
 
-Alle Methoden werden von Supabase Auth nativ unterstützt. Im Angular Client: `supabase.auth.signInWithOAuth({ provider: 'apple' })` etc.
+All methods are natively supported by Supabase Auth. In the Angular client: `supabase.auth.signInWithOAuth({ provider: 'apple' })` etc.
 
 ## Payment & Subscription Management
 
-### Architektur
+### Architecture
 
-**Zwei Payment-Provider für zwei Plattformen:**
-- **RevenueCat** für App Store Subscriptions (iOS/Android) — wickelt StoreKit/Google Play Billing ab, normalisiert die APIs
-- **Stripe** für Web Subscriptions — der Standard für SaaS-Payments im Web
+**Two payment providers for two platforms:**
+- **RevenueCat** for App Store subscriptions (iOS/Android) — handles StoreKit/Google Play Billing, normalizes the APIs
+- **Stripe** for web subscriptions — the standard for SaaS payments on the web
 
-RevenueCat kann Stripe als Backend nutzen, d.h. es gibt **einen** zentralen Ort für Subscription-Status: Stripe. RevenueCat synct App Store Purchases nach Stripe.
+RevenueCat can use Stripe as backend, i.e. there is **one** central place for subscription status: Stripe. RevenueCat syncs App Store purchases to Stripe.
 
-### Subscription-Status im System
+### Subscription Status in the System
 
-Der Express-Server braucht den aktuellen Tier des Users für:
-- **Model-Routing:** Free → nur Haiku, Premium → Sonnet für Planning
-- **Rate Limiting:** Free 5/Tag, Standard 100/Tag, Premium 300/Tag
-- **Feature-Gating:** Free kein Crosscheck, Standard Basic, Premium Full
+The Express server needs the user's current tier for:
+- **Model routing:** Free → Haiku only, Premium → Sonnet for planning
+- **Rate limiting:** Free 5/day, Standard 100/day, Premium 300/day
+- **Feature gating:** Free no crosscheck, Standard basic, Premium full
 
-**Wo lebt der Subscription-Status?** In der `profiles`-Tabelle (existiert bereits im Schema):
+**Where does subscription status live?** In the `profiles` table (already exists in the schema):
 
 ```sql
--- Erweiterung der profiles-Tabelle
+-- Extension of the profiles table
 ALTER TABLE profiles ADD COLUMN subscription_tier text DEFAULT 'free'
   CHECK (subscription_tier IN ('free', 'standard', 'premium'));
 ALTER TABLE profiles ADD COLUMN stripe_customer_id text;
 ALTER TABLE profiles ADD COLUMN subscription_valid_until timestamptz;
 ```
 
-**Webhook-Flow (Stripe Events die der Server verarbeitet):**
+**Webhook flow (Stripe events the server processes):**
 
-| Stripe Event | Aktion im Server |
+| Stripe Event | Action in the server |
 |---|---|
-| `checkout.session.completed` | Neuer Kunde: `stripe_customer_id` + `subscription_tier` in profiles setzen |
-| `customer.subscription.updated` | Upgrade/Downgrade: `subscription_tier` anpassen, `subscription_valid_until` aktualisieren |
-| `customer.subscription.deleted` | Abo abgelaufen: `subscription_tier = 'free'` setzen |
-| `invoice.payment_failed` | Zahlung fehlgeschlagen: User informieren (In-App-Hinweis), Tier noch nicht ändern (Stripe hat Retry-Logik) |
-| `invoice.paid` | Verlängerung erfolgreich: `subscription_valid_until` auf neues Periodenende setzen |
+| `checkout.session.completed` | New customer: set `stripe_customer_id` + `subscription_tier` in profiles |
+| `customer.subscription.updated` | Upgrade/downgrade: adjust `subscription_tier`, update `subscription_valid_until` |
+| `customer.subscription.deleted` | Subscription expired: set `subscription_tier = 'free'` |
+| `invoice.payment_failed` | Payment failed: notify user (in-app hint), don't change tier yet (Stripe has retry logic) |
+| `invoice.paid` | Renewal successful: set `subscription_valid_until` to new period end |
 
-**Kündigung im Detail:**
-Stripe setzt bei Kündigung `cancel_at_period_end: true` — das Abo läuft bis zum bezahlten Periodenende weiter. Der Server ändert den Tier erst beim Event `customer.subscription.deleted` (am Periodenende). Keine eigene Countdown-Logik nötig.
+**Cancellation in detail:**
+On cancellation, Stripe sets `cancel_at_period_end: true` — the subscription continues until the paid period end. The server only changes the tier on the `customer.subscription.deleted` event (at period end). No custom countdown logic needed.
 
-**Proration bei Upgrade/Downgrade:**
-Stripe berechnet automatisch den anteiligen Preis. Beispiel: User ist am 15. des Monats bei Standard ($7/Monat) und upgraded auf Premium ($15/Monat) → Stripe berechnet den Restbetrag für die verbleibenden 15 Tage. Der Server reagiert nur auf den Webhook und aktualisiert den Tier.
+**Proration on upgrade/downgrade:**
+Stripe automatically calculates the prorated price. Example: user is on Standard ($7/month) on the 15th of the month and upgrades to Premium ($15/month) → Stripe charges the remainder for the remaining 15 days. The server only reacts to the webhook and updates the tier.
 
-**Kein Echtzeit-Check bei jedem Request:** Der Tier wird aus `profiles` gelesen (gecacht für die Session), nicht bei jedem Request gegen Stripe geprüft. Webhooks halten den Status aktuell genug — eine Verzögerung von Sekunden ist akzeptabel.
+**No real-time check on every request:** The tier is read from `profiles` (cached for the session), not checked against Stripe on every request. Webhooks keep the status current enough — a delay of seconds is acceptable.
 
-**Webhook-Sicherheit:** Stripe signiert jeden Webhook mit einem Secret. Der Express-Server validiert die Signatur bevor er den Event verarbeitet — verhindert gefälschte Webhooks.
+**Webhook security:** Stripe signs every webhook with a secret. The Express server validates the signature before processing the event — prevents forged webhooks.
 
 ```typescript
-// Webhook-Handler (Express)
+// Webhook handler (Express)
 import Stripe from 'stripe';
 const stripe = new Stripe(STRIPE_SECRET_KEY);
 
@@ -315,125 +315,125 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
       const session = event.data.object;
       await updateProfile(session.client_reference_id, {
         stripe_customer_id: session.customer,
-        subscription_tier: 'standard', // oder aus metadata
+        subscription_tier: 'standard', // or from metadata
         subscription_valid_until: new Date(session.subscription.current_period_end * 1000),
       });
       break;
     case 'customer.subscription.deleted':
       await updateProfile(customerId, { subscription_tier: 'free' });
       break;
-    // ... weitere Events
+    // ... more events
   }
   res.json({ received: true });
 });
 ```
 
-### Warum keine eigene User-Tabelle
+### Why no custom user table
 
-`auth.users` (Supabase-managed) + `profiles` (app-managed) reichen aus:
-- `auth.users` → Identität, Email, Auth-Provider (managed by Supabase, read-only für uns)
-- `profiles` → Subscription Tier, Stripe Customer ID, Ziele, Präferenzen, Kontext (managed by our app)
-- Verknüpfung: `profiles.user_id REFERENCES auth.users(id)`, 1:1-Beziehung
+`auth.users` (Supabase-managed) + `profiles` (app-managed) are sufficient:
+- `auth.users` → identity, email, auth provider (managed by Supabase, read-only for us)
+- `profiles` → subscription tier, Stripe customer ID, goals, preferences, context (managed by our app)
+- Linkage: `profiles.user_id REFERENCES auth.users(id)`, 1:1 relationship
 
-Eine separate `users`-Tabelle wäre redundant zu `auth.users` + `profiles`.
+A separate `users` table would be redundant to `auth.users` + `profiles`.
 
 ## LLM API Key Strategy & Usage Tracking
 
 ### Shared API Key (MVP)
 
-**Ein API Key für alle User.** Alle LLM-Calls gehen über unseren Anthropic API Key. Das ist der Standard für AI-SaaS-Apps (gleich wie ChatGPT, Notion AI, Cursor).
+**One API key for all users.** All LLM calls go through our Anthropic API key. This is the standard for AI SaaS apps (same as ChatGPT, Notion AI, Cursor).
 
-**Risiko bei Skalierung:** Anthropic hat Rate Limits pro API Key (Requests/Minute, Tokens/Minute). Bei wenigen Hundert Usern kein Problem. Bei Tausenden gleichzeitigen Usern wird es eng.
+**Risk at scale:** Anthropic has rate limits per API key (requests/minute, tokens/minute). With a few hundred users, no problem. With thousands of concurrent users, it gets tight.
 
-### Skalierungsstufen
+### Scaling Stages
 
-| User-Anzahl | Strategie |
-|-------------|-----------|
-| **< 500** | Ein API Key reicht |
-| **500 - 5.000** | Mehrere API Keys mit Round-Robin-Rotation im Express-Server |
-| **> 5.000** | Anthropic Enterprise Tier (höhere Limits) oder Multi-Provider-Routing (Overflow auf OpenAI/Groq) |
+| User count | Strategy |
+|------------|----------|
+| **< 500** | One API key is enough |
+| **500 - 5,000** | Multiple API keys with round-robin rotation in the Express server |
+| **> 5,000** | Anthropic Enterprise Tier (higher limits) or multi-provider routing (overflow to OpenAI/Groq) |
 
 ### Per-User Usage Tracking
 
-Jeder LLM-Call wird dem User zugeordnet — **bevor** der Call rausgeht, nicht nachträglich. Der Express-Server:
+Every LLM call is attributed to the user — **before** the call goes out, not retroactively. The Express server:
 
-1. Prüft vor dem LLM-Call: Hat der User sein Tages-Budget noch nicht aufgebraucht?
-2. Führt den Call aus
-3. Schreibt Input-Tokens + Output-Tokens in die `usage`-Tabelle (existiert bereits im Schema)
+1. Checks before the LLM call: has the user not yet used up their daily budget?
+2. Executes the call
+3. Writes input tokens + output tokens to the `usage` table (already exists in the schema)
 
 ```typescript
-// Vereinfachter Flow im Express-Server
+// Simplified flow in the Express server
 async function handleChat(req, res) {
-  const userId = req.userId; // aus Auth Middleware
-  const tier = await getSubscriptionTier(userId); // aus profiles
+  const userId = req.userId; // from auth middleware
+  const tier = await getSubscriptionTier(userId); // from profiles
 
-  // 1. Budget prüfen
+  // 1. Check budget
   const todayUsage = await getUsage(userId, today());
   if (todayUsage.request_count >= TIER_LIMITS[tier].maxRequestsPerDay) {
-    return res.status(429).json({ error: 'Tageslimit erreicht' });
+    return res.status(429).json({ error: 'Daily limit reached' });
   }
 
-  // 2. Model routing basierend auf Tier
+  // 2. Model routing based on tier
   const model = routeModel(tier, classifyIntent(req.body.message));
 
-  // 3. LLM-Call mit Vercel AI SDK
+  // 3. LLM call with Vercel AI SDK
   const result = streamText({ model, ... });
 
-  // 4. Usage tracken (nach Completion)
+  // 4. Track usage (after completion)
   result.onFinish(({ usage }) => {
     trackUsage(userId, usage.promptTokens, usage.completionTokens);
   });
 
-  // 5. Stream an Client
+  // 5. Stream to client
   result.pipeDataStreamToResponse(res);
 }
 ```
 
 ### Cost Attribution
 
-Die `usage`-Tabelle ermöglicht:
-- **Per-User-Kostenanalyse:** Was kostet User X pro Tag/Monat?
-- **Tier-Profitabilitäts-Check:** Sind Standard-User im Schnitt profitabel?
-- **Anomalie-Erkennung:** Welcher User verbraucht 10x den Durchschnitt?
-- **Billing-Grundlage:** Falls später Usage-Based Pricing gewünscht ist
+The `usage` table enables:
+- **Per-user cost analysis:** What does user X cost per day/month?
+- **Tier profitability check:** Are Standard users profitable on average?
+- **Anomaly detection:** Which user consumes 10x the average?
+- **Billing basis:** In case usage-based pricing is desired later
 
-## Backend-Architektur: Eigener Node.js-Service
+## Backend Architecture: Custom Node.js Service
 
-**Kein Serverless, kein Edge Functions.** Die LLM-Orchestrierung ist zu komplex für Serverless-Constraints (Execution-Time-Limits, Cold Starts, begrenztes Debugging). Stattdessen: ein eigener Node.js-Prozess als Container auf Railway, Render oder ähnlichem.
+**No serverless, no edge functions.** LLM orchestration is too complex for serverless constraints (execution time limits, cold starts, limited debugging). Instead: a custom Node.js process as a container on Railway, Render or similar.
 
-### Warum ein eigener Server
+### Why a Custom Server
 
-- **Agentic Loop:** Ein LLM-Request kann mehrere Tool Calls auslösen (Crosscheck = read_file × 5-6, dann edit_file × 2-3, ggf. mit Retry bei Search-Ambiguität). Das ist eine Multi-Step-Loop mit 30-60s Laufzeit — Serverless-Limits (typisch 10-60s) werden schnell eng.
-- **Streaming:** SSE-Streams müssen offen gehalten werden, während Tool Calls im Hintergrund ausgeführt werden. Ein persistenter Prozess handhabt das natürlich.
-- **Shared Core mit CLI:** CLI (Phase 1) und Server (Phase 2) teilen dieselbe Core-Logik — nur der Entrypoint unterscheidet sich. Bei Serverless wäre das Deployment-Modell inkompatibel.
-- **Volle Kontrolle:** Timeouts, Connection Pooling, Caching, Logging — alles konfigurierbar.
+- **Agentic Loop:** A single LLM request can trigger multiple tool calls (crosscheck = read_file × 5-6, then edit_file × 2-3, possibly with retry on search ambiguity). That's a multi-step loop with 30-60s runtime — serverless limits (typically 10-60s) get tight quickly.
+- **Streaming:** SSE streams must be kept open while tool calls run in the background. A persistent process handles this naturally.
+- **Shared Core with CLI:** CLI (Phase 1) and server (Phase 2) share the same core logic — only the entrypoint differs. With serverless, the deployment model would be incompatible.
+- **Full control:** Timeouts, connection pooling, caching, logging — all configurable.
 
 ### Tech Stack Backend
 
 ```
-Express/Fastify (HTTP-Layer)
+Express/Fastify (HTTP layer)
     ↓
-Vercel AI SDK (LLM-Abstrahierung + Streaming + Tool Calls)
+Vercel AI SDK (LLM abstraction + streaming + tool calls)
     ↓
-Shared Core (Request-Builder, Tool-Handler, FileRepository)
+Shared Core (request builder, tool handler, FileRepository)
     ↓
-Supabase Client (DB + Auth-Validierung)
+Supabase Client (DB + auth validation)
 ```
 
-**Express oder Fastify** als HTTP-Layer. Der Service hat wenige Endpoints — die Wahl ist nicht kritisch. Fastify ist etwas moderner (eingebaute Schema-Validierung, Plugin-System), Express hat mehr Community-Support. Beides funktioniert.
+**Express or Fastify** as HTTP layer. The service has few endpoints — the choice is not critical. Fastify is somewhat more modern (built-in schema validation, plugin system), Express has more community support. Both work.
 
-**Kein NestJS, kein .NET:** NestJS bringt zu viel Overhead für 3-4 Endpoints (Module, Guards, Pipes, Dekorator-System). .NET würde eine zweite Sprache in den Stack bringen — der Core (LLMService, FileRepository, Request-Builder, Tool-Handler) müsste in C# neu geschrieben werden statt als Shared Package im TypeScript-Monorepo zu leben.
+**No NestJS, no .NET:** NestJS brings too much overhead for 3-4 endpoints (modules, guards, pipes, decorator system). .NET would bring a second language into the stack — the core (LLMService, FileRepository, request builder, tool handler) would have to be rewritten in C# instead of living as a shared package in the TypeScript monorepo.
 
-### Vercel AI SDK als LLM-Layer
+### Vercel AI SDK as the LLM Layer
 
-Das Vercel AI SDK (`ai` npm-Package) ersetzt die manuelle `LLMService`-Abstraktion. Es bietet provider-agnostische LLM-Aufrufe mit eingebautem Streaming und Tool-Call-Handling:
+The Vercel AI SDK (`ai` npm package) replaces the manual `LLMService` abstraction. It offers provider-agnostic LLM calls with built-in streaming and tool-call handling:
 
 ```typescript
 import { streamText } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 import { openai } from '@ai-sdk/openai';
 
-// Provider-Wechsel = ein Import-Swap
+// Provider switch = one import swap
 const model = tier === 'premium'
   ? anthropic('claude-sonnet-4-20250514')
   : anthropic('claude-haiku-4-5-20251001');
@@ -441,120 +441,120 @@ const model = tier === 'premium'
 const result = streamText({
   model,
   system: buildSystemPrompt(currentDate),
-  messages: prunePastToolResults(conversationHistory),  // Tool-Result-Pruning
+  messages: prunePastToolResults(conversationHistory),  // tool-result pruning
   tools: {
     read_file: readFileTool,
     edit_file: editFileTool,    // primary write path (Search/Replace)
-    write_file: writeFileTool,  // fallback für Create / Full-Rewrite
+    write_file: writeFileTool,  // fallback for create / full rewrite
     list_files: listFilesTool,
     search_files: searchFilesTool,
   },
-  maxSteps: 10,  // Agentic Loop: bis zu 10 Tool Calls pro Request
+  maxSteps: 10,  // Agentic Loop: up to 10 tool calls per request
 });
 
-// SSE-Stream an den Client weiterleiten
+// Forward SSE stream to the client
 result.pipeDataStreamToResponse(res);
 ```
 
-**Unterstützte Provider (via Vercel AI SDK):**
+**Supported providers (via Vercel AI SDK):**
 - `@ai-sdk/anthropic` — Claude (MVP)
 - `@ai-sdk/openai` — OpenAI / GPT (v2)
 - `@ai-sdk/google` — Gemini (v2)
-- `@ai-sdk/groq` — Open-Source-Modelle via Groq (v2, Budget-Tier)
-- Community-Provider für Ollama (v3, Self-Hosted)
+- `@ai-sdk/groq` — open-source models via Groq (v2, budget tier)
+- Community providers for Ollama (v3, self-hosted)
 
-Provider-Wechsel erfordert keinen Code-Umbau — nur einen neuen Import und ggf. Prompt-Anpassungen.
+A provider switch requires no code rewrite — only a new import and possibly prompt adjustments.
 
-### Agentic Loop (Server-seitig)
+### Agentic Loop (Server-Side)
 
-Der kritischste Teil des Backends. Ein einzelner User-Request kann eine Multi-Step-Conversation mit dem LLM auslösen:
+The most critical part of the backend. A single user request can trigger a multi-step conversation with the LLM:
 
 ```
-User: "Schieb den VW-Task auf Freitag"
+User: "Move the VW task to Friday"
   ↓
 LLM: tool_call → read_file("tasks/next-actions.md")
-  ↓ Server führt aus, sendet Ergebnis zurück
+  ↓ Server executes, sends result back
 LLM: tool_call → read_file("tasks/focus.md")
-  ↓ Server führt aus, sendet Ergebnis zurück
+  ↓ Server executes, sends result back
 LLM: tool_call → read_file("daily/2026-04-18.md")
-  ↓ Server führt aus, sendet Ergebnis zurück
+  ↓ Server executes, sends result back
 LLM: tool_call → edit_file("tasks/next-actions.md",
-                   [{ search: "- [ ] VW Angebot schreiben",
-                      replace: "- [ ] VW Angebot schreiben (Fr 18.4.)" }],
-                   "VW-Task auf Fr verschoben")
-  ↓ Server führt aus (Search trifft genau 1×), sendet ok zurück
+                   [{ search: "- [ ] Write VW offer",
+                      replace: "- [ ] Write VW offer (Fri 4/18)" }],
+                   "VW task moved to Fri")
+  ↓ Server executes (search matches exactly 1×), sends ok back
 LLM: tool_call → edit_file("daily/2026-04-18.md",
                    [{ search: "## Plan\n",
-                      replace: "## Plan\n- [ ] VW Angebot schreiben\n" }],
-                   "VW-Task in Freitagsplan aufgenommen")
-  ↓ Server führt aus, sendet ok zurück
-LLM: text → "Erledigt. VW-Task auf Freitag verschoben. ⚠️ VW Followup-Call seit 8 Tagen in Waiting..."
-  ↓ Wird per SSE an den Client gestreamt
+                      replace: "## Plan\n- [ ] Write VW offer\n" }],
+                   "VW task added to Friday plan")
+  ↓ Server executes, sends ok back
+LLM: text → "Done. VW task moved to Friday. ⚠️ VW followup call has been in Waiting for 8 days..."
+  ↓ Streamed via SSE to the client
 ```
 
-Das Vercel AI SDK handhabt diese Loop mit `maxSteps` — jeder Tool Call ist ein Step, nach jedem Step entscheidet das LLM ob es weitermacht oder eine Text-Response gibt.
+The Vercel AI SDK handles this loop with `maxSteps` — every tool call is a step, and after each step the LLM decides whether to continue or give a text response.
 
-**Während der Agentic Loop:** Der SSE-Stream bleibt offen. Der Client sieht optional Zwischenstatus (Tool Calls als UI-Events), die finale Text-Response wird progressiv gestreamt.
+**During the Agentic Loop:** The SSE stream stays open. The client optionally sees intermediate status (tool calls as UI events), the final text response is streamed progressively.
 
-### Shared Core: CLI + Server aus einer Codebase
+### Shared Core: CLI + Server from One Codebase
 
 ```
 packages/
-├── core/                    # Shared Core (CLI + Server importieren das)
-│   ├── request-builder.ts   # System Prompt + Profile + Files + History → LLM Request
-│   ├── tool-handlers.ts     # read_file, edit_file, write_file, list_files, search_files Implementierung
-│   ├── file-repository.ts   # FileRepository Interface + Implementierungen
-│   ├── system-prompt.ts     # System Prompt Template (R1-R13)
-│   └── model-router.ts      # Haiku vs. Sonnet Routing-Logik
-├── server/                  # Express/Fastify Entrypoint (Phase 2)
-│   ├── index.ts             # HTTP Server + SSE Endpoints
-│   ├── auth-middleware.ts   # Supabase Auth Token Validierung
-│   └── rate-limiter.ts      # Per-User Rate Limiting
-└── cli/                     # CLI Entrypoint (Phase 1)
-    └── index.ts             # readline + Core-Logic
+├── core/                    # Shared Core (CLI + Server import this)
+│   ├── request-builder.ts   # System prompt + profile + files + history → LLM request
+│   ├── tool-handlers.ts     # read_file, edit_file, write_file, list_files, search_files implementation
+│   ├── file-repository.ts   # FileRepository interface + implementations
+│   ├── system-prompt.ts     # System prompt template (R1-R13)
+│   └── model-router.ts      # Haiku vs. Sonnet routing logic
+├── server/                  # Express/Fastify entrypoint (Phase 2)
+│   ├── index.ts             # HTTP server + SSE endpoints
+│   ├── auth-middleware.ts   # Supabase Auth token validation
+│   └── rate-limiter.ts      # Per-user rate limiting
+└── cli/                     # CLI entrypoint (Phase 1)
+    └── index.ts             # readline + core logic
 ```
 
-**Phase 1 (CLI):** `cli/index.ts` importiert Core, nutzt `LocalFileRepository`, readline als UI.
-**Phase 2 (Server):** `server/index.ts` importiert denselben Core, Express als HTTP-Layer. Die konkrete `FileRepository`-Implementierung wird per Config/DI gewählt (`REPOSITORY=local|supabase`) — nicht fest an „Server = Supabase" gekoppelt. Dev läuft primär gegen `LocalFileRepository` (Vault), Prod gegen `SupabaseFileRepository`, Self-Hosted wieder gegen `LocalFileRepository`.
-**Tests:** Importieren Core, nutzen `InMemoryFileRepository` + Mock-LLM-Provider.
+**Phase 1 (CLI):** `cli/index.ts` imports core, uses `LocalFileRepository`, readline as UI.
+**Phase 2 (Server):** `server/index.ts` imports the same core, Express as HTTP layer. The concrete `FileRepository` implementation is chosen via config/DI (`REPOSITORY=local|supabase`) — not hard-coupled to "Server = Supabase". Dev runs primarily against `LocalFileRepository` (vault), prod against `SupabaseFileRepository`, self-hosted again against `LocalFileRepository`.
+**Tests:** Import core, use `InMemoryFileRepository` + mock LLM provider.
 
-Eine Änderung am System Prompt, an der Tool-Logik oder am Crosscheck → einmal im Core ändern, CLI und Server profitieren beide.
+A change to the system prompt, the tool logic, or the crosscheck → change once in the core, CLI and server both benefit.
 
 ### Dev vs. Prod Setup
 
-`FileRepository` ist austauschbar per Config/DI — nicht per Deployment-Target. Der Server kann genauso gut gegen `LocalFileRepository` (Obsidian Vault als Storage) laufen wie gegen `SupabaseFileRepository`. Das nutzen wir konsequent: **in der Dev-Phase läuft der Server primär gegen das echte Dogfooding-Vault**, der Wechsel auf Supabase ist dann eine bewusste späte Entscheidung, nicht an eine Projekt-Phase gekoppelt.
+`FileRepository` is swappable via config/DI — not via deployment target. The server can run against `LocalFileRepository` (Obsidian vault as storage) just as well as against `SupabaseFileRepository`. We use this consistently: **during the dev phase, the server runs primarily against the real dogfooding vault**, and the switch to Supabase is then a deliberate late decision, not coupled to a project phase.
 
-| Aspekt | Dev (Phase 1 / CLI) | Dev (Phase 2a / Server — primärer Pfad) | Dev (Phase 2a / Server — Supabase-Checkpoint) | Prod |
+| Aspect | Dev (Phase 1 / CLI) | Dev (Phase 2a / Server — primary path) | Dev (Phase 2a / Server — Supabase checkpoint) | Prod |
 |--------|---------------------|------------------------------------------|-----------------------------------------------|------|
-| **FileRepository** | `LocalFileRepository` (Obsidian Vault) | `LocalFileRepository` gegen dasselbe Obsidian Vault | `SupabaseFileRepository` gegen lokale oder Dev-Supabase | `SupabaseFileRepository` (gehostete Supabase + RLS) |
-| **Zweck** | Prompt-Hypothese validieren | Den echten HTTP/SSE/Agentic-Loop-Code-Pfad + Angular-Client testen, weiterhin gegen Dogfooding-Daten | Supabase-Integration + RLS + Migration validieren, bevor es in Prod geht | Live-Betrieb |
-| **LLM Provider** | Echte Claude API (Haiku) | Echte Claude API (Haiku + Sonnet) | Echte Claude API (Haiku + Sonnet) | Echte Claude API (Haiku + Sonnet) |
-| **Auth** | Keine (Single User) | Gestubbt (fixer Dev-`user_id`, den `LocalFileRepository` ignoriert) — oder Supabase Auth lokal | Supabase Auth (lokale Instanz) | Supabase Auth (gehostet) |
-| **Subscription Tier** | Nicht relevant | Nicht relevant (kein Tier-Check in diesem Dev-Pfad) | `'unlimited'` in eigener `profiles`-Zeile | Stripe/RevenueCat Webhooks |
-| **Payment (Stripe)** | Nicht nötig | Nicht nötig | Nicht nötig (Tier hardcoded) | Stripe Checkout + Webhooks |
-| **History** | JSON-Log-Datei | JSON-Log-Datei (gleich wie CLI) | lokale `file_history`-Tabelle | Supabase `file_history`-Tabelle |
-| **Tests** | `InMemoryFileRepository` + Mock-LLM | Gleich | Gleich | Gleich |
+| **FileRepository** | `LocalFileRepository` (Obsidian vault) | `LocalFileRepository` against the same Obsidian vault | `SupabaseFileRepository` against local or dev Supabase | `SupabaseFileRepository` (hosted Supabase + RLS) |
+| **Purpose** | Validate prompt hypothesis | Test the real HTTP/SSE/Agentic-Loop code path + Angular client, still against dogfooding data | Validate Supabase integration + RLS + migration before going to prod | Live operation |
+| **LLM Provider** | Real Claude API (Haiku) | Real Claude API (Haiku + Sonnet) | Real Claude API (Haiku + Sonnet) | Real Claude API (Haiku + Sonnet) |
+| **Auth** | None (single user) | Stubbed (fixed dev `user_id` that `LocalFileRepository` ignores) — or Supabase Auth locally | Supabase Auth (local instance) | Supabase Auth (hosted) |
+| **Subscription Tier** | Not relevant | Not relevant (no tier check on this dev path) | `'unlimited'` in own `profiles` row | Stripe/RevenueCat webhooks |
+| **Payment (Stripe)** | Not needed | Not needed | Not needed (tier hardcoded) | Stripe Checkout + webhooks |
+| **History** | JSON log file | JSON log file (same as CLI) | local `file_history` table | Supabase `file_history` table |
+| **Tests** | `InMemoryFileRepository` + mock LLM | Same | Same | Same |
 
-**Warum zwei Dev-Varianten in Phase 2a:**
-- Der **primäre Dev-Pfad** (Server + `LocalFileRepository`) ist die Standard-Umgebung während Phase-2a-Entwicklung. Du testest realen HTTP-Server-Code, realen SSE-Stream, realen Agentic-Loop, reale Angular-Integration — aber die Persistenzschicht bleibt das echte Vault. Das heißt: Dogfooding läuft weiter, jeder Tag produziert reale Daten, keine Migration nötig solange du diesen Pfad nutzt.
-- Der **Supabase-Checkpoint** ist ein bewusster, zeitlich definierter Validierungsschritt: einmalig aufsetzen, RLS-Policies testen, Auth-Flow durchspielen, Migration verifizieren. Muss **nicht** Phase-2a-langes Dauer-Setup sein.
+**Why two dev variants in Phase 2a:**
+- The **primary dev path** (server + `LocalFileRepository`) is the standard environment during Phase 2a development. You test real HTTP server code, real SSE stream, real Agentic Loop, real Angular integration — but the persistence layer remains the real vault. That means: dogfooding continues, every day produces real data, no migration needed as long as you use this path.
+- The **Supabase checkpoint** is a deliberate, time-bounded validation step: set up once, test RLS policies, walk through the auth flow, verify migration. Does **not** have to be a Phase-2a-long permanent setup.
 
-**Migration Vault → Supabase — kein echter Schmerz:**
-Die Files sind als Blobs im Repo. Ein ~20-Zeilen-Script liest die 5–10 `*.md`-Files aus dem Vault und `INSERT`et sie in die `files`-Tabelle. `file_history` kann leer bleiben oder optional mit einem einzigen „Initial import from local vault"-Seed-Eintrag pro File befüllt werden. Keine Schema-Transformation, kein Datenverlust-Risiko. Der Moment des Wechsels ist deshalb trivial und kann spät fallen — wenn Auth + RLS + Rate-Limiting ernsthaft getestet werden müssen oder die App tatsächlich deployed werden soll.
+**Migration vault → Supabase — no real pain:**
+The files are blobs in the repo. A ~20-line script reads the 5–10 `*.md` files from the vault and `INSERT`s them into the `files` table. `file_history` can stay empty or optionally be seeded with a single "Initial import from local vault" entry per file. No schema transformation, no risk of data loss. The moment of switching is therefore trivial and can fall late — when auth + RLS + rate limiting really need to be tested or the app is actually to be deployed.
 
-**Auth-Handling beim `LocalFileRepository`-Dev-Pfad:**
-Die Auth-Middleware läuft weiterhin, aber in Dev wird ein fixer `user_id` injiziert (Umgebungsvariable `DEV_USER_ID`). `LocalFileRepository` ignoriert den `user_id` oder mappt ihn auf einen Vault-Subfolder (für Multi-User-Tests). Keine Multi-Tenancy-Testabdeckung auf diesem Pfad — dafür gibt's den Supabase-Checkpoint.
+**Auth handling on the `LocalFileRepository` dev path:**
+The auth middleware still runs, but in dev a fixed `user_id` is injected (environment variable `DEV_USER_ID`). `LocalFileRepository` ignores the `user_id` or maps it to a vault subfolder (for multi-user tests). No multi-tenancy test coverage on this path — that's what the Supabase checkpoint is for.
 
-**Dev-Bypass für Subscription:**
-In Phase 1 (CLI) gibt es keinen Tier-Check — alles ist erlaubt. In Phase 2 (Server-Entwicklung) wird der eigene Supabase-Account bei der Seed-Migration auf `subscription_tier = 'unlimited'` gesetzt. Kein Stripe-Setup nötig fürs Entwickeln.
+**Dev bypass for subscription:**
+In Phase 1 (CLI) there is no tier check — everything is allowed. In Phase 2 (server development) the own Supabase account is set to `subscription_tier = 'unlimited'` during the seed migration. No Stripe setup needed for development.
 
 ```sql
--- Seed-Migration: Dev-Account als unlimited
+-- Seed migration: dev account as unlimited
 INSERT INTO profiles (user_id, subscription_tier, content)
-VALUES ('deine-supabase-user-id', 'unlimited', 'Dev Account');
+VALUES ('your-supabase-user-id', 'unlimited', 'Dev Account');
 ```
 
-Der Tier-Check im Server behandelt `'unlimited'` wie Premium ohne jegliche Limits:
+The tier check in the server treats `'unlimited'` like Premium without any limits:
 
 ```typescript
 const TIER_LIMITS = {
@@ -566,75 +566,75 @@ const TIER_LIMITS = {
 };
 ```
 
-**Kein LLM-Mocking in der Entwicklung.** Die API-Kosten sind mit Haiku vernachlässigbar (~$0.001-0.002 pro Interaction). Mocking für Dev wäre mehr Aufwand als Nutzen. Nur in Unit-/Integrationstests wird der LLM-Provider gemockt, um deterministische Tool-Call-Chains zu testen.
+**No LLM mocking in development.** API costs with Haiku are negligible (~$0.001-0.002 per interaction). Mocking for dev would be more effort than benefit. Only in unit/integration tests is the LLM provider mocked, to test deterministic tool-call chains.
 
 ### Endpoints (MVP)
 
 ```
-# Core (alle authentifiziert via Auth Middleware)
-POST /api/chat              # User Message → SSE Stream (Agentic Loop)
-GET  /api/files/:path       # Direkter File-Zugriff (für Markdown-Editor im Client)
-PUT  /api/files/:path       # Manuelles File-Edit (User editiert direkt, nicht via LLM)
-GET  /api/history            # file_history für Changelog-View
+# Core (all authenticated via auth middleware)
+POST /api/chat              # User message → SSE stream (Agentic Loop)
+GET  /api/files/:path       # Direct file access (for markdown editor in client)
+PUT  /api/files/:path       # Manual file edit (user edits directly, not via LLM)
+GET  /api/history            # file_history for changelog view
 
 # Auth & Profile
-GET  /api/profile            # User-Profil + Subscription Tier lesen
-PUT  /api/profile            # Profil aktualisieren (Ziele, Präferenzen)
+GET  /api/profile            # Read user profile + subscription tier
+PUT  /api/profile            # Update profile (goals, preferences)
 
 # Billing
-GET  /api/billing/portal     # Stripe Customer Portal Link generieren (→ Redirect)
-POST /api/billing/checkout   # Stripe Checkout Session erstellen (→ Redirect)
+GET  /api/billing/portal     # Generate Stripe Customer Portal link (→ redirect)
+POST /api/billing/checkout   # Create Stripe Checkout session (→ redirect)
 
-# Webhooks (nicht via JWT, sondern via Webhook-Secret validiert)
-POST /api/webhooks/stripe    # Stripe Subscription Events (tier changed, cancelled)
-POST /api/webhooks/revenuecat # RevenueCat App Store Events
+# Webhooks (not via JWT, but validated via webhook secret)
+POST /api/webhooks/stripe    # Stripe subscription events (tier changed, cancelled)
+POST /api/webhooks/revenuecat # RevenueCat App Store events
 
 # Infra
-GET  /api/health             # Health Check für Railway/Render
+GET  /api/health             # Health check for Railway/Render
 ```
 
-### Settings-Screen (Angular Client)
+### Settings Screen (Angular Client)
 
-Minimaler Screen, keine eigene Billing-UI — Stripe Customer Portal übernimmt die Abo-Verwaltung.
+Minimal screen, no custom billing UI — Stripe Customer Portal handles subscription management.
 
-**Sektionen:**
+**Sections:**
 
 **Account**
-- Email + Login-Provider anzeigen (read-only, aus Supabase Auth)
-- Profilbild (Gravatar oder Provider-Avatar)
+- Show email + login provider (read-only, from Supabase Auth)
+- Profile picture (Gravatar or provider avatar)
 
 **Subscription**
-- Aktueller Tier als Badge anzeigen ("Trial — noch 8 Tage" / "Standard" / "Premium")
-- Trial-User: "Upgrade"-Button → `POST /api/billing/checkout` → Redirect zu Stripe Checkout
-- Zahlende User: "Abo verwalten"-Button → `GET /api/billing/portal` → Redirect zu Stripe Customer Portal (dort: kündigen, Zahlungsmethode ändern, Rechnungen einsehen)
-- Free-User (Trial abgelaufen): "Jetzt abonnieren"-Button → Stripe Checkout
+- Show current tier as a badge ("Trial — 8 days left" / "Standard" / "Premium")
+- Trial users: "Upgrade" button → `POST /api/billing/checkout` → redirect to Stripe Checkout
+- Paying users: "Manage subscription" button → `GET /api/billing/portal` → redirect to Stripe Customer Portal (there: cancel, change payment method, view invoices)
+- Free users (trial expired): "Subscribe now" button → Stripe Checkout
 
-**GTD-Profil**
-- Ziele und Kontext bearbeiten (das `profiles.content`-Feld, das im LLM-Context mitgeschickt wird)
-- "Erzähl mir von deinen Zielen" — Freitext oder Voice-Input, wird vom LLM strukturiert
+**GTD Profile**
+- Edit goals and context (the `profiles.content` field, which is included in the LLM context)
+- "Tell me about your goals" — free text or voice input, structured by the LLM
 
-**Daten (v2)**
-- Daten exportieren (ZIP mit allen Markdown-Files)
-- Account löschen
+**Data (v2)**
+- Export data (ZIP with all markdown files)
+- Delete account
 
-**Kein eigenes Billing-UI:**
-Keine Kreditkartenformulare, keine Rechnungsliste, keine Kündigungs-Flows im Client. Stripe Customer Portal macht das alles — gehostet, PCI-compliant, mehrsprachig, maintained. Der Client generiert nur den Portal-Link und leitet weiter.
+**No custom billing UI:**
+No credit card forms, no invoice list, no cancellation flows in the client. Stripe Customer Portal does it all — hosted, PCI-compliant, multilingual, maintained. The client only generates the portal link and redirects.
 
 ```typescript
-// Angular Client: Abo verwalten
+// Angular client: manage subscription
 async manageBilling() {
   const { url } = await this.http.get('/api/billing/portal').toPromise();
-  window.location.href = url; // Redirect zu Stripe Customer Portal
+  window.location.href = url; // Redirect to Stripe Customer Portal
 }
 
-// Angular Client: Upgrade starten
+// Angular client: start upgrade
 async startCheckout(tier: 'standard' | 'premium') {
   const { url } = await this.http.post('/api/billing/checkout', { tier }).toPromise();
-  window.location.href = url; // Redirect zu Stripe Checkout
+  window.location.href = url; // Redirect to Stripe Checkout
 }
 ```
 
-Der `/api/chat`-Endpoint ist der Kern — er nimmt die User Message, baut den LLM-Request, führt die Agentic Loop aus, und streamt die Response zurück. Die Webhook-Endpoints werden von Stripe/RevenueCat aufgerufen und aktualisieren den Subscription-Tier in der `profiles`-Tabelle.
+The `/api/chat` endpoint is the core — it takes the user message, builds the LLM request, runs the Agentic Loop, and streams the response back. The webhook endpoints are called by Stripe/RevenueCat and update the subscription tier in the `profiles` table.
 
 ## Database Schema
 
@@ -651,7 +651,7 @@ files
 -- Append-only version history (every change is recorded)
 file_history
   id              uuid PRIMARY KEY
-  user_id         uuid REFERENCES auth.users  -- redundant zu files.user_id, aber nötig für eigenständige RLS
+  user_id         uuid REFERENCES auth.users  -- redundant to files.user_id, but needed for standalone RLS
   file_id         uuid REFERENCES files
   content         text        -- full content at this point in time
   change_summary  text        -- LLM-generated: "Moved 'VW Angebot' from Inbox to Next Actions"
@@ -666,70 +666,70 @@ sessions
   created_at  timestamptz
   updated_at  timestamptz
   UNIQUE(user_id, date)
-  -- Hinweis: kein summary-Feld mehr. Tool-Result-Pruning ersetzt Summary-Compaction
-  -- (siehe "Context Management: Tool-Result Pruning").
+  -- Note: no summary field anymore. Tool-result pruning replaces summary compaction
+  -- (see "Context Management: Tool-Result Pruning").
 
 -- Chat messages within sessions
 messages
   id          uuid PRIMARY KEY
-  user_id     uuid REFERENCES auth.users  -- redundant zu sessions.user_id, aber nötig für eigenständige RLS
+  user_id     uuid REFERENCES auth.users  -- redundant to sessions.user_id, but needed for standalone RLS
   session_id  uuid REFERENCES sessions
   role        text        -- 'user' or 'assistant'
-  content     text        -- enthält Text-Blocks, Tool-Calls, Tool-Results (AI-SDK message format)
-  in_context  boolean     -- true = normal im Context; false = außerhalb Hard-Limit (>100 msgs) → gar nicht im Request
-                          -- Tool-Result-Pruning (Stub-Ersetzung) passiert on-the-fly im Request-Builder,
-                          -- nicht als persistente Zustandsänderung in dieser Tabelle.
+  content     text        -- contains text blocks, tool calls, tool results (AI-SDK message format)
+  in_context  boolean     -- true = normally in context; false = beyond hard limit (>100 msgs) → not in request at all
+                          -- Tool-result pruning (stub replacement) happens on-the-fly in the request builder,
+                          -- not as a persistent state change in this table.
   created_at  timestamptz
 
 -- User profile (goals, context, preferences)
 profiles
   id                      uuid PRIMARY KEY
   user_id                 uuid REFERENCES auth.users UNIQUE
-  content                 text          -- Markdown: Ziele, Kontext, Präferenzen (im LLM-Context)
+  content                 text          -- Markdown: goals, context, preferences (in LLM context)
   subscription_tier       text DEFAULT 'trial'  -- 'trial', 'free', 'standard', 'premium', 'unlimited' (dev)
-  stripe_customer_id      text          -- Stripe Customer ID (nullable, gesetzt nach erstem Kauf)
-  revenuecat_app_user_id  text          -- RevenueCat User ID (nullable, für App Store Subs)
-  subscription_valid_until timestamptz  -- Ablaufdatum der aktiven Subscription
+  stripe_customer_id      text          -- Stripe Customer ID (nullable, set after first purchase)
+  revenuecat_app_user_id  text          -- RevenueCat User ID (nullable, for App Store subs)
+  subscription_valid_until timestamptz  -- Expiry date of the active subscription
   updated_at              timestamptz
 ```
 
-## Multi-Tenancy: User-Isolation durch alle Schichten
+## Multi-Tenancy: User Isolation Through All Layers
 
-Die App ist mandantenfähig — jeder User hat seinen eigenen, vollständig isolierten GTD-State. Die Isolation wird auf **Datenbankebene** erzwungen (Supabase Row-Level Security), nicht in der App-Logik. Selbst ein Bug im Code kann keine Cross-User-Leaks verursachen.
+The app is multi-tenant — each user has their own, fully isolated GTD state. Isolation is enforced at the **database level** (Supabase Row-Level Security), not in app logic. Even a bug in the code cannot cause cross-user leaks.
 
-**Wie der `userId` durch die Schichten fließt:**
+**How `userId` flows through the layers:**
 
-| Schicht | Isolation | Mechanismus |
-|---------|-----------|-------------|
-| **Supabase RLS** | Jede Query wird automatisch auf `auth.uid() = user_id` gefiltert | RLS Policy auf `files`, `sessions`, `profiles`, `usage` |
-| **FileRepository** | `SupabaseFileRepository` nutzt den Supabase-Client, der den authentifizierten User-Token trägt → RLS greift automatisch | Kein manuelles `WHERE user_id = ?` im App-Code nötig |
-| **LLM Tools** | `read_file`, `edit_file`, `write_file` etc. delegieren an `FileRepository` → Isolation ist transitiv | Tools selbst sind user-agnostisch |
-| **LLM Context** | System Prompt ist für alle User identisch. Files im Context kommen aus dem user-scoped `FileRepository` | Request-Builder lädt nur Files des authentifizierten Users |
-| **Sessions/Messages** | Beide Tabellen haben eigene `user_id`-Spalte + eigene RLS Policy | `auth.uid() = user_id` auf `sessions` UND `messages` separat |
-| **file_history** | Eigene `user_id`-Spalte + eigene RLS Policy (nicht transitiv über `file_id`) | `auth.uid() = user_id` direkt auf `file_history` |
-| **Usage/Rate Limiting** | `usage.user_id` + RLS | Jeder User hat sein eigenes Token-Budget |
+| Layer | Isolation | Mechanism |
+|-------|-----------|-----------|
+| **Supabase RLS** | Every query is automatically filtered on `auth.uid() = user_id` | RLS policy on `files`, `sessions`, `profiles`, `usage` |
+| **FileRepository** | `SupabaseFileRepository` uses the Supabase client carrying the authenticated user token → RLS kicks in automatically | No manual `WHERE user_id = ?` needed in app code |
+| **LLM Tools** | `read_file`, `edit_file`, `write_file` etc. delegate to `FileRepository` → isolation is transitive | Tools themselves are user-agnostic |
+| **LLM Context** | System prompt is identical for all users. Files in the context come from the user-scoped `FileRepository` | Request builder only loads files of the authenticated user |
+| **Sessions/Messages** | Both tables have their own `user_id` column + own RLS policy | `auth.uid() = user_id` on `sessions` AND `messages` separately |
+| **file_history** | Own `user_id` column + own RLS policy (not transitive via `file_id`) | `auth.uid() = user_id` directly on `file_history` |
+| **Usage/Rate Limiting** | `usage.user_id` + RLS | Each user has their own token budget |
 
-**Sonderfall LocalFileRepository (Dev + Self-Hosted):**
-Beim Filesystem-Backend gibt es keine Multi-Tenancy — ein Vault, ein User. Der `userId` wird ignoriert oder optional auf einen Vault-Subfolder gemappt. Das ist akzeptabel in Dev (Phase 1 und Phase 2a primärer Pfad) und im offiziellen Self-Hosted-Deployment-Mode (siehe Phase 3): Wer selbst hostet, betreibt typischerweise eine Einzel-User-Installation und braucht keine Multi-Tenancy. Für Multi-User-Prod ist weiterhin `SupabaseFileRepository` + RLS der einzige Pfad.
+**Special case LocalFileRepository (dev + self-hosted):**
+With the filesystem backend there is no multi-tenancy — one vault, one user. The `userId` is ignored or optionally mapped to a vault subfolder. That's acceptable in dev (Phase 1 and Phase 2a primary path) and in the official self-hosted deployment mode (see Phase 3): whoever self-hosts typically operates a single-user installation and doesn't need multi-tenancy. For multi-user prod, `SupabaseFileRepository` + RLS remains the only path.
 
-**Sonderfall Profil:**
-Jeder User hat genau ein `profiles`-Eintrag. Das Profil wird im LLM-Context mitgeschickt (Ziele, Präferenzen, Kontext). Kein User kann das Profil eines anderen Users lesen oder beeinflussen.
+**Special case profile:**
+Each user has exactly one `profiles` entry. The profile is included in the LLM context (goals, preferences, context). No user can read or influence another user's profile.
 
-**Kein Sharing, keine Teams (MVP):**
-Die App ist ein Single-User-Tool. Keine geteilten Listen, keine Team-Features, keine Delegation. Das vereinfacht die Isolation erheblich — jeder User ist eine komplett unabhängige Instanz. Team-Features wären ein v3-Thema und würden ein explizites Permission-Modell erfordern.
+**No sharing, no teams (MVP):**
+The app is a single-user tool. No shared lists, no team features, no delegation. This greatly simplifies isolation — each user is a completely independent instance. Team features would be a v3 topic and would require an explicit permission model.
 
-### RLS-Architekturregeln
+### RLS Architecture Rules
 
-**Regel 1: `user_id` als Pflichtfeld in jeder Tabelle.**
-Jede Tabelle trägt eine eigene `user_id`-Spalte — auch wenn die Zugehörigkeit theoretisch über JOINs ableitbar wäre (z.B. `messages` → `sessions` → `user_id`). Die Redundanz ist beabsichtigt: Jede Tabelle schützt sich selbst, unabhängig von Relationen. Ein fehlender JOIN oder ein Bug in einer Relation kann keine Cross-User-Leaks verursachen.
+**Rule 1: `user_id` as a mandatory field in every table.**
+Every table carries its own `user_id` column — even when membership could theoretically be derived via JOINs (e.g. `messages` → `sessions` → `user_id`). The redundancy is intentional: each table protects itself, independent of relations. A missing JOIN or a bug in a relation cannot cause cross-user leaks.
 
-**Warum kein zusammengesetzter Primärschlüssel:**
-`user_id` ist keine PK-Komponente, sondern eine normale Spalte mit Index + RLS-Policy. Ein zusammengesetzter PK aus `(id, user_id)` wäre nur nötig, wenn die `id` nicht global eindeutig wäre (z.B. fortlaufende Nummern pro Mandant). Bei UUIDs (`gen_random_uuid()`) ist globale Eindeutigkeit gegeben — der PK bleibt `id` allein. Die fachliche Eindeutigkeit (z.B. ein User hat keine zwei Files mit demselben Pfad) wird über `UNIQUE`-Constraints gelöst: `UNIQUE(user_id, file_path)`.
+**Why no composite primary key:**
+`user_id` is not a PK component, but a normal column with index + RLS policy. A composite PK of `(id, user_id)` would only be needed if `id` were not globally unique (e.g. sequential numbers per tenant). With UUIDs (`gen_random_uuid()`) global uniqueness is given — the PK remains `id` alone. Domain uniqueness (e.g. a user has no two files with the same path) is solved via `UNIQUE` constraints: `UNIQUE(user_id, file_path)`.
 
-**Regel 2: Einheitliches RLS-Policy-Muster pro Tabelle.**
+**Rule 2: Uniform RLS policy pattern per table.**
 
 ```sql
--- Schema-Muster (angewendet auf jede Tabelle)
+-- Schema pattern (applied to each table)
 ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "user_isolation" ON {table}
@@ -738,7 +738,7 @@ CREATE POLICY "user_isolation" ON {table}
 CREATE INDEX idx_{table}_user_id ON {table}(user_id);
 ```
 
-Konkret für alle Tabellen:
+Concretely for all tables:
 
 ```sql
 -- files
@@ -771,38 +771,38 @@ CREATE POLICY "user_isolation" ON usage FOR ALL USING (auth.uid() = user_id);
 CREATE INDEX idx_usage_user_id ON usage(user_id);
 ```
 
-**Regel 3: Keine JOIN-basierten Policies.**
-RLS-Policies dürfen sich **nicht** auf JOINs oder Subqueries zu anderen Tabellen stützen. Jede Policy prüft ausschließlich `auth.uid() = user_id` auf der eigenen Tabelle. Das ist schneller (kein JOIN pro Row-Check), sicherer (kein Fehlerpotenzial durch vergessene Relationen) und einfacher zu auditen.
+**Rule 3: No JOIN-based policies.**
+RLS policies must **not** rely on JOINs or subqueries to other tables. Every policy checks only `auth.uid() = user_id` on its own table. This is faster (no JOIN per row check), safer (no error potential through forgotten relations) and easier to audit.
 
-**Regel 4: Defense in Depth — RLS als letzte Verteidigungslinie.**
-Die App-Logik (FileRepository, LLM Tools) operiert bereits im User-Scope. RLS ist die zusätzliche Sicherheitsschicht, die greift wenn ein Bug in der App-Logik den Scope verliert. Gerade bei LLM-Agents, die SQL oder Tool-Calls generieren, ist diese Redundanz essenziell.
+**Rule 4: Defense in depth — RLS as the last line of defense.**
+The app logic (FileRepository, LLM tools) already operates in user scope. RLS is the additional security layer that kicks in when a bug in app logic loses scope. Especially with LLM agents that generate SQL or tool calls, this redundancy is essential.
 
 ## Archive Layout & Lifecycle
 
-„Archiv" bedeutet in dieser App: **außerhalb des aktiven LLM-Routine-Context, aber on-demand zugänglich**. Nichts wird gelöscht (außer erledigte Tasks — siehe unten), aber es wird aus dem aktiven Pfad in ein Archiv-Verzeichnis verschoben, damit der tägliche Context schlank bleibt.
+"Archive" in this app means: **outside the active LLM routine context, but accessible on demand**. Nothing is deleted (except completed tasks — see below), but it is moved out of the active path into an archive directory so that the daily context stays lean.
 
-### Drei Lifecycle-Klassen
+### Three Lifecycle Classes
 
-**1. Task-Listen (Inbox, Focus, Next Actions, Waiting, Someday/Maybe)** — **kein Archiv, nur Löschen.**
-Erledigte Tasks werden beim Crosscheck / Weekly Review aus den Listen entfernt. Kein separates Archive-File. Der vollständige Audit-Trail lebt in **zwei Quellen**:
-- `file_history` (DB) — jeder Write zu `tasks/*.md` schreibt einen Snapshot mit `change_summary`. Damit ist rekonstruierbar, wann ein Task erledigt/gelöscht wurde.
-- Daily-Note-Log des jeweiligen Tages — hier wird der menschliche Kontext festgehalten („14:32 VW Angebot geschickt").
-Doppelte Buchhaltung (separater Archive-Folder für erledigte Tasks) wird bewusst vermieden — `file_history` ist der Trail.
+**1. Task lists (Inbox, Focus, Next Actions, Waiting, Someday/Maybe)** — **no archive, only deletion.**
+Completed tasks are removed from the lists during crosscheck / weekly review. No separate archive file. The complete audit trail lives in **two sources**:
+- `file_history` (DB) — every write to `tasks/*.md` writes a snapshot with `change_summary`. This makes it reconstructable when a task was completed/deleted.
+- The respective day's daily note log — here the human context is captured ("14:32 sent VW offer").
+Double bookkeeping (a separate archive folder for completed tasks) is deliberately avoided — `file_history` is the trail.
 
-**2. Daily Notes** — **beim Tageswechsel automatisch ins Archiv verschoben.**
-Zu jedem Zeitpunkt existiert genau **eine aktive Daily Note**: die heutige unter `daily/YYYY-MM-DD.md`. Wenn der User die App an einem neuen Tag öffnet und noch keine heutige Note existiert, passiert folgendes atomar:
-- Alle vorhandenen Files unter `daily/` (also die Note vom Vortag, falls nicht schon verschoben) werden nach `archive/daily/YYYY-MM-DD.md` verschoben.
-- Eine neue leere Note `daily/YYYY-MM-DD.md` für heute wird angelegt.
-- Der Move wird als `file_history`-Eintrag mit `change_summary = "Archived daily note YYYY-MM-DD"` festgehalten.
+**2. Daily Notes** — **automatically moved to the archive on day rollover.**
+At any given moment exactly **one active daily note** exists: today's at `daily/YYYY-MM-DD.md`. When the user opens the app on a new day and no today's note exists yet, the following happens atomically:
+- All existing files under `daily/` (i.e. the previous day's note, if not already moved) are moved to `archive/daily/YYYY-MM-DD.md`.
+- A new empty note `daily/YYYY-MM-DD.md` for today is created.
+- The move is recorded as a `file_history` entry with `change_summary = "Archived daily note YYYY-MM-DD"`.
 
-Dadurch muss das LLM nicht rätseln, welche Daily Note „aktiv" ist — in `daily/` liegt immer genau eine Datei, und die ist heute. Archivierte Notes liegen in `archive/daily/` und werden nur on-demand gelesen (z.B. „Was hab ich letzten Dienstag gemacht?" → `read_file("archive/daily/2026-04-14.md")`).
+This way the LLM doesn't need to guess which daily note is "active" — `daily/` always contains exactly one file, and that's today. Archived notes are in `archive/daily/` and are only read on demand (e.g. "What did I do last Tuesday?" → `read_file("archive/daily/2026-04-14.md")`).
 
-**3. Chat Sessions** — **pro Tag genau eine, alte Sessions bleiben zugänglich und weiterbeschreibbar.**
-Sessions leben in der DB, nicht als Files. Bei Tageswechsel wird automatisch eine neue `sessions`-Zeile für den neuen Tag angelegt; die alte Session wird **nicht** gelöscht und **nicht** verschoben — sie bleibt exakt wo sie ist. „Archiviert" bedeutet hier nur: Standard-Context ist ab jetzt die heutige Session; die alte ist on-demand erreichbar.
+**3. Chat sessions** — **exactly one per day, old sessions remain accessible and writable.**
+Sessions live in the DB, not as files. On day rollover a new `sessions` row for the new day is automatically created; the old session is **not** deleted and **not** moved — it stays exactly where it is. "Archived" here only means: standard context from now on is today's session; the old one is reachable on demand.
 
-**Session-Switching:** Der User kann aus der History-View eine vergangene Session öffnen und dort **weiterchatten** — neue Messages werden an die damalige Session angehängt, nicht an die heutige. Das ist unproblematisch, weil die Files (Source of Truth) immer frisch geladen werden: Auch wenn der User in der Session vom 10. April weiterchattet, operiert das LLM auf dem State vom heutigen Tag. Die Session ist nur der Konversationsfaden, nicht der Daten-State.
+**Session switching:** From the History view the user can open a past session and **continue chatting** there — new messages are appended to the original session, not to today's. This is unproblematic because the files (source of truth) are always loaded fresh: even if the user continues chatting in the session from April 10, the LLM operates on today's state. The session is only the conversational thread, not the data state.
 
-### File-Layout (pro User)
+### File Layout (per user)
 
 ```
 tasks/
@@ -812,63 +812,63 @@ tasks/
   waiting.md
   someday-maybe.md
 daily/
-  2026-04-17.md              ← immer genau eine Datei: heute
+  2026-04-17.md              ← always exactly one file: today
 archive/
   daily/
     2026-04-16.md
     2026-04-15.md
-    ... (alle vergangenen Daily Notes)
+    ... (all past daily notes)
 ```
 
-**Was es bewusst nicht gibt:**
-- Kein `projects/`-Verzeichnis. Projekte sind **keine** separaten Files. Die Struktur von Next Actions ist zweistufig in **einer** Datei `tasks/next-actions.md`: Top-Level-Kategorien (Work, Haus & Garten, Finanzen, Persönlich) und darunter optional Subheadings für Gruppen/Projekt-Blöcke. Siehe R6.
-- Kein `archive/tasks/`. Erledigte Tasks werden gelöscht (siehe oben), nicht verschoben.
-- Kein `archive/sessions/`. Chat Sessions bleiben in der DB, Archivierung ist implizit über `sessions.date`.
+**What deliberately doesn't exist:**
+- No `projects/` directory. Projects are **not** separate files. The structure of Next Actions is two-level in **one** file `tasks/next-actions.md`: top-level categories (Work, House & Garden, Finances, Personal) and below that optional subheadings for groups/project blocks. See R6.
+- No `archive/tasks/`. Completed tasks are deleted (see above), not moved.
+- No `archive/sessions/`. Chat sessions remain in the DB, archiving is implicit via `sessions.date`.
 
-### Scope-Regeln für das LLM
+### Scope Rules for the LLM
 
-| Bereich | Im Routine-Context? | On-Demand zugänglich? |
-|---------|---------------------|-----------------------|
-| `tasks/*.md` | Ja, immer | — |
-| `daily/*.md` (heute) | Ja | — |
-| `archive/daily/*.md` | Nein | Ja, via `read_file` oder `search_files(scope: "archive")` |
-| `sessions` heutige + `messages` der heutigen Session | Ja | — |
-| `sessions` vergangene + deren `messages` | Nein (nur wenn User explizit hinwechselt) | Ja, via Session-Switching in der UI |
-| `file_history` | Nein | Ja, via `search_files` oder History-View |
+| Area | In routine context? | Accessible on demand? |
+|------|---------------------|-----------------------|
+| `tasks/*.md` | Yes, always | — |
+| `daily/*.md` (today) | Yes | — |
+| `archive/daily/*.md` | No | Yes, via `read_file` or `search_files(scope: "archive")` |
+| `sessions` today's + `messages` of today's session | Yes | — |
+| past `sessions` + their `messages` | No (only when the user explicitly switches over) | Yes, via session switching in the UI |
+| `file_history` | No | Yes, via `search_files` or History view |
 
-**`search_files(scope)`-Verhalten:**
-- `"active"` (default) → nur `tasks/*.md` + aktuelle `daily/*.md`
+**`search_files(scope)` behavior:**
+- `"active"` (default) → only `tasks/*.md` + current `daily/*.md`
 - `"archive"` → `archive/daily/*.md`
-- `"all"` → alles zusammen
+- `"all"` → everything together
 
-### Durchsetzung der Scope-Regeln (Zwei-Schichten-Modell)
+### Enforcement of the Scope Rules (Two-Layer Model)
 
-Die Scope-Regeln werden bewusst **nicht** im `FileRepository` erzwungen, sondern in der **LLM-Tool-Schicht** (siehe „LLM Tool Definitions"). Grund: das Repository wird nicht nur vom LLM genutzt, sondern auch vom Server-Side-Lifecycle (Tageswechsel/Archive-Move, siehe nächster Abschnitt). Eine repository-seitige Whitelist der GTD-Pfade würde den Lifecycle blockieren, weil dieser gerade Schreibzugriff auf `archive/daily/` benötigt.
+The scope rules are deliberately **not** enforced in the `FileRepository`, but in the **LLM tool layer** (see "LLM Tool Definitions"). Reason: the repository is used not only by the LLM, but also by the server-side lifecycle (day rollover/archive move, see next section). A repository-side whitelist of GTD paths would block the lifecycle, because it specifically needs write access to `archive/daily/`.
 
-**Schicht 1 — `FileRepository` (low-level):**
-- Akzeptiert beliebige Pfade innerhalb des `basePath` / `user_id`-Scopes.
-- Einzige Prüfung: **Pfad-Sicherheit** (keine `..`-Segmente, keine absoluten Pfade, keine Symlink-Escapes). Verletzung ist ein Bug, kein User-Fehler → Exception.
-- Keine Kenntnis der GTD-Struktur (`tasks/`, `daily/`, `archive/`).
+**Layer 1 — `FileRepository` (low-level):**
+- Accepts arbitrary paths within the `basePath` / `user_id` scope.
+- Only check: **path safety** (no `..` segments, no absolute paths, no symlink escapes). Violation is a bug, not a user error → exception.
+- No knowledge of the GTD structure (`tasks/`, `daily/`, `archive/`).
 
-**Schicht 2 — LLM-Tool-Schicht (die 5 Tools):**
-- Setzt die Scope-Regeln aus der Tabelle oben durch. Konkret:
-  - `read_file`: `tasks/*.md`, `daily/YYYY-MM-DD.md` (beliebiges Datum), `archive/daily/*.md`
-  - `write_file` / `edit_file`: `tasks/*.md`, `daily/${today}.md` — **nicht** `archive/daily/` (Lifecycle-verwaltet)
-  - `list_files`: Prefix muss `tasks/`, `daily/` oder `archive/daily/` sein
-  - `search_files`: Scope-Parameter wie in der Tabelle
-- Verletzung → strukturierter Error als Tool-Result (wie `EditResult { ok: false, ... }`), kein Throw. Das LLM bekommt Feedback und kann im nächsten Step reagieren.
+**Layer 2 — LLM tool layer (the 5 tools):**
+- Enforces the scope rules from the table above. Concretely:
+  - `read_file`: `tasks/*.md`, `daily/YYYY-MM-DD.md` (any date), `archive/daily/*.md`
+  - `write_file` / `edit_file`: `tasks/*.md`, `daily/${today}.md` — **not** `archive/daily/` (lifecycle-managed)
+  - `list_files`: prefix must be `tasks/`, `daily/` or `archive/daily/`
+  - `search_files`: scope parameter as in the table
+- Violation → structured error as tool result (like `EditResult { ok: false, ... }`), no throw. The LLM receives feedback and can react in the next step.
 
-So bleibt die Repository-Abstraktion sauber austauschbar (Local/Supabase/InMemory) und die GTD-Semantik liegt dort wo sie hingehört: an der Grenze zum LLM.
+This way the repository abstraction stays cleanly swappable (Local/Supabase/InMemory) and the GTD semantics live where they belong: at the boundary to the LLM.
 
-### Automatischer Tageswechsel (Server-Side)
+### Automatic Day Rollover (Server-Side)
 
-Der Archive-Move der Daily Note und das Anlegen einer neuen Session sind **Server-Side-Lifecycle-Operationen**, kein LLM-Tool-Call. Sie passieren beim ersten Request des Users an einem neuen Kalendertag (`current_date != latest_session.date`), bevor der LLM-Request gebaut wird:
+The archive move of the daily note and the creation of a new session are **server-side lifecycle operations**, not an LLM tool call. They happen on the user's first request on a new calendar day (`current_date != latest_session.date`), before the LLM request is built:
 
-1. Finde alle `daily/*.md`-Files des Users. Für jeden, dessen Datum < heute ist: Move zu `archive/daily/{date}.md` (`INSERT INTO file_history` + `UPDATE files SET file_path = ...` in einer Transaktion).
-2. `INSERT INTO sessions (user_id, date = today)` — neue Session.
-3. Request mit der neuen Session und der (jetzt leeren, vom LLM gleich zu befüllenden) heutigen Daily Note weiterverarbeiten.
+1. Find all `daily/*.md` files of the user. For each whose date < today: move to `archive/daily/{date}.md` (`INSERT INTO file_history` + `UPDATE files SET file_path = ...` in one transaction).
+2. `INSERT INTO sessions (user_id, date = today)` — new session.
+3. Process the request with the new session and the (now empty, to be filled by the LLM shortly) today's daily note.
 
-So bleibt das LLM raus aus der Archivierungs-Mechanik — es sieht einfach immer einen sauberen Tages-State.
+This way the LLM stays out of the archiving mechanics — it simply always sees a clean day state.
 
 ## How File Versioning Works (No Git Needed)
 
@@ -896,17 +896,17 @@ So bleibt das LLM raus aus der Archivierungs-Mechanik — es sieht einfach immer
 
 ## LLM Tool Definitions
 
-Das LLM interagiert mit den Daten **ausschließlich** über 5 Tools. Kein Dateisystem, kein Bash, keine Shell. Die Tools operieren auf einem **`FileRepository`-Interface** — die Implementierung dahinter ist austauschbar.
+The LLM interacts with the data **exclusively** through 5 tools. No filesystem, no bash, no shell. The tools operate on a **`FileRepository` interface** — the implementation behind it is swappable.
 
 ### FileRepository Interface (Open-Closed Principle)
 
-Selbes Pattern wie `LLMService` und `SpeechService`: Ein abstraktes Interface definiert den Datenzugriff. Die konkrete Implementierung entscheidet, woher die Daten kommen.
+Same pattern as `LLMService` and `SpeechService`: an abstract interface defines data access. The concrete implementation decides where the data comes from.
 
 ```typescript
-// User-Scope kommt NICHT als Parameter, sondern aus dem Auth-Layer.
-// SupabaseFileRepository bekommt den authentifizierten Supabase-Client
-// injected → RLS erzwingt user_id automatisch.
-// LocalFileRepository bekommt den basePath injected → ein Vault, ein User.
+// User scope does NOT come as a parameter, but from the auth layer.
+// SupabaseFileRepository receives the authenticated Supabase client
+// injected → RLS enforces user_id automatically.
+// LocalFileRepository receives the basePath injected → one vault, one user.
 
 interface FileRepository {
   read(filePath: string): Promise<string>;
@@ -917,17 +917,17 @@ interface FileRepository {
 }
 
 interface SearchReplaceEdit {
-  search: string;   // exakter Textblock der ersetzt werden soll
-  replace: string;  // neuer Textblock
+  search: string;   // exact text block to be replaced
+  replace: string;  // new text block
 }
 
 interface EditResult {
   ok: boolean;
-  // bei Fehler: welches Search-Pattern war nicht eindeutig (0 oder >1 Treffer)
-  // und der aktuelle File-Content als Feedback fürs LLM
+  // on error: which search pattern was not unique (0 or >1 matches)
+  // and the current file content as feedback for the LLM
   error?: {
     failedSearch: string;
-    matchCount: number;  // 0 = nicht gefunden, >1 = mehrdeutig
+    matchCount: number;  // 0 = not found, >1 = ambiguous
     currentContent: string;
   };
 }
@@ -939,154 +939,154 @@ interface SearchResult {
 }
 ```
 
-**Implementierungen:**
+**Implementations:**
 
 ```typescript
-// Phase 1 (CLI / Dev): lokales Dateisystem (Obsidian Vault)
+// Phase 1 (CLI / Dev): local filesystem (Obsidian vault)
 class LocalFileRepository implements FileRepository {
   // read() → fs.readFile(basePath + filePath)
-  // write() → fs.writeFile() + JSON-Log als file_history-Ersatz
-  // edit() → read + Search/Replace-Application (atomar alle Edits oder keiner) + write
-  // list() → fs.readdir() mit optionalem Prefix-Filter
-  // search() → ripgrep oder simple string-search über lokale Files
-  // Basis-Pfad konfigurierbar: z.B. ~/Obsidian/Vault/
+  // write() → fs.writeFile() + JSON log as file_history substitute
+  // edit() → read + Search/Replace application (atomically all edits or none) + write
+  // list() → fs.readdir() with optional prefix filter
+  // search() → ripgrep or simple string search over local files
+  // Base path configurable: e.g. ~/Obsidian/Vault/
 }
 
-// Produktion: Supabase
+// Production: Supabase
 class SupabaseFileRepository implements FileRepository {
   // read() → SELECT content FROM files WHERE file_path = ? AND user_id = ?
   // write() → INSERT INTO file_history + UPDATE files
-  // edit() → SELECT content → Search/Replace in Transaktion → INSERT file_history + UPDATE files
+  // edit() → SELECT content → Search/Replace in transaction → INSERT file_history + UPDATE files
   // list() → SELECT file_path FROM files WHERE file_path LIKE prefix%
   // search() → PostgreSQL Full-Text Search (to_tsvector / to_tsquery)
 }
 ```
 
-**Warum das wichtig ist:**
-- **Dev/Dogfooding:** In Phase 1 testest du die CLI gegen dein echtes Obsidian Vault. Kein Supabase-Setup nötig, echte Daten ab Tag 1.
-- **Produktion:** Switch zu Supabase = eine neue Klasse, kein Rewrite. DI-Token in Angular (`provide: FileRepository, useClass: SupabaseFileRepository`).
-- **Tests:** Eine `InMemoryFileRepository`-Implementierung für Unit-Tests — kein I/O, deterministisch, schnell.
-- **Späterer Export:** Eine `ExportFileRepository`-Implementierung die nach Obsidian-kompatiblem Dateisystem schreibt (v2/v3 Feature).
+**Why this matters:**
+- **Dev/dogfooding:** In Phase 1 you test the CLI against your real Obsidian vault. No Supabase setup needed, real data from day 1.
+- **Production:** Switch to Supabase = a new class, no rewrite. DI token in Angular (`provide: FileRepository, useClass: SupabaseFileRepository`).
+- **Tests:** An `InMemoryFileRepository` implementation for unit tests — no I/O, deterministic, fast.
+- **Later export:** An `ExportFileRepository` implementation that writes to an Obsidian-compatible filesystem (v2/v3 feature).
 
 ### LLM Tool Definitions
 
-Die 5 Tools die das LLM aufruft. Jedes Tool delegiert intern an das `FileRepository`-Interface.
+The 5 tools the LLM calls. Each tool internally delegates to the `FileRepository` interface.
 
 **`read_file(file_path: string): string`**
-Liest den aktuellen Inhalt einer Datei. Gibt den Markdown-Content zurück. Fehlt die Datei, gibt es einen definierten Fehler (nicht null/empty).
-- Beispiel: `read_file("tasks/next-actions.md")` → Markdown-Content
-- Wird bei jedem Request für die aktiven GTD-Files aufgerufen (kein Caching zwischen Requests)
-- Intern: `fileRepository.read(filePath)`
+Reads the current content of a file. Returns the markdown content. If the file is missing, there is a defined error (not null/empty).
+- Example: `read_file("tasks/next-actions.md")` → markdown content
+- Called for the active GTD files on each request (no caching between requests)
+- Internally: `fileRepository.read(filePath)`
 
-**`edit_file(file_path: string, edits: SearchReplaceEdit[], change_summary: string): EditResult`** *(default für Änderungen)*
-Primäres Write-Tool. Wendet ein oder mehrere Search/Replace-Edits auf eine existierende Datei an. Inspiriert von Aiders SEARCH/REPLACE-Edit-Format (nicht Unified-Diff mit Line-Numbers — LLMs generieren die notorisch falsch; Content-basierte Blöcke sind robuster).
-- Beispiel (einzelner Edit):
+**`edit_file(file_path: string, edits: SearchReplaceEdit[], change_summary: string): EditResult`** *(default for changes)*
+Primary write tool. Applies one or more search/replace edits to an existing file. Inspired by Aider's SEARCH/REPLACE edit format (not unified diff with line numbers — LLMs notoriously generate those incorrectly; content-based blocks are more robust).
+- Example (single edit):
   ```
   edit_file(
     file_path: "tasks/next-actions.md",
-    edits: [{ search: "- [ ] VW Angebot schreiben", replace: "- [x] VW Angebot schreiben" }],
-    change_summary: "VW Angebot als erledigt markiert"
+    edits: [{ search: "- [ ] Write VW offer", replace: "- [x] Write VW offer" }],
+    change_summary: "VW offer marked as done"
   )
   ```
-- Beispiel (Multi-Edit, atomar — alle oder keiner): Weekly-Review-Cleanup, der gleichzeitig 20 `[x]`-Einträge aus `next-actions.md` entfernt, läuft als ein einziger `edit_file`-Call mit 20 Search/Replace-Paaren.
-- **Eindeutigkeit ist Pflicht:** Jedes `search` muss **genau einmal** im aktuellen File-Content vorkommen. Server-Seite:
-  - 1 Treffer → `replace` wird angewendet.
-  - 0 Treffer oder >1 Treffer → definierter Error zurück ans LLM mit dem aktuellen File-Content + welches `search` failed. Das LLM erweitert dann das Search-Block um ein paar Zeilen Kontext davor/danach und versucht erneut. Genau wie Aider.
-- **Atomar:** Alle Edits werden transaktional appliziert. Wenn ein Search-Block in einem Multi-Edit fehlschlägt, wird keiner der Edits geschrieben.
-- **Retry-Budget (LLM-Policy, durch System Prompt durchgesetzt):** Bei `ok: false` darf das LLM **max. 2 Nachbesserungen** auf **dieselbe Datei innerhalb einer User-Message** versuchen — typischerweise durch Erweiterung des Search-Blocks um mehr Kontextzeilen (Aider-Muster). Nach dem **3. Fehlschlag** auf derselben Datei: Tool-Loop für diese Datei abbrechen, dem User den aktuellen Dateizustand + konkrete Rückfrage stellen ("Ich kann die Änderung im aktuellen Stand der Datei nicht eindeutig platzieren — ist es diese Zeile: `…`?"). **Nicht** auf `write_file` ausweichen — das würde das Silent-Drift-Risiko zurückholen, das `edit_file` gerade vermeidet. Begründung: Drei Versuche sind genug Signal, dass der File-State anders aussieht als das LLM glaubt; weitere Versuche verbrennen nur Tokens und Latenz. Phase 1 setzt das rein prompt-seitig durch (Rule im System Prompt). Falls sich in der E2E-Erprobung zeigt, dass der Prompt allein nicht zuverlässig hält, kommt ein expliziter Counter im Tool-Handler dazu (Map `filePath → failedAttempts` pro User-Message, der 4. Call auf dieselbe Datei gibt einen Error mit `reason: "retry_budget_exhausted"` + aktuellem File-Content zurück). Der Counter lebt im Handler, nicht im Repository — das Repository bleibt zustandslos pro Call.
-- Erstellt automatisch einen History-Eintrag (Supabase: `file_history`-Tabelle, Lokal: JSON-Log).
-- Intern: `fileRepository.edit(filePath, edits, changeSummary)`
-- **Bekannte Einschränkung (`LocalFileRepository`, Phase 1):** `edit()` macht zwar einen CAS-Recheck (Re-Read direkt vor dem Commit, Abbruch bei Mismatch), aber zwischen Recheck und finalem `rename()` bleibt ein Race-Fenster von ~10er ms (History-Append + Temp-Write + Rename). Ein perfekt getimter externer Writer (Obsidian-Autosave, paralleler Tool-Call) in genau diesem Fenster wird überschrieben. Wir akzeptieren das bewusst: `LocalFileRepository` ist primär ein Stepping-Stone für CLI-Dev und Dogfooding-Server gegen das Vault — Produktion läuft gegen `SupabaseFileRepository`, wo Row-Level-Transaktionen das Problem eliminieren. Erst angehen, wenn eine reale Kollision auftritt (Per-Path-Mutex + Lockfile).
+- Example (multi-edit, atomic — all or none): A weekly review cleanup that simultaneously removes 20 `[x]` entries from `next-actions.md` runs as a single `edit_file` call with 20 search/replace pairs.
+- **Uniqueness is required:** Each `search` must occur **exactly once** in the current file content. Server side:
+  - 1 match → `replace` is applied.
+  - 0 matches or >1 matches → defined error returned to the LLM with the current file content + which `search` failed. The LLM then extends the search block by a few lines of context before/after and tries again. Just like Aider.
+- **Atomic:** All edits are applied transactionally. If a search block in a multi-edit fails, none of the edits are written.
+- **Retry budget (LLM policy, enforced by system prompt):** On `ok: false`, the LLM may attempt **max. 2 corrections** on the **same file within a user message** — typically by extending the search block with more context lines (Aider pattern). After the **3rd failure** on the same file: abort the tool loop for this file, present the user with the current file state + a concrete follow-up question ("I can't unambiguously place the change in the current state of the file — is it this line: `…`?"). **Do not** fall back to `write_file` — that would bring back the silent-drift risk that `edit_file` is precisely avoiding. Rationale: three attempts are signal enough that the file state looks different than the LLM thinks; further attempts only burn tokens and latency. Phase 1 enforces this purely on the prompt side (rule in the system prompt). If E2E testing shows the prompt alone doesn't reliably hold, an explicit counter is added in the tool handler (map `filePath → failedAttempts` per user message, the 4th call on the same file returns an error with `reason: "retry_budget_exhausted"` + current file content). The counter lives in the handler, not in the repository — the repository remains stateless per call.
+- Automatically creates a history entry (Supabase: `file_history` table, local: JSON log).
+- Internally: `fileRepository.edit(filePath, edits, changeSummary)`
+- **Known limitation (`LocalFileRepository`, Phase 1):** `edit()` does perform a CAS recheck (re-read directly before commit, abort on mismatch), but between recheck and final `rename()` a race window of ~10ms remains (history append + temp write + rename). A perfectly timed external writer (Obsidian autosave, parallel tool call) in exactly this window will be overwritten. We accept this deliberately: `LocalFileRepository` is primarily a stepping stone for CLI dev and dogfooding server against the vault — production runs against `SupabaseFileRepository`, where row-level transactions eliminate the problem. Only address it when an actual collision occurs (per-path mutex + lockfile).
 
-**`write_file(file_path: string, content: string, change_summary: string): void`** *(Fallback für Create / Full-Rewrite)*
-Schreibt den kompletten Inhalt einer Datei. Wird **nur** benutzt wenn `edit_file` nicht passt:
-- Neue Datei anlegen, die noch nicht existiert (z.B. eine frische `daily/YYYY-MM-DD.md` beim Tageswechsel — in der Regel macht das aber der Server-Side-Lifecycle, nicht das LLM).
-- Kompletter Rewrite, der eh die ganze Datei ersetzt (z.B. Weekly-Review-Cleanup einer sehr kleinen Datei, Struktur-Umbau eines Files).
-- Beispiel: `write_file("daily/2026-04-18.md", "...", "Daily Note für 2026-04-18 angelegt")`
-- Für Inkremental-Änderungen an existierenden Files → `edit_file` verwenden.
-- Intern: `fileRepository.write(filePath, content, changeSummary)`
+**`write_file(file_path: string, content: string, change_summary: string): void`** *(fallback for create / full rewrite)*
+Writes the entire content of a file. Used **only** when `edit_file` doesn't fit:
+- Create a new file that doesn't exist yet (e.g. a fresh `daily/YYYY-MM-DD.md` on day rollover — but typically the server-side lifecycle does this, not the LLM).
+- Complete rewrite that replaces the whole file anyway (e.g. weekly review cleanup of a very small file, structural reorganization of a file).
+- Example: `write_file("daily/2026-04-18.md", "...", "Created daily note for 2026-04-18")`
+- For incremental changes to existing files → use `edit_file`.
+- Internally: `fileRepository.write(filePath, content, changeSummary)`
 
 **`list_files(prefix?: string): string[]`**
-Listet alle Datei-Pfade des Users auf, optional gefiltert nach Prefix.
-- Beispiel: `list_files("tasks/")` → `["tasks/inbox.md", "tasks/focus.md", "tasks/next-actions.md", ...]`
-- Beispiel: `list_files("daily/")` → `["daily/2026-04-16.md", "daily/2026-04-15.md", ...]`
-- Intern: `fileRepository.list(prefix)`
+Lists all of the user's file paths, optionally filtered by prefix.
+- Example: `list_files("tasks/")` → `["tasks/inbox.md", "tasks/focus.md", "tasks/next-actions.md", ...]`
+- Example: `list_files("daily/")` → `["daily/2026-04-16.md", "daily/2026-04-15.md", ...]`
+- Internally: `fileRepository.list(prefix)`
 
 **`search_files(query: string, scope?: "active" | "archive" | "all"): SearchResult[]`**
-Volltextsuche über Datei-Inhalte. Default-Scope: `"active"` (nur `tasks/*.md` + aktuelle `daily/YYYY-MM-DD.md`). Für Archiv-Anfragen ("Was hab ich letzte Woche gemacht?") → `scope: "archive"` (nur `archive/daily/*.md`) oder `"all"` (beides). Siehe „Archive Layout & Lifecycle".
-- Beispiel: `search_files("VW Angebot")` → `[{ filePath: "tasks/next-actions.md", snippet: "...", line: 42 }]`
-- Beispiel: `search_files("DB Followup", scope: "archive")` → durchsucht nur vergangene Daily Notes unter `archive/daily/`
-- Intern: `fileRepository.search(query, scope)` — Supabase nutzt PostgreSQL Full-Text Search, lokal reicht String-Search / ripgrep
+Full-text search across file contents. Default scope: `"active"` (only `tasks/*.md` + current `daily/YYYY-MM-DD.md`). For archive queries ("What did I do last week?") → `scope: "archive"` (only `archive/daily/*.md`) or `"all"` (both). See "Archive Layout & Lifecycle".
+- Example: `search_files("VW Angebot")` → `[{ filePath: "tasks/next-actions.md", snippet: "...", line: 42 }]`
+- Example: `search_files("DB Followup", scope: "archive")` → searches only past daily notes under `archive/daily/`
+- Internally: `fileRepository.search(query, scope)` — Supabase uses PostgreSQL Full-Text Search, locally string search / ripgrep is sufficient
 
-**Warum `edit_file` das Default-Write-Tool ist (statt Volltext-`write_file`):**
-- **Token-Kosten kollabieren.** Ein Abhaken geht von "2000 Zeilen Output" auf "~50 Tokens Search/Replace". Bei $3/MTok Haiku-Output ist der Unterschied ~Faktor 30 ($0.006 → $0.0002). Direkt relevant für das Pricing-Modell — jede Task-Operation wird dramatisch billiger, Crosscheck-Schreibvorgänge werden erst wirtschaftlich tragbar.
-- **Silent-Drift-Risiko verschwindet.** Das LLM kann beim Volltext-Write versehentlich eine Task-Formulierung umformulieren, ein Zeichen ändern, die Reihenfolge kippen — unbemerkt. Bei `edit_file` fließt der unveränderte Teil des Files **nie** durch LLM-Output. Massiv für die Trust-These ("conservative bookkeeper").
-- **Diff-Reporting ist gratis.** Das Search/Replace-Paar **ist** der Diff. Keine zusätzliche Diff-Berechnung nötig für die Chat-Response oder die History-View.
-- **Kosten:** Search-Ambiguität muss sauber gehandelt werden (siehe oben). Die Retry-Loop erhöht die durchschnittlichen Steps minimal, bleibt aber um Größenordnungen günstiger als Volltext.
+**Why `edit_file` is the default write tool (instead of full-text `write_file`):**
+- **Token costs collapse.** Checking off a task goes from "2000 lines of output" to "~50 tokens of search/replace". At $3/MTok Haiku output, the difference is ~30x ($0.006 → $0.0002). Directly relevant for the pricing model — every task operation becomes dramatically cheaper, crosscheck writes only become economically viable this way.
+- **Silent-drift risk disappears.** With full-text write, the LLM can accidentally rephrase a task formulation, change a character, flip the order — unnoticed. With `edit_file`, the unchanged part of the file **never** flows through LLM output. Massive for the trust thesis ("conservative bookkeeper").
+- **Diff reporting is free.** The search/replace pair **is** the diff. No additional diff calculation needed for the chat response or the History view.
+- **Cost:** Search ambiguity must be handled cleanly (see above). The retry loop minimally increases the average number of steps but remains orders of magnitude cheaper than full-text.
 
-**Warum `write_file` trotzdem bleibt:** Für "Datei existiert noch nicht" und "Struktur wird komplett umgebaut" ist Search/Replace unpassend — da ist Volltext-Write klarer. Aber: **90%+ der Operationen gehen über `edit_file`**, nicht mehr über `write_file`.
+**Why `write_file` still remains:** For "file doesn't exist yet" and "structure is being completely rebuilt", search/replace is unsuitable — full-text write is clearer there. But: **90%+ of operations go through `edit_file`**, no longer through `write_file`.
 
-**Warum genau 5 Tools:**
-- Jedes Tool ist ein Function Call = Latenz + Tokens. Weniger Tools = schnellere Responses.
-- `read_file` + `edit_file` decken 95% aller Operationen ab.
-- `write_file` ist die Ausnahme für Create/Full-Rewrite.
-- `list_files` wird selten gebraucht (System kennt die GTD-Struktur), aber nötig für dynamische Inhalte (Archiv-Browse).
-- `search_files` ist der Ersatz für `grep` / Bash-Suche — essenziell für "Wo steht X?" und Archiv-Anfragen.
-- **Kein delete_file Tool.** Dateien werden nicht gelöscht, sondern geleert oder archiviert. Verhindert Datenverlust durch LLM-Fehler.
+**Why exactly 5 tools:**
+- Each tool is a function call = latency + tokens. Fewer tools = faster responses.
+- `read_file` + `edit_file` cover 95% of all operations.
+- `write_file` is the exception for create/full rewrite.
+- `list_files` is rarely needed (the system knows the GTD structure), but necessary for dynamic content (archive browse).
+- `search_files` is the substitute for `grep` / bash search — essential for "Where is X?" and archive queries.
+- **No delete_file tool.** Files are not deleted, but emptied or archived. Prevents data loss through LLM errors.
 
-## Context-Aware Session Start (Onboarding + Daily Suggestion = ein System)
+## Context-Aware Session Start (Onboarding + Daily Suggestion = one system)
 
-Beim Öffnen der App / Start eines neuen Tages liest das System den aktuellen State und generiert **eine** kontextabhängige Suggestion-Card (Generative UI via Hashbrown). Onboarding ist kein separater Flow — es ist der Spezialfall "State ist leer".
+When opening the app / starting a new day, the system reads the current state and generates **one** context-aware suggestion card (Generative UI via Hashbrown). Onboarding is not a separate flow — it is the special case "state is empty".
 
-**Entscheidungslogik (vom System Prompt gesteuert):**
+**Decision logic (driven by the system prompt):**
 
 | State | Suggestion |
 |-------|------------|
-| **Erster Start, leerer State** | *"Hi! Sag mir einfach, was dich gerade beschäftigt — ich kümmere mich um den Rest."* Kein Tutorial, kein GTD-Erklär-Text. User tippt/spricht → System sortiert. |
-| **Zweiter Tag, Inbox gefüllt** | *"Du hast 5 Dinge in der Inbox. Sollen wir sortieren?"* |
-| **Nach 2–3 Tagen (optional)** | *"Willst du mir kurz erzählen, was deine wichtigsten Ziele gerade sind? Dann kann ich besser priorisieren."* (Profil-Angebot, kein Zwang) |
-| **Normaler Morgen, Plan existiert** | *"Guten Morgen. Dein Plan für heute: X, Y, Z. Passt das?"* |
-| **Normaler Morgen, kein Plan** | *"Heute ist nichts geplant. Aus Focus wären X und Y dran — soll ich einen Tagesplan vorschlagen?"* |
-| **Freitag** | *"Weekly Review steht an. In der Inbox liegen 4 Einträge, 2 Waiting-Items sind überfällig. Sollen wir durchgehen?"* |
-| **Montag, Focus bestückt** | *"Neue Woche. In Focus stehen X, Y, Z. Plan für heute?"* |
-| **Mehrere Tage Pause** | *"Du warst 4 Tage nicht da. Soll ich zusammenfassen was offen ist?"* |
-| **Waiting-Items überfällig** | *"3 Waiting-Items seit >7 Tagen offen. Willst du nachhaken?"* |
+| **First start, empty state** | *"Hi! Just tell me what's on your mind — I'll take care of the rest."* No tutorial, no GTD explanation text. User types/speaks → system sorts. |
+| **Second day, inbox filled** | *"You have 5 things in the inbox. Shall we sort them?"* |
+| **After 2–3 days (optional)** | *"Want to briefly tell me what your most important goals are right now? Then I can prioritize better."* (Profile offer, no obligation) |
+| **Normal morning, plan exists** | *"Good morning. Your plan for today: X, Y, Z. Sound good?"* |
+| **Normal morning, no plan** | *"Nothing planned for today. From Focus, X and Y would be next — shall I propose a daily plan?"* |
+| **Friday** | *"Weekly Review is due. There are 4 entries in the inbox, 2 Waiting items are overdue. Shall we go through them?"* |
+| **Monday, Focus filled** | *"New week. In Focus: X, Y, Z. Plan for today?"* |
+| **Several days break** | *"You've been away for 4 days. Shall I summarize what's open?"* |
+| **Waiting items overdue** | *"3 Waiting items open for >7 days. Want to follow up?"* |
 
-**Prinzipien:**
-- Immer genau **eine** Suggestion, nicht drei. Kein Overload.
-- Der User kann reagieren (bestätigen, anpassen) oder ignorieren und einfach lostippen.
-- Kein Modal, kein Blocker, kein Zwang.
-- Die Suggestion-Card ist ein Generative-UI-Element (Hashbrown), kein statischer UI-Block.
+**Principles:**
+- Always exactly **one** suggestion, not three. No overload.
+- The user can react (confirm, adjust) or ignore and just start typing.
+- No modal, no blocker, no obligation.
+- The suggestion card is a Generative UI element (Hashbrown), not a static UI block.
 
-**Implementierung:** Beim Session-Start ein automatischer LLM-Call mit dem aktuellen State (aktive Files + Metadaten wie Wochentag, letzte Session, Inbox-Größe, Waiting-Alter). Die Response wird als `SessionStartCard` gerendert.
+**Implementation:** On session start an automatic LLM call with the current state (active files + metadata like weekday, last session, inbox size, waiting age). The response is rendered as a `SessionStartCard`.
 
 ## Session Architecture: One Chat Per Day (+ Switchable History)
 
-**Core concept:** Each day gets exactly one session. Auto-created beim Tageswechsel. Der Standard-Einstieg ist immer die heutige Session — keine Session-Verwaltung, keine „welche Session war das?"-Verwirrung im Normalfall.
+**Core concept:** Each day gets exactly one session. Auto-created on day rollover. The default entry is always today's session — no session management, no "which session was that?" confusion in the normal case.
 
-**Session-Switching in die Vergangenheit:** Der User kann aus der History-View in eine **vergangene** Session wechseln und dort weiterchatten. Neue Messages werden an diese alte Session angehängt, nicht an die heutige.
+**Session switching into the past:** From the History view, the user can switch into a **past** session and continue chatting there. New messages are appended to that old session, not to today's.
 
-**Warum das unproblematisch ist:** Die Files sind die Source of Truth und werden bei jedem Request frisch geladen (R4 Schritt 1). Auch wenn der User in der Session vom 10. April weiterchattet, operiert das LLM auf dem State vom heutigen Tag. Die Session ist nur der **Konversationsfaden**, nicht der Daten-State. Ein „nachträgliches Ergänzen" der Konversation vom 10. April ändert nichts am GTD-Zustand — es fügt nur Messages zu einer alten DB-Zeile hinzu.
+**Why this is unproblematic:** The files are the source of truth and are loaded fresh on every request (R4 step 1). Even if the user continues chatting in the session from April 10, the LLM operates on today's state. The session is only the **conversational thread**, not the data state. A "retroactive addition" to the conversation from April 10 doesn't change the GTD state — it only adds messages to an old DB row.
 
 **Why this works for GTD:**
 
 - GTD has a natural daily rhythm: morning review, tasks throughout the day, evening planning
 - The daily session maps 1:1 to the daily note — today's session IS today's conversation
-- Yesterday is yesterday, today is today. Natural boundary, no user decision needed im Default-Flow
-- History is scrollable, searchable und — wenn gewünscht — weiter-beschreibbar
+- Yesterday is yesterday, today is today. Natural boundary, no user decision needed in the default flow
+- History is scrollable, searchable and — if desired — writable
 
 **User experience:**
 
-- Open the app → landest in today's session, always
+- Open the app → land in today's session, always
 - Scroll up → see earlier messages from today
 - Tap "History" → browse previous days' sessions (default read-only view)
-- Tap "In dieser Session weiterchatten" → der Input-Focus springt in diese Session; neue Messages gehen an diese `session_id`
-- Zurück zu heute → ein Button oder App-Neustart → automatisch wieder in der heutigen Session
-- Sage "Was hab ich letzte Woche zum VW-Call gemacht?" → LLM liest Daily Notes und `file_history`, nicht die alten Chat-Logs
+- Tap "Continue chatting in this session" → input focus jumps into this session; new messages go to this `session_id`
+- Back to today → a button or app restart → automatically back in today's session
+- Say "What did I do last week about the VW call?" → LLM reads daily notes and `file_history`, not the old chat logs
 
-**Auto-creation:** Beim ersten Request eines neuen Kalendertags wird automatisch eine neue Session angelegt (und die vorherige Daily Note ins Archiv verschoben — siehe „Archive Layout & Lifecycle"). Kein Button, kein Prompt, keine User-Entscheidung.
+**Auto-creation:** On the first request of a new calendar day, a new session is automatically created (and the previous daily note is moved to the archive — see "Archive Layout & Lifecycle"). No button, no prompt, no user decision.
 
-**Implikation fürs Context-Loading:** Der Server lädt immer die Messages der **aktuell aktiven Session** (die, in der der User gerade schreibt) — egal ob das die heutige oder eine vergangene ist. Tool-Result-Pruning (siehe „Context Management") gilt gleichermaßen.
+**Implication for context loading:** The server always loads the messages of the **currently active session** (the one the user is currently writing in) — regardless of whether that's today's or a past one. Tool-result pruning (see "Context Management") applies equally.
 
 ## Request Architecture: How Each Message Is Built
 
@@ -1109,15 +1109,15 @@ Every user message triggers a fresh LLM request with this structure:
 │ - tasks/next-actions.md                     │
 │ - tasks/waiting.md                          │
 │ - tasks/someday-maybe.md                    │
-│ - daily/YYYY-MM-DD.md (heutige Note)        │
-│ (frisch geladen pro Request — R4)          │
-│ Archive (on-demand, nicht im Routine-Load): │
+│ - daily/YYYY-MM-DD.md (today's note)        │
+│ (loaded fresh per request — R4)             │
+│ Archive (on-demand, not in routine load):   │
 │ - archive/daily/*.md                        │
 ├─────────────────────────────────────────────┤
 │ Conversation History (all text messages,    │
 │ old tool-results pruned to stubs)          │
-│ - "Soll ich auf Freitag oder Montag?"       │
-│ - "Freitag" ← must know context            │
+│ - "Should I move it to Friday or Monday?"   │
+│ - "Friday" ← must know context              │
 │ - [pruned read_file result — re-read]       │
 │ - recent tool-results (last K msgs) intact  │
 ├─────────────────────────────────────────────┤
@@ -1126,50 +1126,50 @@ Every user message triggers a fresh LLM request with this structure:
 Total: ~6-8K input tokens (predictable, constant)
 ```
 
-**Key insight:** The GTD files are the real state, not the chat history. The files are re-read from Supabase on every request, so the LLM always operates on the current truth. The chat history is only needed for conversational context (rückfragen, confirmations, follow-ups). Old tool-results are pruned to stubs (see "Context Management: Tool-Result Pruning") — text messages are preserved verbatim.
+**Key insight:** The GTD files are the real state, not the chat history. The files are re-read from Supabase on every request, so the LLM always operates on the current truth. The chat history is only needed for conversational context (follow-up questions, confirmations, follow-ups). Old tool-results are pruned to stubs (see "Context Management: Tool-Result Pruning") — text messages are preserved verbatim.
 
-## Context Management: Tool-Result Pruning (statt Compaction)
+## Context Management: Tool-Result Pruning (instead of compaction)
 
-**Problem mit LLM-Summary-Compaction:** Klassische Compaction lässt einen LLM-Call die ersten N Messages zu einer Summary zusammenfassen. Das killt Trust: Wenn der User später fragt "Was hatte ich vorhin zum VW-Call gesagt?", liegt die Antwort in einer LLM-generierten Zusammenfassung statt im Originalwortlaut. Genau das "silent reinterpretation"-Risiko, das die Trust-These der App untergraben würde.
+**Problem with LLM summary compaction:** Classical compaction has an LLM call summarize the first N messages into a summary. That kills trust: when the user later asks "What did I say earlier about the VW call?", the answer lies in an LLM-generated summary instead of in the original wording. Exactly that "silent reinterpretation" risk that would undermine the trust thesis of the app.
 
-**Gleichzeitig:** Files als Source of Truth sind bereits etabliert — die GTD-Files werden bei **jedem** Request frisch aus Supabase gelesen (R4 Schritt 1). Daher: Die historischen File-Snapshots im Context sind doppelt vorhanden und obendrein potenziell veraltet. Das LLM darf nicht auf alten Snapshots operieren.
+**At the same time:** Files as source of truth are already established — the GTD files are read fresh from Supabase on **every** request (R4 step 1). Therefore: the historical file snapshots in the context are doubly present and on top of that potentially outdated. The LLM must not operate on old snapshots.
 
-**Lösung: Tool-Result Pruning.** Anstatt Messages zu summarizen, werden alte **Tool-Result-Blocks** durch Stubs ersetzt. Text-Messages bleiben 1:1 erhalten — der Konversationskontext ist vollständig.
+**Solution: tool-result pruning.** Instead of summarizing messages, old **tool-result blocks** are replaced with stubs. Text messages are kept 1:1 — the conversational context is complete.
 
-**Mechanik (beim Request-Build im Shared Core):**
+**Mechanics (during request build in the shared core):**
 
-1. Iteriere über die Message-Historie.
-2. Für jeden Tool-Result-Block älter als die letzten `K` Messages (MVP: K=5, tunable):
-   - Ersetze den konkreten Result durch einen Stub: `[Previous read_file("tasks/next-actions.md") result — superseded by current state; re-read if needed]`
-   - Das LLM weiß: dieser Read ist passiert, aber der Content ist nicht mehr aktuell.
-3. Recent Tool-Results (letzte K Messages) bleiben vollständig — für die laufende Multi-Step-Operation relevant.
-4. Aktive Files werden wie bisher am Anfang jedes Requests frisch geladen (impliziert durch R4).
+1. Iterate over the message history.
+2. For every tool-result block older than the last `K` messages (MVP: K=5, tunable):
+   - Replace the concrete result with a stub: `[Previous read_file("tasks/next-actions.md") result — superseded by current state; re-read if needed]`
+   - The LLM knows: this read happened, but the content is no longer current.
+3. Recent tool-results (last K messages) remain complete — relevant for the ongoing multi-step operation.
+4. Active files are loaded fresh at the beginning of each request as before (implied by R4).
 
-**Was bleibt unangetastet:**
-- Alle `user`- und `assistant`-Text-Messages — egal wie alt.
-- `tool_call`-Blocks (dass ein Call passiert ist, bleibt sichtbar — nur das Result wird gestubbt).
-- Rückfrage-Kontext ("Soll ich auf Freitag oder Montag?" → "Freitag") bleibt 100% erhalten, weil das Assistant- und User-Text-Messages sind.
+**What stays untouched:**
+- All `user` and `assistant` text messages — no matter how old.
+- `tool_call` blocks (the fact that a call happened stays visible — only the result is stubbed).
+- Follow-up question context ("Should I move it to Friday or Monday?" → "Friday") stays 100% preserved, because those are assistant and user text messages.
 
-**Wichtige Invariante:** Nur Tool-Result-Blocks werden gestubbt, niemals Text-Messages.
+**Important invariant:** Only tool-result blocks are stubbed, never text messages.
 
-**Implementierung:** Message-Transformer im Shared Core, läuft vor dem `streamText`-Call. Mit dem Vercel AI SDK ist das eine Funktion die über die `messages`-Array iteriert und Tool-Result-Content-Parts ersetzt. Kein Architektur-Umbau.
+**Implementation:** Message transformer in the shared core, runs before the `streamText` call. With the Vercel AI SDK this is a function that iterates over the `messages` array and replaces tool-result content parts. No architecture rebuild.
 
-**Warum das die alte Compaction-Strategie ersetzt:**
-- **Kein Trust-Killer:** Keine LLM-generierten Summaries im Context. Chat-History bleibt wörtlich lesbar.
-- **Billiger:** Kein zusätzlicher LLM-Summary-Call pro 30 Messages. Purer String-Operation.
-- **Kleinerer Context:** File-Contents (die die teuersten Tokens in der History sind) werden durch ~30-Token-Stubs ersetzt. Context bleibt klein auch nach 100+ Messages.
-- **Sicherer:** Das LLM kann nicht auf einem veralteten File-Snapshot operieren — der Stub signalisiert explizit "re-read if needed".
+**Why this replaces the old compaction strategy:**
+- **No trust killer:** No LLM-generated summaries in the context. Chat history stays literally readable.
+- **Cheaper:** No additional LLM summary call per 30 messages. Pure string operation.
+- **Smaller context:** File contents (the most expensive tokens in the history) are replaced with ~30-token stubs. Context stays small even after 100+ messages.
+- **Safer:** The LLM cannot operate on an outdated file snapshot — the stub explicitly signals "re-read if needed".
 
-**Messages-Tabelle:**
-Das `in_context`-Feld wird umgedeutet: `false` bedeutet nicht mehr "wurde wegsummary'd", sondern "liegt so weit zurück, dass nicht mal mehr der Tool-Call/Text im Context ist" (Hard-Limit bei z.B. 100 Messages als harte Obergrenze). `sessions.summary` entfällt im MVP.
+**Messages table:**
+The `in_context` field is reinterpreted: `false` no longer means "was summarized away", but "is so far back that not even the tool call/text is in context anymore" (hard limit at e.g. 100 messages as a hard upper bound). `sessions.summary` is dropped in MVP.
 
-**Archiv-Zugriff unverändert:** Wenn der User fragt "Was hab ich letzte Woche zum VW-Call gemacht?", triggert das `search_files(..., scope: "archive")` oder `read_file("archive/daily/2026-04-08.md")` — die archivierten Daily Notes und `file_history` sind die Quelle, nicht die Chat-Messages.
+**Archive access unchanged:** When the user asks "What did I do last week about the VW call?", that triggers `search_files(..., scope: "archive")` or `read_file("archive/daily/2026-04-08.md")` — the archived daily notes and `file_history` are the source, not the chat messages.
 
 ## LLM Provider Architecture: Vercel AI SDK
 
-**MVP: Claude only. Architecture: provider-agnostisch via Vercel AI SDK.**
+**MVP: Claude only. Architecture: provider-agnostic via Vercel AI SDK.**
 
-Kein eigenes `LLMService`-Interface nötig — das Vercel AI SDK (`ai` npm-Package) **ist** die Abstraktion. Provider-Wechsel = Import-Swap, kein Code-Umbau. Details zur Integration und Code-Beispiele: siehe "Backend-Architektur: Eigener Node.js-Service" weiter oben.
+No custom `LLMService` interface needed — the Vercel AI SDK (`ai` npm package) **is** the abstraction. Provider switch = import swap, no code rewrite. Details on integration and code examples: see "Backend Architecture: Custom Node.js Service" above.
 
 **Why Claude for MVP:**
 
@@ -1178,22 +1178,22 @@ Kein eigenes `LLMService`-Interface nötig — das Vercel AI SDK (`ai` npm-Packa
 - Sonnet for Premium tier planning/review sessions
 - One provider = one prompt set = one test surface = manageable quality
 
-**Provider-Roadmap:**
+**Provider roadmap:**
 - **MVP:** `@ai-sdk/anthropic` (Claude Haiku + Sonnet)
-- **v2:** `@ai-sdk/openai`, `@ai-sdk/google`, `@ai-sdk/groq` — für Budget-Tier, Alternative-Provider, "Bring your own API key"
-- **v3:** Community-Provider für Ollama (Self-Hosted / lokale Modelle)
+- **v2:** `@ai-sdk/openai`, `@ai-sdk/google`, `@ai-sdk/groq` — for budget tier, alternative providers, "Bring your own API key"
+- **v3:** Community providers for Ollama (self-hosted / local models)
 
-Kein Model-Picker in der UI. Der User wählt nie einen Provider — das Routing passiert intern.
+No model picker in the UI. The user never chooses a provider — routing happens internally.
 
 **Smart routing (internal, invisible to user):**
 
-- "Hak den LinkedIn-Post ab" → Haiku (simple CRUD operation)
-- "Plan meinen morgigen Tag" → Sonnet (needs reasoning about priorities)
-- "Räum meine Inbox auf" → Sonnet (needs judgment for categorization)
-- "Neuer Task: Milch kaufen" → Haiku (trivial insert)
-- (Compaction-Summary-Call entfällt — siehe "Context Management: Tool-Result Pruning")
+- "Check off the LinkedIn post" → Haiku (simple CRUD operation)
+- "Plan my tomorrow" → Sonnet (needs reasoning about priorities)
+- "Tidy up my inbox" → Sonnet (needs judgment for categorization)
+- "New task: buy milk" → Haiku (trivial insert)
+- (Compaction summary call is dropped — see "Context Management: Tool-Result Pruning")
 
-Routing decision is based on message classification, not user choice. A simple keyword/intent classifier (could even be rule-based for MVP) determines which model handles the request. Die Routing-Logik lebt im Shared Core (`packages/core/model-router.ts`).
+Routing decision is based on message classification, not user choice. A simple keyword/intent classifier (could even be rule-based for MVP) determines which model handles the request. The routing logic lives in the shared core (`packages/core/model-router.ts`).
 
 ## Cost Model: Cross-Subsidization
 
@@ -1204,10 +1204,10 @@ This is the standard SaaS model for AI-powered apps (same as ChatGPT, Notion AI,
 **Implications for pricing:**
 
 - Free tier must be tightly capped (5 interactions/day) — enough to experience the value, not enough to cost real money
-- Standard tier uses Haiku only — per-interaction costs **nur dank `edit_file`** realistisch unter $0.002. Mit Volltext-Writes wären Crosscheck-Operationen (mehrere Writes pro User-Message) strukturell unprofitabel gewesen (~$0.005-0.01 pro Interaction mit wachsenden Files). `edit_file` drückt Output-Tokens um Faktor ~30 und macht das Pricing-Modell überhaupt erst tragbar — siehe "LLM Tool Definitions" weiter oben.
+- Standard tier uses Haiku only — per-interaction costs are realistically below $0.002 **only thanks to `edit_file`**. With full-text writes, crosscheck operations (multiple writes per user message) would have been structurally unprofitable (~$0.005-0.01 per interaction with growing files). `edit_file` reduces output tokens by a factor of ~30 and is what makes the pricing model viable in the first place — see "LLM Tool Definitions" above.
 - Premium tier uses Sonnet for planning/review — higher cost, but premium pricing ($12-15/mo) covers it
-- Monitor cost-per-user closely from day one. If heavy users blow up costs, introduce soft throttling (e.g., "Du hast heute schon 80 Interaktionen — morgen geht's weiter mit voller Power" for Standard tier)
-- **Context-Größe stabil trotz langer Sessions:** Tool-Result-Pruning (siehe "Context Management") hält den Input-Token-Count auch nach 100+ Messages nahezu konstant. Keine Input-Token-Explosion bei Power-Usern.
+- Monitor cost-per-user closely from day one. If heavy users blow up costs, introduce soft throttling (e.g., "You've already done 80 interactions today — tomorrow you can continue at full power" for Standard tier)
+- **Context size stable despite long sessions:** Tool-result pruning (see "Context Management") keeps the input token count nearly constant even after 100+ messages. No input-token explosion for power users.
 
 ## Abuse Protection & Rate Limiting
 
@@ -1215,8 +1215,8 @@ The app pays for every LLM call. One user pasting code, essays, or entire docume
 
 **Input Validation (before the request hits the LLM):**
 
-- **Max input length**: Hard cap at ~2000 characters per message. A normal task command is 10-50 words. Nobody needs 2000 characters to say "verschieb den Task auf morgen." Anything beyond that is likely abuse or misuse.
-- **Content heuristic**: If the input looks like code (brackets, semicolons, indentation patterns), a full document, or a long paste — reject with a friendly message: "Das sieht nicht nach einer Task-Anfrage aus. Ich bin dein GTD-Assistent — was kann ich für deine Aufgaben tun?"
+- **Max input length**: Hard cap at ~2000 characters per message. A normal task command is 10-50 words. Nobody needs 2000 characters to say "move the task to tomorrow." Anything beyond that is likely abuse or misuse.
+- **Content heuristic**: If the input looks like code (brackets, semicolons, indentation patterns), a full document, or a long paste — reject with a friendly message: "That doesn't look like a task request. I'm your GTD assistant — what can I do for your tasks?"
 - **File content stays server-side**: The LLM reads the user's GTD files from Supabase. The user never needs to paste file content into the chat.
 
 **Rate Limiting (per user, per tier):**
@@ -1229,9 +1229,9 @@ The app pays for every LLM call. One user pasting code, essays, or entire docume
 
 **Escalation ladder when limits are hit:**
 
-1. **Soft warning**: "Du hast heute schon 80 von 100 Nachrichten verbraucht. Tipp: Fasse mehrere Aufgaben in einer Nachricht zusammen."
+1. **Soft warning**: "You've already used 80 of 100 messages today. Tip: combine multiple tasks into one message."
 2. **Tier downgrade**: When daily limit is reached, route remaining requests to Haiku only (even for Premium users). Cheap, still functional, but no expensive Sonnet calls.
-3. **Hard stop**: After 2x the daily limit (emergency buffer), no more LLM calls until next day. "Für heute ist Schluss. Morgen geht's weiter!"
+3. **Hard stop**: After 2x the daily limit (emergency buffer), no more LLM calls until next day. "That's it for today. Continue tomorrow!"
 4. **Account flagging**: Users who consistently hit 2x limits get flagged for review. Patterns like "pastes 2000 chars every request" trigger automatic investigation.
 
 **Token budget per request (server-side enforcement):**
@@ -1266,7 +1266,7 @@ Voice is the primary interface — if the transcription is bad, the whole produc
 **MVP approach:**
 
 - **Capacitor Speech Recognition plugin** — uses native iOS speech-to-text (Apple's on-device recognition). Free, fast, good quality for short commands. Works offline.
-- Quality is sufficient for "Schieb den VW-Task auf Freitag" style commands
+- Quality is sufficient for "Move the VW task to Friday" style commands
 
 **v2 upgrade path:**
 
@@ -1295,13 +1295,13 @@ A simple, read-only chronological view of all file changes. Not a diff viewer (t
 **UI concept:**
 
 ```
-📅 15. April 2026
+📅 April 15, 2026
   14:32  ✅ "VW Angebot schreiben" → completed (was in Next Actions)
   14:30  📥 "Steuererklärung" → moved from Inbox to Next Actions
   09:15  📝 Daily plan created: 4 tasks scheduled
   09:12  📥 "Milch kaufen" → added to Inbox via voice
 
-📅 14. April 2026
+📅 April 14, 2026
   21:05  📋 Tomorrow planned: 3 tasks from Next Actions
   18:30  ⏩ "DB Followup" → deferred to next week
   ...
@@ -1333,198 +1333,198 @@ For the MVP, the textarea toggle is sufficient and zero effort. CodeMirror 6 is 
 
 ### Phase 1: CLI — "It works in the terminal"
 
-Die Kernhypothese validieren: Funktionieren die Prompts? Ist das GTD-System per Chat bedienbar? Alles lokal, kein Server, kein Supabase.
+Validate the core hypothesis: do the prompts work? Is the GTD system usable via chat? Everything local, no server, no Supabase.
 
 **1.1: Monorepo + Shared Core**
 
-- Nx oder Turborepo Monorepo aufsetzen (`apps/cli`, `packages/core`)
-- `LocalFileRepository` implementieren (liest/schreibt gegen Obsidian Vault)
-- JSON-Log als lokaler file_history-Ersatz
-- Dev-Account: kein Auth, kein Tier-Check
+- Set up Nx or Turborepo monorepo (`apps/cli`, `packages/core`)
+- Implement `LocalFileRepository` (reads/writes against Obsidian vault)
+- JSON log as local file_history substitute
+- Dev account: no auth, no tier check
 
 **1.2: LLM Integration + System Prompt**
 
-- Vercel AI SDK mit `@ai-sdk/anthropic` (Haiku + Sonnet Routing)
-- System Prompt mit GTD-Regeln R1-R13
-- Tool-Handler: `read_file`, `edit_file` (primary, Search/Replace), `write_file` (fallback), `list_files`, `search_files` → delegieren an FileRepository
-- `edit_file`-Server-Logik: Search-Eindeutigkeits-Check (genau 1 Treffer), Retry-Loop bei Ambiguität mit aktuellem File-Content zurück ans LLM, atomare Multi-Edits. Retry-Budget (max. 2 Nachbesserungen pro Datei pro User-Message, danach Abbruch + User-Rückfrage) wird in Phase 1 rein über den System Prompt durchgesetzt — siehe `edit_file`-Tool-Definition, Bullet „Retry-Budget".
-- Request-Builder: System Prompt + Profile + aktive Files + User Message
-- Tool-Result-Pruning: alte Tool-Result-Blocks (>K Messages zurück) durch Stubs ersetzen, Text-Messages unverändert lassen
-- Agentic Loop mit `maxSteps` für Multi-Tool-Call-Requests
+- Vercel AI SDK with `@ai-sdk/anthropic` (Haiku + Sonnet routing)
+- System prompt with GTD rules R1-R13
+- Tool handlers: `read_file`, `edit_file` (primary, search/replace), `write_file` (fallback), `list_files`, `search_files` → delegate to FileRepository
+- `edit_file` server logic: search uniqueness check (exactly 1 match), retry loop on ambiguity with current file content back to the LLM, atomic multi-edits. Retry budget (max. 2 corrections per file per user message, then abort + user follow-up question) is enforced in Phase 1 purely via the system prompt — see `edit_file` tool definition, bullet "Retry budget".
+- Request builder: system prompt + profile + active files + user message
+- Tool-result pruning: replace old tool-result blocks (>K messages back) with stubs, leave text messages unchanged
+- Agentic Loop with `maxSteps` for multi-tool-call requests
 
 **1.3: CLI Chat Interface**
 
-- Terminal-Chat (readline oder Ink)
-- Streaming-Output im Terminal
-- Session-Management: eine Session pro Tag, auto-creation
-- Context-Management: Tool-Result-Pruning (Stubs für alte Tool-Results, Text-Messages bleiben erhalten)
+- Terminal chat (readline or Ink)
+- Streaming output in the terminal
+- Session management: one session per day, auto-creation
+- Context management: tool-result pruning (stubs for old tool results, text messages remain)
 
-**1.4: GTD-Kernlogik**
+**1.4: GTD Core Logic**
 
-- Crosscheck-Engine (R4: nach jeder Operation, Diff-Reporting im Chat)
-- Daily Note Lifecycle (R5: aktiv vs. Archiv, Cleanup vergangener Notes)
-- Tagesplan-Generierung
-- Input-Validierung (Content-Heuristik gegen Missbrauch)
+- Crosscheck engine (R4: after every operation, diff reporting in the chat)
+- Daily Note lifecycle (R5: active vs. archive, cleanup of past notes)
+- Daily plan generation
+- Input validation (content heuristic against abuse)
 
-**Deliverable:** Eine CLI die alles kann was die spätere App kann, minus UI. Tägliches Dogfooding gegen das eigene Obsidian Vault.
+**Deliverable:** A CLI that does everything the later app can do, minus UI. Daily dogfooding against the own Obsidian vault.
 
-**Validation Checkpoint:** Wenn die Prompts in der CLI nicht zuverlässig funktionieren, hilft kein UI. Diese Phase beweist oder killt die Produktthese.
-
----
-
-### Phase 2a: Backend + Angular — "Es chattet in der App"
-
-Der Shared Core wandert in einen Express-Server. Angular-Client kommuniziert per SSE. Supabase als Datenbank + Auth. **Kein Payment, kein App Store** — das Ziel ist ein funktionierender Chat mit Persistence.
-
-**2a.1: Express Backend-Service — gegen das Vault**
-
-Der Shared Core bekommt einen HTTP-Layer. Persistenz bleibt das echte Obsidian Vault (`LocalFileRepository`). Kein Supabase nötig für diesen Schritt — Ziel ist den HTTP/SSE/Agentic-Loop-Pfad gangbar zu machen, ohne Dogfooding zu unterbrechen.
-
-- Express/Fastify Server mit Shared Core aus Phase 1
-- `LocalFileRepository` weiterbenutzen (exakt dieselbe Instanz wie die CLI — Server liest/schreibt gegen dein Vault)
-- Auth Middleware in Stub-Modus: fixer `DEV_USER_ID` aus Umgebungsvariable, kein JWT-Check
-- `POST /api/chat` — Kern-Endpoint: User Message → Agentic Loop → SSE Stream
-- `GET/PUT /api/files/:path` — Direkter File-Zugriff
-- `GET /api/profile`, `PUT /api/profile` (Profil als lokale `profile.md` oder JSON, solange wir noch nicht auf Supabase sind)
-- **Kein Rate Limiting / Usage Tracking / Tier-Check in diesem Pfad** — alles unlimited, es geht nur um den Code-Pfad
-
-**2a.2: Supabase-Checkpoint**
-
-Bewusst zeitlich definierter Schritt, um die Supabase-Integration zu validieren, bevor sie für Prod genutzt wird. Keine Abkehr vom Vault-Pfad — beide laufen parallel weiter, per Config-Switch wählbar.
-
-- Supabase-Projekt: Tabellen (files, file_history, sessions, messages, profiles, usage)
-- Row-Level Security Policies auf allen Tabellen (siehe „Multi-Tenancy")
-- `SupabaseFileRepository` implementieren (parallel zu `LocalFileRepository`, selbes Interface)
-- Migration-Script Vault → Supabase: liest Markdown-Files, `INSERT` in `files`-Table (~20 Zeilen, kein echter Schmerz — siehe „Dev vs. Prod Setup")
-- Supabase Auth aktivieren: JWT-Validierung in der Middleware (Stub-Mode fällt weg wenn `REPOSITORY=supabase`)
-- Seed-Migration: Dev-Account mit `subscription_tier = 'unlimited'`
-- Rate Limiting + Usage Tracking (per-user, per-day) auf diesem Pfad testen
-- Deployment-Target Railway/Render vorbereiten
-
-**2a.3: Angular + Capacitor Shell**
-
-- Angular 19+ Projekt mit Capacitor
-- Supabase Auth Integration (Apple Sign-In, Google, Email)
-- Chat-View: Message-Liste, Eingabefeld, Senden-Button
-- SSE-Streaming: `provideHttpClient(withFetch())` + Signals + RxJS
-- Session-Anzeige: heutiger Chat, scrollbare History vergangener Tage
-
-**2a.4: Voice Input**
-
-- Capacitor Speech Recognition Plugin (native iOS/Android STT)
-- Tap-to-speak, Release-to-send
-- Transkription → normaler Chat-Input
-
-**Deliverable:** Eine App in der man chatten kann, die Daten in Supabase persistiert, und die sich mit Supabase Auth anmelden lässt. Man kann sie lokal auf dem Gerät testen (Capacitor Live Reload). Kein App Store, kein Payment.
-
-**Validation Checkpoint:** Funktioniert der Chat-Flow end-to-end? Ist die Latenz akzeptabel? Fühlt sich Voice Input brauchbar an?
+**Validation Checkpoint:** If the prompts don't work reliably in the CLI, no UI will help. This phase proves or kills the product thesis.
 
 ---
 
-### Phase 2b: Features + Trust — "Die App ist komplett"
+### Phase 2a: Backend + Angular — "It chats in the app"
 
-Die App bekommt alle Features die sie von einem simplen Chatbot unterscheiden. Hashbrown Generative UI, File-Browser, History, Settings.
+The shared core moves into an Express server. Angular client communicates via SSE. Supabase as database + auth. **No payment, no App Store** — the goal is a functioning chat with persistence.
+
+**2a.1: Express backend service — against the vault**
+
+The shared core gets an HTTP layer. Persistence remains the real Obsidian vault (`LocalFileRepository`). No Supabase needed for this step — the goal is to make the HTTP/SSE/Agentic-Loop path workable without interrupting dogfooding.
+
+- Express/Fastify server with shared core from Phase 1
+- Continue using `LocalFileRepository` (exactly the same instance as the CLI — server reads/writes against your vault)
+- Auth middleware in stub mode: fixed `DEV_USER_ID` from environment variable, no JWT check
+- `POST /api/chat` — core endpoint: user message → Agentic Loop → SSE stream
+- `GET/PUT /api/files/:path` — direct file access
+- `GET /api/profile`, `PUT /api/profile` (profile as local `profile.md` or JSON, as long as we are not yet on Supabase)
+- **No rate limiting / usage tracking / tier check on this path** — everything unlimited, it's only about the code path
+
+**2a.2: Supabase checkpoint**
+
+A deliberately time-bounded step to validate the Supabase integration before it is used for prod. No abandonment of the vault path — both continue running in parallel, selectable via config switch.
+
+- Supabase project: tables (files, file_history, sessions, messages, profiles, usage)
+- Row-Level Security policies on all tables (see "Multi-Tenancy")
+- Implement `SupabaseFileRepository` (parallel to `LocalFileRepository`, same interface)
+- Migration script vault → Supabase: reads markdown files, `INSERT` into `files` table (~20 lines, no real pain — see "Dev vs. Prod Setup")
+- Activate Supabase Auth: JWT validation in middleware (stub mode is dropped when `REPOSITORY=supabase`)
+- Seed migration: dev account with `subscription_tier = 'unlimited'`
+- Test rate limiting + usage tracking (per-user, per-day) on this path
+- Prepare deployment target Railway/Render
+
+**2a.3: Angular + Capacitor shell**
+
+- Angular 19+ project with Capacitor
+- Supabase Auth integration (Apple Sign-In, Google, Email)
+- Chat view: message list, input field, send button
+- SSE streaming: `provideHttpClient(withFetch())` + Signals + RxJS
+- Session display: today's chat, scrollable history of past days
+
+**2a.4: Voice input**
+
+- Capacitor Speech Recognition plugin (native iOS/Android STT)
+- Tap-to-speak, release-to-send
+- Transcription → normal chat input
+
+**Deliverable:** An app you can chat in, that persists data in Supabase, and that lets you sign in with Supabase Auth. You can test it locally on the device (Capacitor Live Reload). No App Store, no payment.
+
+**Validation Checkpoint:** Does the chat flow work end-to-end? Is the latency acceptable? Does voice input feel usable?
+
+---
+
+### Phase 2b: Features + Trust — "The app is complete"
+
+The app gets all the features that distinguish it from a simple chatbot. Hashbrown Generative UI, file browser, history, settings.
 
 **2b.1: Generative UI (Hashbrown)**
 
-- Hashbrown Integration für Tool-Cards im Chat
-- `TaskDiffCard` — zeigt was verschoben/erledigt wurde
-- `DailyPlanCard` — Tagesplan-Vorschlag mit Bestätigen/Anpassen
-- `InboxReviewCard` — Inbox-Items mit Kategorisierungs-Vorschlägen
-- `ConsistencyReportCard` — Crosscheck-Ergebnisse mit Details
-- `SessionStartCard` — Context-Aware Suggestion beim App-Start (R12)
+- Hashbrown integration for tool cards in the chat
+- `TaskDiffCard` — shows what was moved/completed
+- `DailyPlanCard` — daily plan proposal with confirm/adjust
+- `InboxReviewCard` — inbox items with categorization suggestions
+- `ConsistencyReportCard` — crosscheck results with details
+- `SessionStartCard` — context-aware suggestion at app start (R12)
 
-**2b.2: File Views + Editing**
+**2b.2: File views + editing**
 
-- GTD File-Browser (Inbox, Focus, Next Actions, Waiting, Someday/Maybe)
-- Rendered Markdown View (ngx-markdown)
-- Edit-Mode Toggle (Textarea für MVP)
-- Archiv-Browser (read-only, vergangene Daily Notes)
+- GTD file browser (Inbox, Focus, Next Actions, Waiting, Someday/Maybe)
+- Rendered markdown view (ngx-markdown)
+- Edit mode toggle (textarea for MVP)
+- Archive browser (read-only, past daily notes)
 
-**2b.3: History + Trust**
+**2b.3: History + trust**
 
-- History/Changelog View (liest `file_history`-Tabelle)
-- User-Profil View + Edit (Ziele, Kontext, Präferenzen)
+- History/changelog view (reads `file_history` table)
+- User profile view + edit (goals, context, preferences)
 
-**2b.4: Settings-Screen**
+**2b.4: Settings screen**
 
-- Account-Info (Email, Provider)
-- Subscription-Badge (Tier anzeigen — in dieser Phase noch hardcoded)
-- GTD-Profil bearbeiten
+- Account info (email, provider)
+- Subscription badge (show tier — still hardcoded in this phase)
+- Edit GTD profile
 
-**Deliverable:** Feature-complete App. Bereit für Beta-Tester. Alle GTD-Flows funktionieren, Generative UI zeigt interaktive Cards statt Textwänden, History schafft Vertrauen.
+**Deliverable:** Feature-complete app. Ready for beta testers. All GTD flows work, Generative UI shows interactive cards instead of walls of text, history creates trust.
 
-**Validation Checkpoint:** Testen mit 5-10 Beta-Usern. Ist das Vertrauen da? Funktioniert die Consistency Engine? Verstehen nicht-technische User die App?
+**Validation Checkpoint:** Test with 5-10 beta users. Is the trust there? Does the consistency engine work? Do non-technical users understand the app?
 
 ---
 
-### Phase 2c: Monetization + Distribution — "Es ist ein Produkt"
+### Phase 2c: Monetization + Distribution — "It's a product"
 
-Erst wenn die App feature-complete und beta-getestet ist, kommt Payment und App Store dazu.
+Only when the app is feature-complete and beta-tested does payment and the App Store come in.
 
-**2c.1: Stripe Integration (Web)**
+**2c.1: Stripe integration (web)**
 
-- Stripe Account + Products/Prices anlegen (Standard, Premium)
-- `POST /api/billing/checkout` — Checkout Session erstellen
-- `GET /api/billing/portal` — Customer Portal Link generieren
-- `POST /api/webhooks/stripe` — Webhook Handler für alle Subscription Events
-- Webhook-Sicherheit: Stripe Signatur-Validierung
-- `profiles`-Tabelle: `subscription_tier` + `stripe_customer_id` + `subscription_valid_until`
+- Set up Stripe account + products/prices (Standard, Premium)
+- `POST /api/billing/checkout` — create checkout session
+- `GET /api/billing/portal` — generate customer portal link
+- `POST /api/webhooks/stripe` — webhook handler for all subscription events
+- Webhook security: Stripe signature validation
+- `profiles` table: `subscription_tier` + `stripe_customer_id` + `subscription_valid_until`
 
-**2c.2: RevenueCat Integration (App Store)**
+**2c.2: RevenueCat integration (App Store)**
 
-- RevenueCat SDK in Capacitor einbinden
-- App Store Connect: In-App Purchases anlegen (Standard, Premium Abo)
-- RevenueCat → Stripe Sync (ein Ort für Subscription-Status)
-- `POST /api/webhooks/revenuecat` — Webhook Handler
+- Embed RevenueCat SDK in Capacitor
+- App Store Connect: set up in-app purchases (Standard, Premium subscription)
+- RevenueCat → Stripe sync (one place for subscription status)
+- `POST /api/webhooks/revenuecat` — webhook handler
 
-**2c.3: Paywall + Trial-Logik**
+**2c.3: Paywall + trial logic**
 
-- Trial-Timer: 14 Tage ab Registrierung, danach Paywall
-- Tier-basiertes Feature-Gating im Backend (Model-Routing, Rate Limits)
-- Upgrade/Downgrade-Flow im Settings-Screen
-- Freundliche Hinweise bei Trial-Ablauf ("Noch 3 Tage...")
+- Trial timer: 14 days from registration, then paywall
+- Tier-based feature gating in the backend (model routing, rate limits)
+- Upgrade/downgrade flow in settings screen
+- Friendly hints on trial expiry ("3 days left...")
 
-**2c.4: Abuse Protection (Production-Grade)**
+**2c.4: Abuse protection (production-grade)**
 
-- Input-Validierung (Content-Heuristik, max. Zeichenlänge)
-- Per-User Rate Limiting (Tier-basiert)
-- Token-Budget Tracking + Alerting
-- Anomalie-Erkennung (User verbraucht 10x Durchschnitt)
+- Input validation (content heuristic, max character length)
+- Per-user rate limiting (tier-based)
+- Token budget tracking + alerting
+- Anomaly detection (user consumes 10x average)
 
-**2c.5: App Store Submission**
+**2c.5: App Store submission**
 
-- App Store Review Guidelines einhalten
-- Apple Sign-In (Pflicht für iOS)
-- Privacy Policy, Terms of Service
-- App Store Screenshots, Beschreibung, Keywords
+- Comply with App Store Review Guidelines
+- Apple Sign-In (mandatory for iOS)
+- Privacy policy, terms of service
+- App Store screenshots, description, keywords
 - iOS first, Android later
 
-**2c.6: Web App**
+**2c.6: Web app**
 
-- Selbe Angular-Codebase als PWA oder gehostete Web-App deployen
-- Desktop Use Case (Weekly Reviews, längere Planning-Sessions)
-- Stripe Checkout (statt App Store) für Web-User
+- Deploy the same Angular codebase as a PWA or hosted web app
+- Desktop use case (weekly reviews, longer planning sessions)
+- Stripe Checkout (instead of App Store) for web users
 
-**Deliverable:** Native iOS App im App Store + Web App für Desktop. Das Produkt ist live und monetarisiert.
+**Deliverable:** Native iOS app in the App Store + web app for desktop. The product is live and monetized.
 
 ---
 
-### Phase 3: Extensions (wenn Nachfrage es rechtfertigt)
+### Phase 3: Extensions (when demand justifies it)
 
-- Android App (selbe Codebase, Capacitor Build)
-- CodeMirror 6 Upgrade für Rich Markdown Editing
-- Visual Diff UI für File History
-- Daten-Export (ZIP mit allen Markdown-Files)
-- Zusätzliche LLM Provider (OpenAI, Groq, Ollama via Vercel AI SDK)
-- "Bring your own API key" für Power User
-- MCPs, Kalender-Integration, Email-Sync
-- Team-Features (v3+, erfordert Permission-Modell)
-- **Self-Hosted Deployment mit Filesystem-Backend:** Da der Server bereits in Phase 2a gegen `LocalFileRepository` läuft, ist das keine neue Architektur, sondern ein offiziell unterstützter Deployment-Mode. Wer den Server selbst hostet und keinen Supabase-Account möchte, konfiguriert `REPOSITORY=local` + einen Vault-Pfad; der Server speichert Files dort und hält seine eigene lokale History-Datei statt `file_history`-Tabelle. Kein Auth-Provider nötig (oder optional lokale Auth). Das passt zur AGPL-Community und zum Open-Source-Narrativ — und kostet fast nichts, weil der Pfad sowieso in Dev genutzt wird.
+- Android app (same codebase, Capacitor build)
+- CodeMirror 6 upgrade for rich markdown editing
+- Visual diff UI for file history
+- Data export (ZIP with all markdown files)
+- Additional LLM providers (OpenAI, Groq, Ollama via Vercel AI SDK)
+- "Bring your own API key" for power users
+- MCPs, calendar integration, email sync
+- Team features (v3+, requires permission model)
+- **Self-hosted deployment with filesystem backend:** Since the server already runs against `LocalFileRepository` in Phase 2a, this is not new architecture, but an officially supported deployment mode. Whoever self-hosts the server and doesn't want a Supabase account configures `REPOSITORY=local` + a vault path; the server stores files there and keeps its own local history file instead of `file_history` table. No auth provider needed (or optional local auth). This fits the AGPL community and the open-source narrative — and costs almost nothing, because the path is used in dev anyway.
 
-**Explizit nie: Native Desktop App**
+**Explicitly never: native desktop app**
 
-- Kein Electron, kein Tauri. Die Web App ist der Desktop-Client.
+- No Electron, no Tauri. The web app is the desktop client.
 - The web app IS the desktop client
 
 ## MVP Scope (Deliberately Minimal)
@@ -1537,10 +1537,10 @@ Erst wenn die App feature-complete und beta-getestet ist, kommt Payment und App 
 - Paywall with subscription (RevenueCat)
 - Basic daily note generation
 - GTD folder structure (Inbox, Focus, Next Actions, Waiting, Someday/Maybe — **no Projects folder**, projects live as subheadings inside `next-actions.md`)
-- **Archive policy** (siehe „Archive Layout & Lifecycle"):
-  - Completed tasks → **gelöscht** (kein separates Archiv; Trail in `file_history` + Daily-Note-Log)
-  - Past daily notes → automatisch beim Tageswechsel nach `archive/daily/` verschoben
-  - Past chat sessions → bleiben in-place in der DB, on-demand weiter-beschreibbar via Session-Switching
+- **Archive policy** (see "Archive Layout & Lifecycle"):
+  - Completed tasks → **deleted** (no separate archive; trail in `file_history` + daily note log)
+  - Past daily notes → automatically moved to `archive/daily/` on day rollover
+  - Past chat sessions → remain in-place in the DB, writable on demand via session switching
 - Archive excluded from routine LLM context (only accessed on explicit user request)
 - History view (changelog from file_history table)
 - Abuse protection (input validation, rate limiting, token budgets)
@@ -1558,179 +1558,179 @@ Erst wenn die App feature-complete und beta-getestet ist, kommt Payment und App 
 
 ## System Prompt Rules (R1-R13)
 
-### R1: Datenmodell — Fünf Listen + Daily Notes
+### R1: Data Model — Five Lists + Daily Notes
 
-| Liste | Zweck | Im Crosscheck? |
-|-------|-------|----------------|
-| **Inbox** | Unverarbeitete Aufgaben, Rohgedanken | Nein |
-| **Focus** | 3–5 Wochenprioritäten (konkrete Tasks, nicht nur Projekte) | Ja |
-| **Next Actions** | Alle konkreten nächsten Schritte, gruppiert nach Kategorien und Projekt-Blöcken | Ja |
-| **Waiting** | Blockierte Tasks (warten auf andere Personen/Rückmeldungen) | Ja |
-| **Someday Maybe** | Ideen ohne Zeitdruck | Nur beim Weekly Review |
-| **Daily Note** | Tagesplan + Protokoll (Plan, Log, Notizen). Nur die heutige Note ist im Crosscheck. | Ja (nur heute) |
+| List | Purpose | In crosscheck? |
+|------|---------|----------------|
+| **Inbox** | Unprocessed tasks, raw thoughts | No |
+| **Focus** | 3–5 weekly priorities (concrete tasks, not just projects) | Yes |
+| **Next Actions** | All concrete next steps, grouped by categories and project blocks | Yes |
+| **Waiting** | Blocked tasks (waiting on other people/responses) | Yes |
+| **Someday Maybe** | Ideas without time pressure | Only on weekly review |
+| **Daily Note** | Daily plan + log (plan, log, notes). Only today's note is in the crosscheck. | Yes (only today) |
 
-### R2: Single-Location-Invariante
+### R2: Single-Location Invariant
 
-Ein Task existiert **immer an genau einem Ort**. Verschieben, nicht kopieren.
+A task always exists **in exactly one place**. Move, don't copy.
 
-**Ausnahme:** Focus und Next Actions dürfen denselben Task enthalten — Focus ist die Wochenpriorisierung von Next-Actions-Tasks. Aber: Wenn ein Task in einem der beiden Orte erledigt/verschoben wird, muss er im anderen synchronisiert werden.
+**Exception:** Focus and Next Actions may contain the same task — Focus is the weekly prioritization of Next Actions tasks. But: when a task is completed/moved in either of the two places, it must be synchronized in the other.
 
 **Flow:**
-- Neuer Task → Inbox
-- Verarbeitet → Next Actions (aus Inbox entfernen)
-- Priorisiert → Focus (bleibt auch in Next Actions)
-- Blockiert → Waiting (aus Focus UND Next Actions entfernen)
-- Kein Zeitdruck → Someday Maybe (aus Next Actions entfernen)
-- Erledigt → aus allen Listen entfernen/abhaken
+- New task → Inbox
+- Processed → Next Actions (remove from Inbox)
+- Prioritized → Focus (also stays in Next Actions)
+- Blocked → Waiting (remove from Focus AND Next Actions)
+- No time pressure → Someday Maybe (remove from Next Actions)
+- Done → remove/check off in all lists
 
-### R3: Daily Note ↔ Task-System Beziehung
+### R3: Daily Note ↔ Task System Relationship
 
-- **Single Source of Truth** für Tasks = Focus / Next Actions / Waiting. Daily Notes sind Tagespläne und Protokolle, keine Task-Verwaltung.
-- **Tagesplanung:** Tasks aus Focus/Next Actions in den Daily-Note-Plan kopieren. Der Task bleibt in Focus/Next Actions stehen.
-- **Transiente Tasks:** Flüchtige Tages-Tasks dürfen direkt in der Daily Note entstehen und dort bleiben, ohne ins Tasksystem aufgenommen zu werden.
-- **Sync:** User löst Sync aus → System gleicht Daily-Note-Plan mit Tasksystem ab:
-  - Erledigte Tasks → in Focus/Next Actions abhaken/entfernen
-  - Nicht erledigte Tasks → bleiben in Focus/Next Actions (kein Handlungsbedarf)
-  - Neue Tasks aus dem Log → ggf. in Inbox/Next Actions aufnehmen
+- **Single source of truth** for tasks = Focus / Next Actions / Waiting. Daily Notes are daily plans and logs, not task management.
+- **Daily planning:** Copy tasks from Focus/Next Actions into the daily note plan. The task remains in Focus/Next Actions.
+- **Transient tasks:** Ephemeral daily tasks may arise directly in the daily note and stay there, without being added to the task system.
+- **Sync:** User triggers sync → system reconciles daily note plan with task system:
+  - Completed tasks → check off/remove in Focus/Next Actions
+  - Not completed tasks → remain in Focus/Next Actions (no action needed)
+  - New tasks from the log → add to Inbox/Next Actions if applicable
 
-### R4: Crosscheck-Protokoll (bei JEDER Task-Operation)
+### R4: Crosscheck Protocol (on EVERY task operation)
 
-Wird bei jeder Task-Operation ausgeführt: neuer Task, erledigt, verschoben, Status-Update, Waiting-Änderung.
+Executed on every task operation: new task, completed, moved, status update, waiting change.
 
-**Schritt 1 — Kontext laden:**
-Heutige Daily Note + alle betroffenen Task-Listen (Focus, Next Actions, Waiting) lesen. Nicht aus Cache/Memory arbeiten, sondern aktuellen Stand laden.
+**Step 1 — Load context:**
+Read today's daily note + all affected task lists (Focus, Next Actions, Waiting). Don't work from cache/memory, load the current state.
 
-**Schritt 2 — Änderung durchführen:**
-Die eigentliche Task-Operation ausführen.
+**Step 2 — Perform change:**
+Execute the actual task operation.
 
-**Schritt 3 — Kreuz-Check (Focus ↔ Next Actions ↔ Waiting ↔ Daily Note):**
-- Ist der Task an genau einem Ort? (Keine Duplikate, kein Waisenkind — Ausnahme: Focus ↔ Next Actions Dopplung erlaubt)
-- Task → Waiting: aus Focus + Next Actions entfernen
-- Task erledigt: aus Focus + Next Actions + Waiting entfernen
-- Task in Next Actions geändert → auch in Focus prüfen und aktualisieren
-- Task in Focus geändert → auch in Next Actions prüfen und aktualisieren
-- Neuer dringender Task → gehört er in den heutigen Daily-Note-Plan?
-- Task aus Focus entfernt → heutigen Plan prüfen
-- **Nicht geprüft:** Someday Maybe (nur Weekly Review), Inbox (nur Unverarbeitetes)
+**Step 3 — Cross-check (Focus ↔ Next Actions ↔ Waiting ↔ Daily Note):**
+- Is the task in exactly one place? (No duplicates, no orphans — exception: Focus ↔ Next Actions duplication allowed)
+- Task → Waiting: remove from Focus + Next Actions
+- Task done: remove from Focus + Next Actions + Waiting
+- Task changed in Next Actions → also check and update in Focus
+- Task changed in Focus → also check and update in Next Actions
+- New urgent task → does it belong in today's daily note plan?
+- Task removed from Focus → check today's plan
+- **Not checked:** Someday Maybe (only weekly review), Inbox (only unprocessed)
 
-**Schritt 4 — Daily Note synchron halten:**
-- Heutige Daily Note vorhanden + Plan existiert → Prüfen ob Änderungen den Plan betreffen
-- Tasks im Plan die im Tasksystem nicht mehr existieren → User informieren
-- Tasks in Focus die NICHT im heutigen Plan stehen → User darauf hinweisen
+**Step 4 — Keep daily note in sync:**
+- Today's daily note exists + plan exists → check whether changes affect the plan
+- Tasks in the plan that no longer exist in the task system → notify user
+- Tasks in Focus that are NOT in today's plan → point user to them
 
-**Schritt 5 — Abweichungen melden:**
-System meldet Inkonsistenzen aktiv. Beispiele:
-- "Task X steht in der Daily Note, ist aber jetzt in Waiting — im Plan vermerken?"
-- "In Focus steht Y, taucht im heutigen Plan nicht auf — ergänzen?"
-- "Erledigter Task Z steht noch in Next Actions — wird entfernt."
-- "Task X in Focus erledigt, steht noch offen in Next Actions — wird abgeglichen."
+**Step 5 — Report deviations:**
+System actively reports inconsistencies. Examples:
+- "Task X is in the daily note but is now in Waiting — note in plan?"
+- "Focus has Y, but it doesn't show up in today's plan — add it?"
+- "Completed task Z is still in Next Actions — will be removed."
+- "Task X completed in Focus, still open in Next Actions — will be reconciled."
 
-**Grundregel:** Lieber einmal zu viel prüfen als eine Inkonsistenz still durchgehen lassen.
+**Basic rule:** Better to check once too many than to let an inconsistency silently slip through.
 
-### R5: Daily-Note-Lifecycle
+### R5: Daily Note Lifecycle
 
-- **Aktive Note (heute):** Liegt unter `daily/YYYY-MM-DD.md`. Zu jedem Zeitpunkt existiert genau **eine** aktive Daily Note. Wird beim Crosscheck gelesen und aktualisiert.
-- **Automatisches Archivieren beim Tageswechsel:** Beim ersten User-Request eines neuen Kalendertags wird die Daily Note des Vortags (und alle anderen Files in `daily/`) **server-seitig** nach `archive/daily/YYYY-MM-DD.md` verschoben, bevor der LLM-Request gebaut wird. Eine neue leere `daily/YYYY-MM-DD.md` für heute wird angelegt. Details: siehe „Archive Layout & Lifecycle" in der Architektur.
-- **Bei diesem Archive-Move aufräumen:** Offene Checkboxen werden rausgelöscht (nicht durchgestrichen). Im Log wird ein Verschoben-Vermerk eingetragen (z.B. „Session-Prep → Sa 18.4."). Erledigte Tasks `[x]` bleiben stehen.
-- **Vergangene Notes sind Archiv:** In `archive/daily/` abgelegt. Werden beim täglichen Crosscheck NICHT gelesen.
-- **On-Demand-Zugriff:** User kann jederzeit nach vergangenen Tagen fragen — System liest gezielt via `read_file("archive/daily/YYYY-MM-DD.md")` oder `search_files(scope: "archive")`.
+- **Active note (today):** Located at `daily/YYYY-MM-DD.md`. At any point in time, exactly **one** active daily note exists. Read and updated during crosscheck.
+- **Automatic archiving on day rollover:** On the user's first request of a new calendar day, the previous day's daily note (and all other files in `daily/`) is moved **server-side** to `archive/daily/YYYY-MM-DD.md` before the LLM request is built. A new empty `daily/YYYY-MM-DD.md` for today is created. Details: see "Archive Layout & Lifecycle" in the architecture.
+- **Tidy up during this archive move:** Open checkboxes are deleted (not struck through). A "moved" note is added in the log (e.g. "Session prep → Sat 4/18"). Completed tasks `[x]` remain.
+- **Past notes are archive:** Stored in `archive/daily/`. NOT read during the daily crosscheck.
+- **On-demand access:** User can ask about past days at any time — the system reads via `read_file("archive/daily/YYYY-MM-DD.md")` or `search_files(scope: "archive")`.
 
-### R6: Next-Actions-Struktur — Zweistufig in einer Datei
+### R6: Next Actions Structure — Two-Level in One File
 
-Alles lebt in **einer** Datei: `tasks/next-actions.md`. Keine separaten Projekt-Files, kein `projects/`-Verzeichnis.
+Everything lives in **one** file: `tasks/next-actions.md`. No separate project files, no `projects/` directory.
 
-**Stufe 1 — Top-Level-Kategorien** als Markdown-Headings: Work, Haus & Garten, Finanzen, Persönlich.
+**Level 1 — top-level categories** as Markdown headings: Work, House & Garden, Finances, Personal.
 
-**Stufe 2 — Gruppen-/Projekt-Blöcke** als Subheadings **innerhalb** einer Kategorie, wenn diese viele unzusammenhängende Tasks enthält.
+**Level 2 — group/project blocks** as subheadings **within** a category, when it contains many unrelated tasks.
 
-Beispiel für Work:
-- **Praxis-Session 21.4.** (zeitgebunden, wird nach Abschluss entfernt)
-- **Positionierung & Sichtbarkeit** (LinkedIn, Website, YouTube, Netzwerk, Content)
-- **Produkte & Prototypen** (Spec Review Tool, OnPush-Migration)
-- **Sonstiges**
+Example for Work:
+- **Practice session 4/21** (time-bound, removed after completion)
+- **Positioning & Visibility** (LinkedIn, website, YouTube, network, content)
+- **Products & Prototypes** (Spec Review Tool, OnPush migration)
+- **Other**
 
-Kategorien die überschaubar bleiben brauchen keine Subheadings. Einzelaufgaben ohne Gruppe können lose direkt unter der Kategorie stehen. Subheadings dürfen jederzeit hinzukommen, umbenannt oder entfernt werden — es gibt keine „Projekt-Entität" im Datenmodell, nur Struktur innerhalb einer Datei.
+Categories that remain manageable don't need subheadings. Single tasks without a group can stand loose directly under the category. Subheadings can be added, renamed or removed at any time — there is no "project entity" in the data model, only structure within a file.
 
-### R7: Weekly Review (Freitags)
+### R7: Weekly Review (Fridays)
 
-Wird beim Weekly Review zusätzlich geprüft (über den täglichen Crosscheck hinaus):
-- **Abgehakte Tasks aufräumen:** Alle `[x]`-Einträge aus Focus, Next Actions und Waiting löschen. Kein separates Archiv — die History lebt in den Daily Notes (Log) und in der App zusätzlich in der `file_history`-Tabelle. Doppelte Buchhaltung vermeiden.
-- **Someday Maybe** durchsehen — etwas reaktivieren?
-- **Inbox** vollständig verarbeiten
-- **Focus** neu bestücken für die kommende Woche
-- **Next Actions** aufräumen — veraltete Tasks entfernen, Projekt-Blöcke aktualisieren
-- **Waiting** durchgehen — überfällige Rückmeldungen identifizieren, ggf. nachhaken
-- **Daily Notes** der nächsten Woche vorbereiten (soweit sinnvoll)
+Additionally checked on weekly review (beyond the daily crosscheck):
+- **Tidy completed tasks:** Delete all `[x]` entries from Focus, Next Actions and Waiting. No separate archive — the history lives in the daily notes (log) and additionally in the app in the `file_history` table. Avoid double bookkeeping.
+- **Someday Maybe** review — reactivate something?
+- **Inbox** fully process
+- **Focus** repopulate for the coming week
+- **Next Actions** tidy — remove outdated tasks, update project blocks
+- **Waiting** review — identify overdue responses, follow up if applicable
+- **Daily Notes** for the next week prepare (where it makes sense)
 
-**Review-Marker (Persistenz über Sessions hinweg):** Nach jedem abgeschlossenen Weekly Review schreibt das System oben in `Focus.md` einen Header-Marker im Format `**Letztes Weekly Review: YYYY-MM-DD (Wochentag)**`. Der Marker dient als Single Source of Truth, *wann* der letzte Review stattfand — keine separate DB-Spalte, kein zusätzliches State-File, die Info lebt sichtbar im Vault. Die Review-Suggestion-Logik (siehe R11 / R12) liest diesen Marker, parst das Datum und vergleicht datumsbasiert:
-- Marker-Datum fällt in die laufende ISO-KW (Mo–So) → Review bereits durchgeführt, nicht erneut vorschlagen.
-- Marker-Datum > 8 Tage alt oder Marker fehlt → aktiv vorschlagen.
+**Review marker (persistence across sessions):** After each completed weekly review, the system writes a header marker at the top of `Focus.md` in the format `**Last Weekly Review: YYYY-MM-DD (Weekday)**`. The marker serves as the single source of truth for *when* the last review took place — no separate DB column, no additional state file, the info lives visibly in the vault. The review suggestion logic (see R11 / R12) reads this marker, parses the date and compares date-based:
+- Marker date falls within the current ISO week (Mon–Sun) → review already done, do not propose again.
+- Marker date > 8 days old or marker missing → actively propose.
 
-Der Marker enthält **keine** KW-Nummer im String — ISO-KW wird zur Laufzeit aus dem Datum berechnet. Grund: Manche Kalender/Nutzer verwenden abweichende KW-Zählungen; die Vergleichslogik bleibt davon unberührt, solange sie das Datum parst.
+The marker contains **no** week number in the string — ISO week is computed at runtime from the date. Reason: some calendars/users use deviating week numbering; the comparison logic remains unaffected as long as it parses the date.
 
-Damit bleibt die Review-Erinnerung auch über parallele Sessions / Geräte hinweg idempotent.
+This way the review reminder remains idempotent across parallel sessions / devices.
 
-### R8: Task-Format
+### R8: Task Format
 
-Tasks als Markdown-Checkboxen:
-- `- [ ] Task-Beschreibung` (offen)
-- `- [x] Task-Beschreibung` (erledigt)
-- Sub-Tasks eingerückt mit Tab
-- Optional mit Links/Referenzen: `- [ ] Rechnung schreiben [[Robinienwelt]]`
+Tasks as Markdown checkboxes:
+- `- [ ] Task description` (open)
+- `- [x] Task description` (done)
+- Sub-tasks indented with tab
+- Optionally with links/references: `- [ ] Write invoice [[Robinienwelt]]`
 
-### R9: Daily-Note-Format
+### R9: Daily Note Format
 
-Drei Bereiche pro Daily Note:
-- **Plan** — Was heute vorgenommen wird (Tasks aus Focus/Next Actions + transiente Tages-Tasks)
-- **Log** — Was tatsächlich passiert ist (chronologisch, mit Zeitstempeln)
-- **Notizen** — Freie Notizen zum Tag
+Three sections per daily note:
+- **Plan** — what is planned for today (tasks from Focus/Next Actions + transient daily tasks)
+- **Log** — what actually happened (chronological, with timestamps)
+- **Notes** — free notes for the day
 
-### R10: Chat-Interface-Kommandos (natürliche Sprache)
+### R10: Chat Interface Commands (natural language)
 
-Das System erkennt Intent aus natürlicher Sprache. Keine starren Kommandos, aber typische Muster:
-- "Neuer Task: X" → Inbox
-- "Was steht an?" / "Was steht heute an?" → Focus + heutige Daily Note zeigen
-- "Task erledigt: X" → Abhaken + Crosscheck
-- "Verschieb X nach [Ziel]" → Umsortieren + Crosscheck
-- "Sync meine Daily Note" → Daily Note ↔ Tasksystem abgleichen
-- "Weekly Review" → Alle Listen systematisch durchgehen
-- "Was ist in meiner Inbox?" → Inbox zeigen
-- "Worauf warte ich?" → Waiting zeigen
+The system recognizes intent from natural language. No rigid commands, but typical patterns:
+- "New task: X" → Inbox
+- "What's up?" / "What's on for today?" → show Focus + today's daily note
+- "Task done: X" → check off + crosscheck
+- "Move X to [target]" → reorder + crosscheck
+- "Sync my daily note" → reconcile daily note ↔ task system
+- "Weekly Review" → systematically go through all lists
+- "What's in my inbox?" → show inbox
+- "What am I waiting for?" → show waiting
 
-### R11: Proaktive Hinweise
+### R11: Proactive Hints
 
-Das System gibt situative Hinweise (nicht als Scheduled Tasks, sondern kontextbasiert):
-- **Freitags** bei Task-Anfragen: Weekly Review vorschlagen — **aber nur, wenn der Review-Marker im Focus.md-Header nicht in der laufenden KW liegt** (siehe R7). Sonst: kein Vorschlag, optional kurz erwähnen dass der Review schon durch ist.
-- **Stale Tasks:** Tasks die seit >2 Wochen in Next Actions unberührt sind → Someday Maybe vorschlagen
-- **Überfällige Waiting-Items:** Bei Waiting-Durchsicht auf Alter hinweisen
-- **Tagesplanung:** Wenn kein Plan für heute existiert, proaktiv anbieten
+The system gives situational hints (not as scheduled tasks, but context-based):
+- **On Fridays** with task requests: propose weekly review — **but only if the review marker in the Focus.md header does not fall within the current week** (see R7). Otherwise: no proposal, optionally briefly mention that the review is already done.
+- **Stale tasks:** Tasks untouched in Next Actions for >2 weeks → propose Someday Maybe
+- **Overdue waiting items:** Point out age during waiting review
+- **Daily planning:** If no plan exists for today, proactively offer one
 
-### R12: Context-Aware Session Start (Onboarding + Daily Suggestion vereint)
+### R12: Context-Aware Session Start (Onboarding + Daily Suggestion combined)
 
-Beim App-Start / Session-Start generiert das System **eine** kontextabhängige Suggestion-Card basierend auf dem aktuellen State. Onboarding ist kein separater Flow, sondern der Spezialfall "State ist leer".
+On app start / session start, the system generates **one** context-aware suggestion card based on the current state. Onboarding is not a separate flow, but the special case "state is empty".
 
-**Entscheidungslogik (Inputs: Wochentag, State der GTD-Files, letzte Session, Inbox-Größe, Waiting-Alter):**
-- Erster Start → Willkommen, erster Task erfassen
-- Freitag → Weekly Review vorschlagen
-- Inbox voll → Sortieren anbieten
-- Kein Tagesplan → Plan vorschlagen
-- Waiting überfällig → Nachhaken anbieten
-- Mehrere Tage Pause → Zusammenfassung anbieten
+**Decision logic (inputs: weekday, state of GTD files, last session, inbox size, waiting age):**
+- First start → welcome, capture first task
+- Friday → propose weekly review
+- Inbox full → offer to sort
+- No daily plan → propose plan
+- Waiting overdue → offer to follow up
+- Several days break → offer summary
 
-**Prinzipien:** Immer genau eine Suggestion (kein Overload). User kann reagieren oder ignorieren. Kein Modal, kein Blocker. Generative UI via Hashbrown (`SessionStartCard`).
+**Principles:** Always exactly one suggestion (no overload). User can react or ignore. No modal, no blocker. Generative UI via Hashbrown (`SessionStartCard`).
 
-Details und vollständige State-Tabelle: siehe "Context-Aware Session Start" in der Architektur-Sektion oben.
+Details and complete state table: see "Context-Aware Session Start" in the architecture section above.
 
-### R13: Aktuelles Datum im System Prompt
+### R13: Current Date in System Prompt
 
-Jeder LLM-Request enthält im System Prompt das aktuelle Datum + Wochentag als Klartext:
+Every LLM request contains the current date + weekday in the system prompt as plain text:
 
 ```
-Heute ist Freitag, 18. April 2026.
+Today is Friday, April 18, 2026.
 ```
 
-**Warum:** Das System muss den Wochentag kennen für kontextabhängige Logik (Freitag → Weekly Review, Wochenende → keine Work-Tasks vorschlagen, Überfälligkeits-Berechnung für Waiting-Items). Ohne Datum im Prompt müsste das System einen Tool-Call machen um das Datum zu ermitteln — verschwendete Latenz und Tokens.
+**Why:** The system needs to know the weekday for context-dependent logic (Friday → weekly review, weekend → don't propose work tasks, overdue calculation for waiting items). Without the date in the prompt, the system would have to make a tool call to determine the date — wasted latency and tokens.
 
 ---
 
-_Architecture Spec: Erstellt am 16. April 2026. Basiert auf Praxis-Erprobung (Obsidian + Claude/Cowork)._
+_Architecture Spec: Created on April 16, 2026. Based on practical testing (Obsidian + Claude/Cowork)._

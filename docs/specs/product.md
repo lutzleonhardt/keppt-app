@@ -1,6 +1,6 @@
 # GTD Companion — Product Spec
 
-> Technische Architektur & Design: [[GTD Companion - Architecture]]
+> Technical Architecture & Design: [[GTD Companion - Architecture]]
 
 ## The Problem
 
@@ -80,25 +80,25 @@ That's it. No database-like UI for the user, no complex dashboards, no settings 
 
 ### Daily Usage Examples
 
-- "Was steht heute an?" → LLM reads daily note + next actions, gives prioritized list with context
-- "Was denkst du, ist heute am wichtigsten für mich?" → LLM cross-references tasks with user goals, prioritizes accordingly
-- "Was ist mein aktuelles Ziel?" → LLM reflects current focus back from profile/patterns
-- "Auf welche Aktivitäten warte ich gerade?" → LLM reads Waiting For list, flags overdue items
-- "Was meinst du, sollte ich morgen planen?" → LLM proposes plan, user confirms or adjusts
-- "Schieb die Steuererklärung auf nächste Woche" → LLM moves task, logs the shift in daily note
-- "Neuer Task: Angebot für VW schreiben" → LLM puts it in inbox, or directly into the right project if obvious
-- "Ich bin fertig mit dem LinkedIn-Post" → LLM checks it off, logs completion time in daily note
-- "Was liegt alles in meiner Inbox?" → LLM lists items, suggests categorization
-- "Räum meine Inbox auf" → LLM proposes assignments to projects, user confirms with "ja" or "ändere X"
-- Photo of a whiteboard → "Leg das in meine Inbox" → stored as reference
-- "Was ist aus meinen Aufgaben am wichtigsten, was aufs Consulting einzahlt?" → LLM filters by goal relevance
+- "What's on for today?" → LLM reads daily note + next actions, gives prioritized list with context
+- "What do you think is most important for me today?" → LLM cross-references tasks with user goals, prioritizes accordingly
+- "What is my current goal?" → LLM reflects current focus back from profile/patterns
+- "Which activities am I currently waiting on?" → LLM reads Waiting For list, flags overdue items
+- "What do you think I should plan for tomorrow?" → LLM proposes plan, user confirms or adjusts
+- "Push the tax return to next week" → LLM moves task, logs the shift in daily note
+- "New task: write proposal for VW" → LLM puts it in inbox, or directly into the right project if obvious
+- "I'm done with the LinkedIn post" → LLM checks it off, logs completion time in daily note
+- "What's in my inbox?" → LLM lists items, suggests categorization
+- "Clean up my inbox" → LLM proposes assignments to projects, user confirms with "yes" or "change X"
+- Photo of a whiteboard → "Put this in my inbox" → stored as reference
+- "Of my tasks, what's most important for the consulting business?" → LLM filters by goal relevance
 
 ### What the LLM Does Behind the Scenes
 
 - Maintains GTD folder structure (Inbox, Next Actions, Projects, Waiting For, Someday/Maybe)
 - Keeps daily notes in sync with the backend folders
 - Logs task movements, completions, deferrals in daily notes
-- Detects inconsistencies ("Du hast 3 Tasks seit 2 Wochen in Next Actions, die nie angefasst wurden")
+- Detects inconsistencies ("You have 3 tasks that have been in Next Actions for 2 weeks and never touched")
 - Suggests evening planning, inbox reviews — proactively, not on rigid schedules
 - Estimates effort/priority/context from conversation — no manual fields needed
 
@@ -142,23 +142,23 @@ Design principle: **"Conservative bookkeeper, not creative chatbot."** The syste
 
 **2. Diff Reporting** — After every operation, the system reports back what changed across which files. Not "done, trust me" but "here's what I did":
 
-- ✅ Moved "VW-Angebot schreiben" from Next Actions → Friday plan
+- ✅ Moved "Write VW proposal" from Next Actions → Friday plan
 - ✅ Logged deferral in today's daily note
 - ✅ Cross-checked project file "VW" — consistent
-- ⚠️ Found: "VW Followup-Call" in Waiting For since 8 days — action needed?
+- ⚠️ Found: "VW follow-up call" in Waiting For for 8 days — action needed?
 
 **3. Confirmability** — For destructive or ambiguous operations (deleting tasks, merging duplicates, reassigning projects), the system asks before acting. It proposes, the user confirms. The system is proactive but never autonomous on high-stakes changes.
 
 ### How a Typical Interaction Works
 
-After the user says "Schieb den VW-Call auf Freitag", the LLM:
+After the user says "Push the VW call to Friday", the LLM:
 
 1. Moves the task in next-actions.md
 2. Updates today's daily note (logged as deferred)
 3. Updates Friday's daily note (added to plan)
 4. Scans related project file for consistency
 5. Writes all changes to the operation log
-6. **Reports the diff transparently**: "Erledigt. Ich hab den Task in deinen Next Actions auf Freitag verschoben, in der heutigen Daily Note als verschoben geloggt, und in der Freitag-Note eingeplant. Dabei ist mir aufgefallen: Du hast noch einen zweiten VW-Task in Waiting For seit 8 Tagen — soll ich da nachhaken?"
+6. **Reports the diff transparently**: "Done. I moved the task in your Next Actions to Friday, logged it as deferred in today's daily note, and added it to Friday's note. While I was at it, I noticed: you have a second VW task that's been in Waiting For for 8 days — should I follow up on that?"
 
 ### Why This Is the Moat
 
@@ -173,7 +173,7 @@ Cross-checks require reading multiple files per interaction → more tokens → 
 
 **Critical rule: Cross-checks operate only on active files, never on archives.** The consistency engine reads `/tasks/*` and today's daily note — that's it. Archived completed tasks, past daily notes, and past sessions are never loaded during routine operations. This keeps the cross-check token cost constant regardless of how long someone has used the app.
 
-The archive is only accessed on explicit user request: "Was hab ich letzte Woche zum VW-Projekt erledigt?" triggers a targeted read from `archive/daily/` — not a routine cross-check scan.
+The archive is only accessed on explicit user request: "What did I get done on the VW project last week?" triggers a targeted read from `archive/daily/` — not a routine cross-check scan.
 
 ## Monetization
 
@@ -185,95 +185,95 @@ The archive is only accessed on explicit user request: "Was hab ich letzte Woche
 - Heavy user (50 interactions/day, mixed): ~$5-8/month API cost
 - Light user (10 interactions/day, mostly Haiku): ~$1-2/month API cost
 
-### Free Tier: Strategie
+### Free Tier: Strategy
 
-**Ziel:** User erlebt den Wert, bevor er bezahlt — aber wir verlieren kein Geld dabei.
+**Goal:** User experiences the value before paying — without us losing money on it.
 
-**Option A: Interaktions-Limit (5/Tag, dauerhaft kostenlos)**
-Pro: Dauerhafter Funnel, User kann die App langfristig testen. "5 pro Tag" ist leicht verständlich.
-Contra: Kastrierte Erfahrung (5 Interaktionen reichen nicht für einen echten GTD-Tag). Free-User nutzen das System nie richtig und konvertieren deshalb schlechter.
-Kosten: ~$0.005/Tag × 1.000 Free-User = ~$150/Monat. Vernachlässigbar.
+**Option A: Interaction limit (5/day, free forever)**
+Pro: Permanent funnel, user can try the app long-term. "5 per day" is easy to understand.
+Con: Crippled experience (5 interactions aren't enough for a real GTD day). Free users never properly use the system and therefore convert worse.
+Cost: ~$0.005/day × 1,000 free users = ~$150/month. Negligible.
 
-**Option B: Zeitbasierte Trial (14 Tage voll, dann Paywall)**
-Pro: User erlebt das volle Produkt inkl. Weekly Review, Tagesplanung, Crosscheck. Höhere Conversion weil der User den echten Wert kennenlernt.
-Contra: Kein dauerhafter Free-Funnel. Nach 14 Tagen muss der User zahlen oder verliert den Zugang.
-Kosten: 14 Tage × ~$0.05/Tag (volle Nutzung) = ~$0.70 pro Trial-User. Akzeptabel.
+**Option B: Time-based trial (14 days full, then paywall)**
+Pro: User experiences the full product including weekly review, daily planning, cross-check. Higher conversion because the user gets to know the real value.
+Con: No permanent free funnel. After 14 days the user must pay or loses access.
+Cost: 14 days × ~$0.05/day (full usage) = ~$0.70 per trial user. Acceptable.
 
-**Option C: Hybrid (14 Tage Trial + dauerhaft 3/Tag)**
-Pro: Bestes aus beiden Welten — volles Trial für die Conversion, dann ein Minimal-Zugang der den User dran hält ohne Geld zu kosten.
-Contra: Etwas komplexer in der Kommunikation.
+**Option C: Hybrid (14-day trial + 3/day forever)**
+Pro: Best of both worlds — full trial for conversion, then a minimal access tier that keeps the user engaged at no cost to us.
+Con: Slightly more complex to communicate.
 
-**Aktuelle Empfehlung: Option B (14-Tage-Trial).** Einfach zu kommunizieren, maximale Conversion, minimale Kosten. Kein Risiko für Missbrauch (Free-User als Claude-Proxy), weil der Zugang nach 14 Tagen endet. Kann später zu Option C erweitert werden.
+**Current recommendation: Option B (14-day trial).** Easy to communicate, maximum conversion, minimal cost. No risk of abuse (free users as a Claude proxy) because access ends after 14 days. Can be extended to Option C later.
 
-**Technisch:** Die `profiles.subscription_tier` startet als `'trial'`, die `profiles.subscription_valid_until` wird auf Registrierungsdatum + 14 Tage gesetzt. Nach Ablauf → automatisch `'free'` (0 oder 3 Interactions/Tag). Upgrade → Stripe/RevenueCat Webhook setzt Tier auf `'standard'` oder `'premium'`.
+**Technical:** `profiles.subscription_tier` starts as `'trial'`, `profiles.subscription_valid_until` is set to registration date + 14 days. After expiration → automatically `'free'` (0 or 3 interactions/day). Upgrade → Stripe/RevenueCat webhook sets tier to `'standard'` or `'premium'`.
 
 ### Payment Flow
 
-**Registrierung → Trial → Paywall → Subscription:**
+**Registration → Trial → Paywall → Subscription:**
 
-1. User registriert sich (Supabase Auth: Apple, Google, Email)
-2. `profiles`-Eintrag wird erstellt: `tier = 'trial'`, `valid_until = now + 14 Tage`
-3. User nutzt das volle System 14 Tage lang
-4. Tag 12: System weist freundlich darauf hin, dass die Trial endet
-5. Tag 14: Paywall — User tippt "Upgrade" → Stripe Checkout (Web) oder App Store (Mobile)
-6. Stripe/App Store wickelt Zahlung ab
-7. Webhook kommt → Server setzt `tier = 'standard'`, `valid_until = Periodenende`
-8. Ab jetzt: monatliche Verlängerung automatisch durch Stripe
+1. User signs up (Supabase Auth: Apple, Google, Email)
+2. `profiles` entry is created: `tier = 'trial'`, `valid_until = now + 14 days`
+3. User uses the full system for 14 days
+4. Day 12: System gently reminds the user that the trial is ending
+5. Day 14: Paywall — user taps "Upgrade" → Stripe Checkout (web) or App Store (mobile)
+6. Stripe/App Store handles payment
+7. Webhook arrives → server sets `tier = 'standard'`, `valid_until = end of period`
+8. From here on: monthly renewal handled automatically by Stripe
 
-**Kündigung:** Stripe setzt `cancel_at_period_end: true`. Das Abo läuft bis zum bezahlten Periodenende weiter. Am Ende → Webhook `customer.subscription.deleted` → Server setzt `tier = 'free'`. Der User behält Read-Zugriff auf seine Daten, kann aber nicht mehr chatten (oder nur minimal).
+**Cancellation:** Stripe sets `cancel_at_period_end: true`. The subscription runs until the paid period ends. At the end → webhook `customer.subscription.deleted` → server sets `tier = 'free'`. The user keeps read access to their data but can no longer chat (or only minimally).
 
-**Reaktivierung:** User abonniert erneut → neuer Webhook → Tier wird wieder hochgesetzt. Alle Daten sind noch da (wir löschen nichts bei Kündigung).
+**Reactivation:** User subscribes again → new webhook → tier is bumped back up. All data is still there (we don't delete anything on cancellation).
 
-**Upgrade/Downgrade mitten im Monat:** Stripe berechnet automatisch die Proration (anteiliger Preis). Webhook kommt mit neuem Tier → Server aktualisiert. Keine eigene Billing-Logik nötig.
+**Upgrade/downgrade mid-month:** Stripe automatically calculates proration (prorated price). Webhook arrives with new tier → server updates. No custom billing logic needed.
 
-**Was wir NICHT selbst bauen:** Rechnungsstellung, Proration, Zahlungserinnerungen, Steuerberechnung, Kreditkartenverarbeitung. Das macht alles Stripe.
+**What we do NOT build ourselves:** invoicing, proration, payment reminders, tax calculation, credit card processing. Stripe handles all of that.
 
 ### Tier Model
 
-**Trial** (14 Tage) — Volles Produkt
+**Trial** (14 days) — Full product
 
-- Alle Features wie Premium
-- Sonnet für Planning/Review
-- Voller Crosscheck
-- Endet automatisch nach 14 Tagen
+- All features like Premium
+- Sonnet for planning/review
+- Full cross-check
+- Ends automatically after 14 days
 
-**Free** (nach Trial oder ohne Registrierung) — Minimal
+**Free** (after trial or without registration) — Minimal
 
-- 0-3 Interactions/Tag (oder nur Read-Zugang)
-- Kein Chat, nur Daten-Ansicht (entscheiden wir später)
-- Daten bleiben erhalten, User kann jederzeit upgraden
+- 0–3 interactions/day (or read-only access)
+- No chat, view-only access (to be decided later)
+- Data is retained, user can upgrade at any time
 
 **Standard** (~$5-7/month) — Daily driver
 
-- 100 Interactions/Tag
+- 100 interactions/day
 - Haiku for all operations
 - Basic cross-check (same-day sync)
 - Daily notes + inbox management
 
 **Premium** (~$12-15/month) — Full GTD autopilot
 
-- 300 Interactions/Tag
+- 300 interactions/day
 - Sonnet for planning, review, and prioritization sessions
 - Full cross-check protocol with transparent reporting
 - Proactive inconsistency detection
 - Evening planning suggestions
-- Pattern recognition ("Du verschiebst diesen Task seit 3 Wochen — Someday/Maybe?")
+- Pattern recognition ("You've been pushing this task for 3 weeks — move to Someday/Maybe?")
 
 ### Smart Model Routing (Invisible to User)
 
 The app automatically picks the right model per interaction:
 
-- "Hak den LinkedIn-Post ab" → Haiku (simple operation)
-- "Plan meinen morgigen Tag" → Sonnet (needs reasoning)
-- "Räum meine Inbox auf" → Sonnet (needs judgment)
-- "Neuer Task: Milch kaufen" → Haiku (trivial insert)
+- "Check off the LinkedIn post" → Haiku (simple operation)
+- "Plan my day tomorrow" → Sonnet (needs reasoning)
+- "Clean up my inbox" → Sonnet (needs judgment)
+- "New task: buy milk" → Haiku (trivial insert)
 
 The user never chooses a model. It just feels like "sometimes the app thinks deeper."
 
 ## Why This Could Work
 
 - **Universal pain**: Millions have tried and failed at GTD. The method isn't the problem — the friction is
-- **Positioning is clear**: "Your task system maintains itself" / "Dein Aufgabensystem pflegt sich selbst" — stronger than "voice-first" which is a feature, not a position
+- **Positioning is clear**: "Your task system maintains itself" — stronger than "voice-first" which is a feature, not a position
 - **Voice is the wedge, not the moat**: Voice-first gets people in the door. The self-maintaining trusted system is why they stay. SayDo AI and Todoist Ramble prove voice capture has demand, but neither offers system maintenance.
 - **Plain-text storage = trust and exit**: Users own their data, no lock-in, works with Obsidian. For the MVP target audience (tech-savvy knowledge workers), this is a buying signal. For mainstream later: position as "your data is always yours" — a trust signal, not a hero feature.
 - **LLM cost curve**: API costs are dropping fast, making per-interaction pricing viable
@@ -302,11 +302,11 @@ This workflow already works today — with Claude Code/Cowork + Obsidian + Git s
 
 ## Marketing Angle
 
-**The 10-second demo**: Split screen. Left: Todoist with 15 buttons, sidebar, labels, filter dropdowns. Right: this app — an empty chat field. Someone says "Was steht heute an?" and gets a prioritized list with context. That's the entire pitch.
+**The 10-second demo**: Split screen. Left: Todoist with 15 buttons, sidebar, labels, filter dropdowns. Right: this app — an empty chat field. Someone says "What's on for today?" and gets a prioritized list with context. That's the entire pitch.
 
-**Core positioning**: "Your task system maintains itself" / "Dein Aufgabensystem pflegt sich selbst." Not "voice-first AI task manager" — that's a feature description. The position is: you get GTD-level organization without maintaining anything.
+**Core positioning**: "Your task system maintains itself." Not "voice-first AI task manager" — that's a feature description. The position is: you get GTD-level organization without maintaining anything.
 
-**Sell the transformation, not the features**: "Nie wieder an GTD scheitern" is stronger than "AI-powered task management." The story is: you've tried GTD, you loved the idea, you failed at the maintenance. This app does the maintenance for you.
+**Sell the transformation, not the features**: "Never fail at GTD again" is stronger than "AI-powered task management." The story is: you've tried GTD, you loved the idea, you failed at the maintenance. This app does the maintenance for you.
 
 ## Strategic Fit: The Consulting Flywheel
 
@@ -314,7 +314,7 @@ This is not just a side project — it's the centerpiece of a content and consul
 
 ### The Story Arc for Workshops & Talks
 
-"Früher haben wir Angular in Cordova gepackt. Dann kam Ionic. Heute ist es Capacitor — und mit LLM-Integration bauen wir damit Produkte, die vor zwei Jahren undenkbar waren."
+"In the early days we wrapped Angular in Cordova. Then came Ionic. Today it's Capacitor — and with LLM integration we're building products that were unthinkable two years ago."
 
 Every enterprise Angular team at Siemens, VW, DB, and BMW has lived this migration. The app becomes a live case study that maps directly to the workshop narrative: real Angular code, real Capacitor deployment, real LLM integration, real App Store product.
 
@@ -327,7 +327,7 @@ Every enterprise Angular team at Siemens, VW, DB, and BMW has lived this migrati
 
 ### YouTube Series (Pilots of AI)
 
-"Ich baue eine AI-App mit Angular + Capacitor — von der Idee bis zum App Store."
+"I'm building an AI app with Angular + Capacitor — from idea to App Store."
 
 - Episode 1: The idea and validation (this document)
 - Episode 2: Prompts as product — designing the GTD system prompts
@@ -404,11 +404,11 @@ Someone could fork the repo and launch a competing hosted service. In practice, 
 github.com/[username]/[app-name]
 ├── apps/
 │   ├── mobile/          # Angular + Capacitor (iOS/Android/Web)
-│   ├── server/          # Express/Fastify Backend-Service (LLM-Orchestrierung)
+│   ├── server/          # Express/Fastify backend service (LLM orchestration)
 │   └── cli/             # Phase 1 CLI tool
 ├── packages/
 │   ├── core/            # Shared Core: Request-Builder, Tool-Handler, FileRepository,
-│   │                    #   System Prompt, Model-Router (CLI + Server importieren das)
+│   │                    #   system prompt, model router (imported by CLI + server)
 │   ├── prompts/         # System prompts, tool definitions
 │   └── supabase/        # DB schema, migrations, RLS policies
 ├── docs/                # Architecture docs, self-hosting guide

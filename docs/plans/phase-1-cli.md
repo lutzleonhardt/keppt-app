@@ -1,25 +1,25 @@
 # Plan — Phase 1: CLI ("It works in the terminal")
 
 > Spec: [`docs/specs/architecture.md`](../specs/architecture.md) (Build Milestones → Phase 1) + [`docs/specs/product.md`](../specs/product.md)
-> SDK-Recherche: [`docs/specs/vercel-sdk.md`](../specs/vercel-sdk.md)
+> SDK research: [`docs/specs/vercel-sdk.md`](../specs/vercel-sdk.md)
 
 ## Scope
 
-Lokale CLI, die end-to-end gegen das eigene Obsidian Vault als `LocalFileRepository` läuft. Vercel AI SDK mit Claude (Haiku + Sonnet), 5 Tools, System Prompt R1-R13, Session pro Tag, Daily-Note-Lifecycle. **Kein Server, kein Supabase, kein Auth, kein Tier-Check.** Ziel: Die GTD-Prompts und den Tool-Loop unter realen Bedingungen validieren.
+Local CLI that runs end-to-end against the user's own Obsidian vault as a `LocalFileRepository`. Vercel AI SDK with Claude (Haiku + Sonnet), 5 tools, system prompt R1-R13, one session per day, daily-note lifecycle. **No server, no Supabase, no auth, no tier check.** Goal: validate the GTD prompts and the tool loop under realistic conditions.
 
-## SDK-Fixpunkte (aus der Recherche)
+## SDK fixed points (from research)
 
-- `ai@^7.0.0-beta.111` + `@ai-sdk/anthropic@^4.0.0-beta.37` (beta — prüfen ob stable-Release existiert, sonst beta akzeptieren)
+- `ai@^7.0.0-beta.111` + `@ai-sdk/anthropic@^4.0.0-beta.37` (beta — check whether a stable release exists, otherwise accept beta)
 - Node `>=20`
-- Modell-IDs: `claude-haiku-4-5` (MVP-Default), `claude-sonnet-4-6` für Planning/Review
-- Agentic Loop: `stopWhen: isStepCount(10)` — **Default ist 1, ohne explizites `stopWhen` gibt es keine Loop**
-- Tool-Errors: SDK konvertiert Throws aus `execute` automatisch in `tool-error`-Parts — kein manuelles Wrapping nötig
-- Tools: `tool({ description, inputSchema: z..., execute })` mit Zod
-- Persistenz: `(await result.response).messages` anhängen an Session-Historie
-- Streaming: `fullStream` abonnieren, auf `text`, `tool-call`, `tool-error` reagieren
-- Testing: `MockLanguageModelV4` aus `ai/test`
-- Prompt-Caching: manuell via `providerOptions.anthropic.cacheControl`
-- AbortController für Ctrl+C wird automatisch an Tool-Executes weitergereicht
+- Model IDs: `claude-haiku-4-5` (MVP default), `claude-sonnet-4-6` for planning/review
+- Agentic loop: `stopWhen: isStepCount(10)` — **default is 1; without an explicit `stopWhen` there is no loop**
+- Tool errors: the SDK automatically converts throws from `execute` into `tool-error` parts — no manual wrapping needed
+- Tools: `tool({ description, inputSchema: z..., execute })` with Zod
+- Persistence: append `(await result.response).messages` to the session history
+- Streaming: subscribe to `fullStream`, react to `text`, `tool-call`, `tool-error`
+- Testing: `MockLanguageModelV4` from `ai/test`
+- Prompt caching: manual via `providerOptions.anthropic.cacheControl`
+- AbortController for Ctrl+C is automatically forwarded to tool executes
 
 ## Flexibility Clause
 
@@ -27,12 +27,12 @@ Lokale CLI, die end-to-end gegen das eigene Obsidian Vault als `LocalFileReposit
 
 ## Tasks at a glance
 
-1. Monorepo + FileRepository + LocalFileRepository (read/write/list/search + JSON-History)
-2. `edit_file` mit atomarem Search/Replace (Uniqueness-Check + strukturierte Error-Returns)
-3. CLI + Vercel AI SDK + Tool Handlers (minimaler Prompt) → **erster echter Konsolen-Lauf**
-4. System Prompt R1-R13 + Request Builder + Tool-Result-Pruning + Model Router + Session-Persistenz + Input-Heuristik + Prompt-Caching
-5. Daily-Note-Lifecycle (R5) + Clock-Injection
-6. End-to-End Acceptance gegen echte Claude API + Vault
+1. Monorepo + FileRepository + LocalFileRepository (read/write/list/search + JSON history)
+2. `edit_file` with atomic search/replace (uniqueness check + structured error returns)
+3. CLI + Vercel AI SDK + tool handlers (minimal prompt) → **first real console run**
+4. System prompt R1-R13 + request builder + tool-result pruning + model router + session persistence + input heuristic + prompt caching
+5. Daily-note lifecycle (R5) + clock injection
+6. End-to-end acceptance against real Claude API + vault
 
 ---
 
@@ -40,58 +40,58 @@ Lokale CLI, die end-to-end gegen das eigene Obsidian Vault als `LocalFileReposit
 
 ### Instructions
 
-Saubere Basis: pnpm-Monorepo mit zwei Workspaces. Kein LLM, kein CLI — nur das Fundament, gegen das später alles läuft.
+A clean foundation: pnpm monorepo with two workspaces. No LLM, no CLI — just the base everything else runs against later.
 
 **Setup:**
-- pnpm Workspace mit `apps/cli` (leeres Gerüst) und `packages/core`
-- TypeScript (`strict: true`), Vitest, ESLint (zz. optional), Prettier
-- Node-Engine `>=20` in beiden `package.json` (matches `.nvmrc`; Node 18 ist EOL)
+- pnpm workspace with `apps/cli` (empty skeleton) and `packages/core`
+- TypeScript (`strict: true`), Vitest, ESLint (optional for now), Prettier
+- Node engine `>=20` in both `package.json` files (matches `.nvmrc`; Node 18 is EOL)
 - `.gitignore`, `.nvmrc`, `README.md` (minimal)
 
-**`packages/core/file-repository.ts` (Interface):**
+**`packages/core/file-repository.ts` (interface):**
 ```ts
 interface FileRepository {
   read(filePath: string): Promise<string>;
   write(filePath: string, content: string, changeSummary: string): Promise<void>;
   list(prefix?: string): Promise<string[]>;
   search(query: string, scope?: 'active' | 'archive' | 'all'): Promise<SearchResult[]>;
-  // edit() kommt in Task 2
+  // edit() comes in Task 2
 }
 interface SearchResult { filePath: string; snippet: string; line: number; }
 ```
 
 **`LocalFileRepository`:**
-- Konstruktor nimmt `basePath` (Vault-Root) entgegen — Pfad kommt per Env `VAULT_PATH` aus dem CLI-Entrypoint (Task 3)
-- `read`: `fs.readFile` auf `basePath/filePath`; File nicht vorhanden → `FileNotFoundError` (nicht null/empty)
-- `write`: `fs.mkdir -p` auf Parent, `fs.writeFile`, danach History-Append (siehe unten)
-- `list`: rekursiv unter Vault; optionaler Prefix-Filter auf POSIX-Pfaden
-- `search`: einfache String-Suche über Files im passenden Scope. `'active'` = `tasks/**` + `daily/YYYY-MM-DD.md` (heutige, falls vorhanden); `'archive'` = `archive/daily/**`; `'all'` = beides. Liefert Snippet (~80 Zeichen um Treffer) und 1-basierte Zeilennummer. `scope` default `'active'`.
+- Constructor takes a `basePath` (vault root) — the path comes from env `VAULT_PATH` via the CLI entrypoint (Task 3)
+- `read`: `fs.readFile` on `basePath/filePath`; file missing → `FileNotFoundError` (not null/empty)
+- `write`: `fs.mkdir -p` on the parent, `fs.writeFile`, then history append (see below)
+- `list`: recursive under the vault; optional prefix filter on POSIX paths
+- `search`: simple string search across files in the matching scope. `'active'` = `tasks/**` + `daily/YYYY-MM-DD.md` (today's, if present); `'archive'` = `archive/daily/**`; `'all'` = both. Returns a snippet (~80 chars around the hit) and a 1-based line number. `scope` defaults to `'active'`.
 
-**`InMemoryFileRepository`:** Map<string, string> für Tests, gleiches Interface.
+**`InMemoryFileRepository`:** Map<string, string> for tests, same interface.
 
-**History-Log (lokaler `file_history`-Ersatz):**
-- Append-only JSON Lines unter `basePath/.gtd-companion/file-history.jsonl`
-- Eine Zeile pro Write/Edit: `{ id, filePath, contentBefore, contentAfter, changeSummary, changedAt, changedBy: 'llm' | 'user' | 'system' }`
-- `contentBefore` ist der vorherige Inhalt (leer bei Create). Das ermöglicht Rollback. Für große Files ist das akzeptabel — Phase 1 ist Single-User, einziges Vault.
+**History log (local replacement for `file_history`):**
+- Append-only JSON Lines under `basePath/.gtd-companion/file-history.jsonl`
+- One line per write/edit: `{ id, filePath, contentBefore, contentAfter, changeSummary, changedAt, changedBy: 'llm' | 'user' | 'system' }`
+- `contentBefore` is the previous content (empty on create). This enables rollback. For large files this is acceptable — Phase 1 is single-user, single vault.
 
-**Pfad-Konvention:** Alle File-Pfade sind POSIX-Stil (`tasks/inbox.md`), unabhängig von OS. Intern mit `path.posix` arbeiten.
+**Path convention:** all file paths are POSIX-style (`tasks/inbox.md`), regardless of OS. Use `path.posix` internally.
 
 ### Acceptance
 
-- Vitest-Suite in `packages/core` grün:
-  - `LocalFileRepository` gegen ein Temp-Verzeichnis: read/write/list/search happy paths + read-on-missing-file wirft definierten Error
-  - `InMemoryFileRepository` gegen das gleiche Test-Szenario (dieselben Tests parametrisiert)
-  - Write erzeugt einen korrekten History-Eintrag in `.gtd-companion/file-history.jsonl`
-  - Search findet Treffer über mehrere Files, respektiert Scope (`active` vs. `archive` vs. `all`)
-- `pnpm -r build` grün
-- `pnpm -r test` grün
+- Vitest suite in `packages/core` green:
+  - `LocalFileRepository` against a temp directory: read/write/list/search happy paths + read-on-missing-file throws the defined error
+  - `InMemoryFileRepository` against the same scenario (parameterized over the same tests)
+  - Write produces a correct history entry in `.gtd-companion/file-history.jsonl`
+  - Search finds hits across multiple files, respects scope (`active` vs. `archive` vs. `all`)
+- `pnpm -r build` green
+- `pnpm -r test` green
 
 ### Key Locations
 
 - `pnpm-workspace.yaml`, `tsconfig.base.json`, `vitest.config.ts`
-- `apps/cli/` (leeres Skelett, `package.json` + `src/index.ts` mit `// placeholder`)
+- `apps/cli/` (empty skeleton, `package.json` + `src/index.ts` with `// placeholder`)
 - `packages/core/package.json`, `packages/core/tsconfig.json`
-- `packages/core/src/file-repository.ts` (Interface)
+- `packages/core/src/file-repository.ts` (interface)
 - `packages/core/src/local-file-repository.ts`
 - `packages/core/src/in-memory-file-repository.ts`
 - `packages/core/src/history-log.ts`
@@ -99,91 +99,91 @@ interface SearchResult { filePath: string; snippet: string; line: number; }
 
 ### Key Discoveries
 
-- Vault-Layout pro User (siehe Architektur "File-Layout"):
+- Vault layout per user (see architecture "File Layout"):
   ```
   tasks/{inbox,focus,next-actions,waiting,someday-maybe}.md
-  daily/YYYY-MM-DD.md    ← immer genau eine Datei: heute
-  archive/daily/*.md     ← archivierte Daily Notes
-  .gtd-companion/        ← App-State (history log, später: sessions)
+  daily/YYYY-MM-DD.md    ← always exactly one file: today
+  archive/daily/*.md     ← archived daily notes
+  .gtd-companion/        ← app state (history log, later: sessions)
   ```
-- Es gibt **kein** `projects/`-Verzeichnis (R6 — Projekte sind Subheadings in `next-actions.md`).
-- Es gibt **kein** `archive/tasks/` (R7 — erledigte Tasks werden gelöscht, Trail in History + Daily-Note-Log).
-- History-Einträge sind die einzige Rollback-/Audit-Quelle in Phase 1. Niemals überschreiben, niemals trunkieren.
+- There is **no** `projects/` directory (R6 — projects are subheadings inside `next-actions.md`).
+- There is **no** `archive/tasks/` (R7 — completed tasks are deleted; the trail lives in history + daily-note log).
+- History entries are the only rollback/audit source in Phase 1. Never overwrite, never truncate.
 
 ---
 
-## Task 2: `edit_file` mit atomarem Search/Replace
+## Task 2: `edit_file` with atomic search/replace
 
 ### Instructions
 
-Trust-kritischstes Stück. Das LLM bekommt bei Search-Ambiguität einen strukturierten Fehler zurück und kann erneut versuchen. Kein Volltext-Rewrite.
+The most trust-critical piece. On search ambiguity the LLM gets a structured error back and can retry. No full-text rewrite.
 
-**Ergänze das `FileRepository`-Interface:**
+**Extend the `FileRepository` interface:**
 ```ts
 interface SearchReplaceEdit { search: string; replace: string; }
 interface EditResult {
   ok: boolean;
   error?: {
     failedSearch: string;
-    matchCount: number;   // 0 = nicht gefunden, >1 = mehrdeutig
+    matchCount: number;   // 0 = not found, >1 = ambiguous
     currentContent: string;
   };
 }
 edit(filePath: string, edits: SearchReplaceEdit[], changeSummary: string): Promise<EditResult>;
 ```
 
-**Implementierung (in `LocalFileRepository` **und** `InMemoryFileRepository`):**
-- Datei lesen. File fehlt → `EditResult { ok: false, error: { failedSearch: edits[0].search, matchCount: 0, currentContent: '' } }` (konsistente LLM-Rückmeldung).
-- **Planungs-Phase:** Für jedes `edit` im Array die Anzahl der Vorkommen von `edit.search` im **Original**-Content zählen.
-  - Genau 1 Treffer → OK, weitermachen.
-  - 0 Treffer oder >1 Treffer → sofort abbrechen, `EditResult { ok: false, error: {...} }` mit dem fehlgeschlagenen `search`, dem `matchCount` und dem aktuellen Content zurück.
-  - **Keine** Anwendung eines Edits, solange nicht alle validiert sind. Atomar.
-- **Apply-Phase:** Edits sequenziell auf einen Working-Content anwenden (`String.replace` mit einem Literal — nicht Regex — und nur den ersten Treffer ersetzen, der per Plan bereits als eindeutig bekannt ist).
-  - Wichtig: Die Uniqueness-Prüfung gilt gegen den **Originalinhalt**, nicht gegen den schon teilweise mutierten. Grund: ein späterer Edit darf nicht versehentlich einen durch einen vorherigen Edit entstandenen neuen Textblock treffen. Falls zwei Edits sich überlappen (d.h. nach Apply von Edit N wäre Edit N+1's Search nicht mehr im Content vorhanden), → `EditResult { ok: false }` mit passender Fehlermeldung (`matchCount: 0` nach Mutation, mit `changeSummary` "overlapping edits").
-- Kein Write bei Fehler. Bei Erfolg: atomares Write + History-Eintrag.
-- `search`/`replace` werden **exakt** als Literals verwendet (inkl. Whitespace, Tabs, Newlines). Keine Trim/Normalize-Magie.
+**Implementation (in `LocalFileRepository` **and** `InMemoryFileRepository`):**
+- Read the file. File missing → `EditResult { ok: false, error: { failedSearch: edits[0].search, matchCount: 0, currentContent: '' } }` (consistent feedback to the LLM).
+- **Planning phase:** for each `edit` in the array count occurrences of `edit.search` in the **original** content.
+  - Exactly 1 hit → OK, continue.
+  - 0 hits or >1 hits → abort immediately, return `EditResult { ok: false, error: {...} }` with the failing `search`, the `matchCount`, and the current content.
+  - **No** edits are applied until all are validated. Atomic.
+- **Apply phase:** apply edits sequentially against a working content (`String.replace` with a literal — not a regex — replacing only the first hit, which the plan already established as unique).
+  - Important: the uniqueness check holds against the **original** content, not against the partially mutated version. Reason: a later edit must not accidentally hit a text block produced by a previous edit. If two edits overlap (i.e. after applying edit N, edit N+1's search is no longer in the content), → `EditResult { ok: false }` with a fitting error (`matchCount: 0` after mutation, with `changeSummary` "overlapping edits").
+- No write on failure. On success: atomic write + history entry.
+- `search`/`replace` are used **exactly** as literals (incl. whitespace, tabs, newlines). No trim/normalize magic.
 
-**Tool-seitig (vorbereitend für Task 3):** Die Tool-Execute-Funktion wird später `edit_file` direkt aufrufen und das `EditResult` als normales Tool-Output zurückgeben (nicht throw) — das LLM sieht `ok: false` + `currentContent` und kann einen angepassten Search-Block versuchen. Kein Exception-Pfad nötig.
+**Tool side (preparation for Task 3):** the tool execute function will later call `edit_file` directly and return the `EditResult` as a regular tool output (not throw) — the LLM sees `ok: false` + `currentContent` and can try an adjusted search block. No exception path needed.
 
 ### Acceptance
 
-Vitest-Suite (gegen `InMemoryFileRepository`, weil deterministisch schneller):
+Vitest suite (against `InMemoryFileRepository`, since deterministic and faster):
 
-- Single-Edit happy path: 1 Treffer → wird appliziert, History-Eintrag geschrieben, Rückgabe `{ ok: true }`
-- Multi-Edit happy path (3 Edits, alle eindeutig): alle drei appliziert, **ein** History-Eintrag
-- `matchCount === 0`: Rückgabe `{ ok: false, error: { matchCount: 0, currentContent, failedSearch } }`, File unverändert, **kein** History-Eintrag
-- `matchCount > 1`: Rückgabe `{ ok: false, error: { matchCount: 2, ... } }`, File unverändert
-- Atomarität: Bei 3 Edits, wenn der 2. ambig ist → kein einziger Edit wird geschrieben
-- Overlapping Edits (Edit 2's Search wird durch Edit 1's Replace zerstört) → sauberer Error, File unverändert
-- `LocalFileRepository` nochmal mit Temp-Verzeichnis: ein Happy-Path-Test, um sicherzustellen dass die Implementierung identisch funktioniert
+- Single-edit happy path: 1 hit → applied, history entry written, returns `{ ok: true }`
+- Multi-edit happy path (3 edits, all unique): all three applied, **one** history entry
+- `matchCount === 0`: returns `{ ok: false, error: { matchCount: 0, currentContent, failedSearch } }`, file unchanged, **no** history entry
+- `matchCount > 1`: returns `{ ok: false, error: { matchCount: 2, ... } }`, file unchanged
+- Atomicity: with 3 edits, if the 2nd is ambiguous → not a single edit is written
+- Overlapping edits (edit 2's search is destroyed by edit 1's replace) → clean error, file unchanged
+- `LocalFileRepository` again with a temp directory: one happy-path test to ensure the implementation behaves identically
 
 ### Key Locations
 
-- `packages/core/src/edit.ts` (Search/Replace-Logik, wiederverwendbar von beiden Repos)
-- `packages/core/src/local-file-repository.ts` (+ `edit`-Method)
-- `packages/core/src/in-memory-file-repository.ts` (+ `edit`-Method)
+- `packages/core/src/edit.ts` (search/replace logic, reusable from both repos)
+- `packages/core/src/local-file-repository.ts` (+ `edit` method)
+- `packages/core/src/in-memory-file-repository.ts` (+ `edit` method)
 - `packages/core/src/__tests__/edit.test.ts`
 
 ### Key Discoveries
 
-- Die strukturierte Error-Rückgabe (nicht Throw) ist die bewusste Design-Entscheidung: das LLM soll `ok: false` als normales Tool-Result bekommen und im nächsten Step reagieren. Das Vercel AI SDK würde Throws zwar automatisch als `tool-error`-Parts einbetten, aber der Kontrollfluss bleibt sauberer mit `EditResult` als reguläres Output-Schema.
-- Aider-Inspiration: Bei Ambiguität erweitert das LLM den `search`-Block um ein paar Zeilen Kontext davor/danach, bis er eindeutig ist. Keine speziellen Anfragen an das LLM nötig — der Error-Content reicht als Feedback.
-- Atomarität über alle Edits einer Invocation ist Pflicht (Spec "edit_file"-Abschnitt). Weekly-Review-Cleanup mit 20 gleichzeitigen `[x]`-Entfernungen ist ein realer Use-Case.
+- The structured error return (not throw) is the deliberate design decision: the LLM should see `ok: false` as a normal tool result and react in the next step. The Vercel AI SDK would auto-embed throws as `tool-error` parts, but the control flow stays cleaner with `EditResult` as a regular output schema.
+- Aider inspiration: on ambiguity, the LLM extends the `search` block with a few context lines before/after until it becomes unique. No special prompting needed — the error content is sufficient feedback.
+- Atomicity across all edits of a single invocation is mandatory (spec "edit_file" section). A weekly-review cleanup with 20 simultaneous `[x]` removals is a real use case.
 
 ---
 
-## Task 3: CLI + Vercel AI SDK + Tool Handlers → erster echter Konsolen-Lauf
+## Task 3: CLI + Vercel AI SDK + tool handlers → first real console run
 
 ### Instructions
 
-Ziel dieses Tasks: **In einem realen Terminal mit echter Claude-Haiku-API gegen ein echtes Vault arbeiten.** Absichtlich minimal — System Prompt ist stub, kein Model-Router, keine Session-Persistenz, kein Pruning. Die "Productization-Passe" kommt in Task 4.
+Goal of this task: **work in a real terminal with the real Claude Haiku API against a real vault.** Intentionally minimal — system prompt is a stub, no model router, no session persistence, no pruning. The "productization pass" comes in Task 4.
 
-**Pakete:**
-- `ai@^7.0.0-beta` in `packages/core` und `apps/cli`
+**Packages:**
+- `ai@^7.0.0-beta` in `packages/core` and `apps/cli`
 - `@ai-sdk/anthropic@^4.0.0-beta` in `packages/core`
-- `zod` (für Tool-Schemas)
+- `zod` (for tool schemas)
 
-**`packages/core/src/tools.ts` — die 5 Tool-Definitionen:**
+**`packages/core/src/tools.ts` — the 5 tool definitions:**
 ```ts
 import { tool } from 'ai';
 import { z } from 'zod';
@@ -191,12 +191,12 @@ import { z } from 'zod';
 export function buildTools(repo: FileRepository) {
   return {
     read_file: tool({
-      description: 'Liest den Markdown-Inhalt einer Datei relativ zum Vault-Root.',
+      description: 'Reads the markdown content of a file relative to the vault root.',
       inputSchema: z.object({ file_path: z.string() }),
       execute: async ({ file_path }) => repo.read(file_path),
     }),
     edit_file: tool({
-      description: 'Wendet atomare Search/Replace-Edits an. Jeder search muss genau einmal im File vorkommen.',
+      description: 'Applies atomic search/replace edits. Each search must occur exactly once in the file.',
       inputSchema: z.object({
         file_path: z.string(),
         edits: z.array(z.object({ search: z.string(), replace: z.string() })).min(1),
@@ -206,7 +206,7 @@ export function buildTools(repo: FileRepository) {
         repo.edit(file_path, edits, change_summary),
     }),
     write_file: tool({
-      description: 'Schreibt den kompletten Inhalt. Nur für Create oder Full-Rewrite — sonst edit_file.',
+      description: 'Writes the entire content. Only for create or full rewrite — otherwise use edit_file.',
       inputSchema: z.object({
         file_path: z.string(),
         content: z.string(),
@@ -218,12 +218,12 @@ export function buildTools(repo: FileRepository) {
       },
     }),
     list_files: tool({
-      description: 'Listet Pfade, optional per Prefix gefiltert.',
+      description: 'Lists paths, optionally filtered by prefix.',
       inputSchema: z.object({ prefix: z.string().optional() }),
       execute: async ({ prefix }) => repo.list(prefix),
     }),
     search_files: tool({
-      description: 'Volltextsuche. scope=active (default), archive, oder all.',
+      description: 'Full-text search. scope=active (default), archive, or all.',
       inputSchema: z.object({
         query: z.string(),
         scope: z.enum(['active', 'archive', 'all']).optional(),
@@ -234,14 +234,14 @@ export function buildTools(repo: FileRepository) {
 }
 ```
 
-**`apps/cli/src/index.ts` — der CLI-Entrypoint:**
-- Liest `VAULT_PATH` und `ANTHROPIC_API_KEY` aus dem Env. Wirft wenn eine der beiden fehlt.
-- `LocalFileRepository(vaultPath)` instanziieren
-- `readline.createInterface` auf stdin/stdout, Prompt `> `
-- Pro User-Zeile:
-  - Zeichenlimit prüfen (2000 chars, feste Grenze — Heuristik kommt in Task 4)
-  - Messages-Array in-memory pflegen (pro CLI-Run eine Session, keine Persistenz)
-  - `streamText` aufrufen:
+**`apps/cli/src/index.ts` — the CLI entrypoint:**
+- Reads `VAULT_PATH` and `ANTHROPIC_API_KEY` from env. Throws if either is missing.
+- Instantiate `LocalFileRepository(vaultPath)`
+- `readline.createInterface` on stdin/stdout, prompt `> `
+- Per user line:
+  - Check character limit (2000 chars, hard limit — heuristic comes in Task 4)
+  - Maintain an in-memory messages array (one session per CLI run, no persistence)
+  - Call `streamText`:
     ```ts
     const result = streamText({
       model: anthropic('claude-haiku-4-5'),
@@ -252,185 +252,185 @@ export function buildTools(repo: FileRepository) {
       abortSignal: controller.signal,
     });
     ```
-  - `for await (const part of result.fullStream)` und:
+  - `for await (const part of result.fullStream)` and:
     - `text` → `process.stdout.write(part.text)`
-    - `tool-call` → `process.stdout.write('\n[' + part.toolName + '…]\n')` (UX-Feedback)
+    - `tool-call` → `process.stdout.write('\n[' + part.toolName + '…]\n')` (UX feedback)
     - `tool-error` → `console.error('Tool error:', part.toolName, part.error)`
     - `error` → throw
-  - Nach dem Stream: `messages.push(...(await result.response).messages)` um assistant/tool-Messages zu persistieren (nur im Array, nicht auf Disk)
-- `process.on('SIGINT')` → `controller.abort()` — aktueller Stream bricht sauber ab, Prompt kommt zurück. Zweimal Ctrl+C beendet den Prozess.
+  - After the stream: `messages.push(...(await result.response).messages)` to persist assistant/tool messages (only in the array, not on disk)
+- `process.on('SIGINT')` → `controller.abort()` — current stream cancels cleanly, prompt returns. Two Ctrl+Cs end the process.
 
-**Minimaler System Prompt (in `apps/cli/src/index.ts` inline, noch nicht in `packages/core`):**
+**Minimal system prompt (inline in `apps/cli/src/index.ts`, not yet in `packages/core`):**
 ```
-Du bist ein GTD-Assistent. Der User arbeitet mit einem Obsidian-Vault,
-das folgende Dateien enthält:
+You are a GTD assistant. The user works with an Obsidian vault
+that contains the following files:
 - tasks/inbox.md, tasks/focus.md, tasks/next-actions.md, tasks/waiting.md, tasks/someday-maybe.md
-- daily/YYYY-MM-DD.md (heutige Note), archive/daily/ (vergangene)
+- daily/YYYY-MM-DD.md (today's note), archive/daily/ (past notes)
 
-Nutze die Tools read_file, edit_file, write_file, list_files, search_files.
-Bevorzuge edit_file (Search/Replace) gegenüber write_file für Änderungen an existierenden Files.
-Bei mehrdeutigem Search: erweitere search um Kontext-Zeilen und versuche es erneut.
+Use the tools read_file, edit_file, write_file, list_files, search_files.
+Prefer edit_file (search/replace) over write_file for changes to existing files.
+On ambiguous search: extend search with context lines and try again.
 
-Heute ist {TODAY_ISO} ({TODAY_WEEKDAY}).
+Today is {TODAY_ISO} ({TODAY_WEEKDAY}).
 ```
-(Full R1-R13 kommt in Task 4.)
+(Full R1-R13 comes in Task 4.)
 
-**`pnpm --filter cli dev` Script:** startet die CLI mit `tsx` oder `ts-node` direkt.
+**`pnpm --filter cli dev` script:** starts the CLI directly with `tsx` or `ts-node`.
 
 ### Acceptance
 
-- **Manueller Smoke-Test** (dokumentiert im PR/Commit-Message als Transcript) gegen ein echtes Test-Vault + echte Haiku-API:
-  1. `> Liste meine Tasks` — LLM ruft `list_files({ prefix: 'tasks/' })` + `read_file(...)` und antwortet sinnvoll
-  2. `> Neuer Task: Milch kaufen` — LLM ruft `edit_file` auf `tasks/inbox.md`, neue Zeile erscheint
-  3. `> Hak Milch kaufen ab` — LLM findet den Task, setzt `[x]` oder entfernt ihn
-  4. `> Was steht heute an?` — LLM liest Focus + heutige Daily Note und antwortet
-  5. Ctrl+C während Stream: Stream bricht ab, Prompt ist zurück
+- **Manual smoke test** (documented in the PR/commit message as a transcript) against a real test vault + the real Haiku API:
+  1. `> List my tasks` — LLM calls `list_files({ prefix: 'tasks/' })` + `read_file(...)` and answers sensibly
+  2. `> New task: buy milk` — LLM calls `edit_file` on `tasks/inbox.md`, new line appears
+  3. `> Check off buy milk` — LLM finds the task, sets `[x]` or removes it
+  4. `> What's on for today?` — LLM reads focus + today's daily note and answers
+  5. Ctrl+C during stream: stream cancels, prompt returns
 
-- **Vitest-Integrationstest** mit `MockLanguageModelV4` (`ai/test`):
-  - Skripte eine 3-Step-Tool-Chain: (1) `list_files` → (2) `read_file` → (3) Text-Response
-  - Repo ist `InMemoryFileRepository` mit vordefiniertem State
-  - Assertion: Nach dem Run wurden die erwarteten Tool-Calls gemacht **in der richtigen Reihenfolge**; letzter Step enthält den erwarteten Text
-  - Zweiter Test: Simulierte `edit_file`-Ambiguität → LLM bekommt `{ ok: false, error: ... }` als tool-result → zweiter `edit_file`-Aufruf mit erweitertem Search → erfolgreicher Apply
+- **Vitest integration test** with `MockLanguageModelV4` (`ai/test`):
+  - Script a 3-step tool chain: (1) `list_files` → (2) `read_file` → (3) text response
+  - Repo is `InMemoryFileRepository` with predefined state
+  - Assertion: after the run the expected tool calls were made **in the right order**; the last step contains the expected text
+  - Second test: simulated `edit_file` ambiguity → LLM gets `{ ok: false, error: ... }` as tool result → second `edit_file` call with extended search → successful apply
 
 ### Key Locations
 
 - `apps/cli/src/index.ts`
-- `apps/cli/src/minimal-prompt.ts` (temporär, Task 4 ersetzt)
+- `apps/cli/src/minimal-prompt.ts` (temporary, replaced by Task 4)
 - `packages/core/src/tools.ts`
-- `packages/core/src/__tests__/tools.test.ts` (Mock-LLM-Integrationstest)
-- `apps/cli/package.json` mit `dev`/`start`-Scripts
+- `packages/core/src/__tests__/tools.test.ts` (mock LLM integration test)
+- `apps/cli/package.json` with `dev`/`start` scripts
 
 ### Key Discoveries
 
-- **`stopWhen` ist essenziell.** Ohne explizites `stopWhen: isStepCount(N)` macht das SDK nur **einen** LLM-Call — kein agentic loop! Default = `isStepCount(1)`. Für uns: `isStepCount(10)`.
-- **Tool-Errors brauchen kein Wrapping.** Wenn `execute` wirft, baut das SDK automatisch einen `tool-error`-Part in die Conversation ein, und das LLM kann im nächsten Step darauf reagieren. Für `edit_file` geben wir aber bewusst **kein** Throw zurück, sondern `EditResult { ok: false, error: ... }` als normales Tool-Output — das LLM sieht ein strukturiertes Feedback-Objekt, nicht einen Error-String.
-- **`fullStream` vs `textStream`:** Wir wollen Tool-Call-Events im Terminal sehen ("[read_file…]"), also `fullStream`. `textStream` würde nur das LLM-Reden zeigen.
-- **Response-Messages persistieren:** `(await result.response).messages` liefert die assistant-Message (inkl. tool-call-Parts) + tool-Messages (mit tool-result-Parts) des letzten Runs. Die an `messages`-Array anhängen reicht für die in-memory Session. Persistenz auf Disk kommt in Task 4.
-- **Aktuelles Datum im Stub-Prompt:** Auch dieser minimale Prompt muss das aktuelle Datum enthalten (R13), sonst rätselt Haiku über Wochentage.
+- **`stopWhen` is essential.** Without an explicit `stopWhen: isStepCount(N)` the SDK only makes **one** LLM call — no agentic loop! Default = `isStepCount(1)`. For us: `isStepCount(10)`.
+- **Tool errors don't need wrapping.** If `execute` throws, the SDK automatically embeds a `tool-error` part in the conversation, and the LLM can react in the next step. For `edit_file` we deliberately do **not** throw, but return `EditResult { ok: false, error: ... }` as a regular tool output — the LLM sees a structured feedback object, not an error string.
+- **`fullStream` vs `textStream`:** we want to see tool-call events in the terminal ("[read_file…]"), so `fullStream`. `textStream` would only show the LLM speaking.
+- **Persisting response messages:** `(await result.response).messages` returns the assistant message (incl. tool-call parts) + tool messages (with tool-result parts) of the last run. Appending them to the `messages` array is enough for the in-memory session. Disk persistence comes in Task 4.
+- **Current date in the stub prompt:** even this minimal prompt must include the current date (R13), otherwise Haiku will guess at weekdays.
 
 ---
 
-## Task 4: System Prompt R1-R13 + Request Builder + Tool-Result-Pruning + Model Router + Session-Persistenz + Input-Heuristik + Prompt-Caching
+## Task 4: System prompt R1-R13 + request builder + tool-result pruning + model router + session persistence + input heuristic + prompt caching
 
 ### Instructions
 
-Die "Productization-Passe" über Task 3. Der Inline-Code aus Task 3 wird in saubere Core-Module refaktoriert, und alles was für MVP-Qualität fehlt wird ergänzt.
+The "productization pass" over Task 3. The inline code from Task 3 gets refactored into clean core modules, and everything that's missing for MVP quality gets added.
 
 **`packages/core/src/system-prompt.ts`:**
-- Export `buildSystemPrompt(ctx: { today: Date })`: baut den vollständigen System Prompt mit R1-R13 aus der Architektur-Spec
-- Konkrete Regeln, die im Prompt materialisiert werden:
-  - **R1:** Fünf Listen + Daily Note, Zweck + Crosscheck-Relevanz-Tabelle inline
-  - **R2:** Single-Location-Invariante + Focus↔Next-Actions-Ausnahme
-  - **R3:** Daily-Note ↔ Tasksystem-Beziehung
-  - **R4:** Crosscheck-Protokoll-Schritte 1–5 als explizite Schritt-Liste
-  - **R5:** Daily-Note-Lifecycle (Hinweis: der Server-Side-Move passiert automatisch via Task 5, das LLM muss das nicht selbst tun — aber es muss wissen dass `daily/` immer nur die heutige Note enthält)
-  - **R6:** Next-Actions-Struktur (eine Datei, zweistufig)
-  - **R7:** Weekly Review mit Review-Marker-Format `**Letztes Weekly Review: YYYY-MM-DD (Wochentag)**` im Focus-Header
-  - **R8:** Task-Format (Markdown-Checkboxen)
-  - **R9:** Daily-Note-Format (Plan, Log, Notizen)
-  - **R10:** Natürlich-Sprache-Kommandos (Beispiele)
-  - **R11:** Proaktive Hinweise (situativ, kein Schedule)
-  - **R12:** Context-Aware Session Start (da Phase 1 keine Generative UI hat: als Text-Response rendern)
-  - **R13:** Datum zur Laufzeit injizieren: `Heute ist {weekday}, {dd. month yyyy}.`
-- Prompt-Länge im Blick halten (~1K Tokens Ziel, hart <2K)
+- Export `buildSystemPrompt(ctx: { today: Date })`: builds the full system prompt with R1-R13 from the architecture spec
+- Concrete rules materialized in the prompt:
+  - **R1:** Five lists + daily note, purpose + crosscheck-relevance table inline
+  - **R2:** Single-location invariant + focus↔next-actions exception
+  - **R3:** Daily note ↔ task system relationship
+  - **R4:** Crosscheck protocol steps 1–5 as an explicit step list
+  - **R5:** Daily-note lifecycle (note: the server-side move happens automatically via Task 5; the LLM doesn't have to do it itself — but it must know that `daily/` always contains only today's note)
+  - **R6:** Next-actions structure (one file, two-level)
+  - **R7:** Weekly review with review-marker format `**Last weekly review: YYYY-MM-DD (weekday)**` in the focus header
+  - **R8:** Task format (markdown checkboxes)
+  - **R9:** Daily note format (plan, log, notes)
+  - **R10:** Natural-language commands (examples)
+  - **R11:** Proactive hints (situational, no schedule)
+  - **R12:** Context-aware session start (since Phase 1 has no generative UI: render as text response)
+  - **R13:** Inject date at runtime: `Today is {weekday}, {dd. month yyyy}.`
+- Keep prompt length in mind (~1K tokens target, hard <2K)
 
 **`packages/core/src/request-builder.ts`:**
 - Export `buildRequest(opts: { repo, today, profile, messages, userMessage })` → `{ system, messages, tools, ... }`
-- Lädt aktive Files synchron: `tasks/*.md` + `daily/YYYY-MM-DD.md` (falls vorhanden)
-- Baut eine einzelne "Active State"-System-Addendum-Message oder injiziert die Files als initial-context-Prefix in `system` — Entscheidung auf Basis Prompt-Caching (siehe unten)
-- Ruft `buildSystemPrompt` + fügt Profil + aktive Files an
-- Ruft `pruneToolResults` auf die `messages`-Historie an
-- Fügt die neue User-Message an
+- Loads active files synchronously: `tasks/*.md` + `daily/YYYY-MM-DD.md` (if present)
+- Builds either a single "active state" system addendum message or injects the files as initial-context prefix in `system` — decision based on prompt caching (see below)
+- Calls `buildSystemPrompt` + appends profile + active files
+- Calls `pruneToolResults` on the `messages` history
+- Appends the new user message
 
 **`packages/core/src/tool-result-pruning.ts`:**
 - Export `pruneToolResults(messages: ModelMessage[], k: number): ModelMessage[]`
-- Iteriere rückwärts durch `messages`. Die letzten K `tool`-Rollen-Messages bleiben unberührt. Alle älteren `tool`-Messages werden so transformiert:
-  - Für jeden `tool-result`-Content-Part: `output` wird durch den Stub-String ersetzt: `[Previous ${toolName} result — superseded by current state; re-read if needed]`. `toolCallId` und `toolName` bleiben erhalten.
-  - `tool-error`-Parts bleiben unangetastet (Error-Info kann für das LLM relevant bleiben).
-- `user`- und `assistant`-Messages (inkl. `tool-call`-Parts!) werden **niemals** verändert.
-- K aus MVP-Spec: 5.
+- Iterate `messages` backwards. The last K `tool`-role messages stay untouched. All older `tool` messages are transformed as follows:
+  - For each `tool-result` content part: `output` is replaced by the stub string: `[Previous ${toolName} result — superseded by current state; re-read if needed]`. `toolCallId` and `toolName` are preserved.
+  - `tool-error` parts stay untouched (error info may remain relevant for the LLM).
+- `user` and `assistant` messages (incl. `tool-call` parts!) are **never** modified.
+- K from MVP spec: 5.
 
 **`packages/core/src/model-router.ts`:**
 - Export `routeModel(userMessage: string): 'haiku' | 'sonnet'`
-- Keyword/Regex-basiert für MVP:
-  - Sonnet-Keywords: "plan", "räum auf", "review", "priorisiere", "wichtig", "morgen plan"
-  - Alles andere → Haiku
-- Kein Throw bei Unsicherheit — Default ist Haiku
-- Tests decken Grenz-Cases ab
+- Keyword/regex-based for MVP:
+  - Sonnet keywords: "plan", "clean up", "review", "prioritize", "important", "plan tomorrow"
+  - Everything else → Haiku
+- No throw on uncertainty — default is Haiku
+- Tests cover edge cases
 
-**Session-Persistenz:**
+**Session persistence:**
 - `packages/core/src/sessions.ts`: `loadOrCreateSession(repo, today)` / `appendMessages(session, new)` / `saveSession(repo, session)`
-- Session-Storage: `basePath/.gtd-companion/sessions/YYYY-MM-DD.json` mit `{ date, messages: ModelMessage[] }`
-- CLI lädt die heutige Session beim Start, schreibt nach jedem Turn
-- Session-Switching (vergangene Session weiterchatten) ist **nicht** MVP — steht nicht in Phase 1
+- Session storage: `basePath/.gtd-companion/sessions/YYYY-MM-DD.json` with `{ date, messages: ModelMessage[] }`
+- CLI loads today's session at startup, writes after each turn
+- Session switching (continuing a past session) is **not** MVP — it's not in Phase 1
 
-**Input-Heuristik (`packages/core/src/input-validation.ts`):**
-- Max 2000 chars (hard reject mit freundlicher Nachricht)
-- Heuristik-Reject bei:
-  - > 5 Zeilen UND entweder >20% Zeilen starten mit whitespace (Code-Indent) ODER Anteil von `{};()=` im Input >5%
-  - > 1500 chars UND >3 Code-Block-Marker (` ``` `)
-- Response bei Reject: "Das sieht nicht nach einer Task-Anfrage aus. Ich bin dein GTD-Assistent — was kann ich für deine Aufgaben tun?" (CLI zeigt, LLM wird nicht aufgerufen)
+**Input heuristic (`packages/core/src/input-validation.ts`):**
+- Max 2000 chars (hard reject with a friendly message)
+- Heuristic reject when:
+  - > 5 lines AND either >20% of lines start with whitespace (code indent) OR share of `{};()=` in the input >5%
+  - > 1500 chars AND >3 code-block markers (` ``` `)
+- Response on reject: "That doesn't look like a task request. I'm your GTD assistant — what can I do for your tasks?" (CLI shows this; LLM is not invoked)
 
-**Prompt-Caching:**
-- `providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } }` auf dem `streamText`-Call
-- Anthropic cacht dann System Prompt + Tool-Definitions (stabil über Turns) — ein `cacheControl`-Marker am Ende reicht
-- `totalUsage.inputTokenDetails.cacheReadTokens` bzw. `cacheWriteTokens` ausloggen (simple `console.debug` hinter `DEBUG=1`)
+**Prompt caching:**
+- `providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } }` on the `streamText` call
+- Anthropic then caches system prompt + tool definitions (stable across turns) — one `cacheControl` marker at the end is enough
+- Log `totalUsage.inputTokenDetails.cacheReadTokens` and `cacheWriteTokens` (simple `console.debug` behind `DEBUG=1`)
 
-**CLI-Refactor:**
-- `apps/cli/src/index.ts` nutzt jetzt `buildRequest` + `routeModel` + Session-Persistenz + Input-Validation
-- Minimaler Stub-Prompt aus Task 3 wird entfernt
+**CLI refactor:**
+- `apps/cli/src/index.ts` now uses `buildRequest` + `routeModel` + session persistence + input validation
+- The minimal stub prompt from Task 3 is removed
 
 ### Acceptance
 
-Vitest-Suite grün:
-- `buildSystemPrompt({ today: new Date('2026-04-24') })` enthält `"Heute ist Freitag, 24. April 2026"` und alle R1-R13-Markerstrings (jede Regel bekommt einen eindeutigen Anchor im Prompt — Test prüft alle 13 Anchor)
+Vitest suite green:
+- `buildSystemPrompt({ today: new Date('2026-04-24') })` contains `"Today is Friday, 24. April 2026"` and all R1-R13 marker strings (each rule gets a unique anchor in the prompt — the test checks all 13 anchors)
 - `pruneToolResults`:
-  - K=5, 10 tool-messages → älteste 5 werden zu Stubs, neueste 5 bleiben identisch
-  - user/assistant-Messages unberührt (inkl. assistant-Messages die `tool-call`-Parts enthalten)
-  - Eine Message mit gemischten Parts (text + tool-call im assistant): unverändert
-  - tool-error-Parts bleiben erhalten
+  - K=5, 10 tool messages → oldest 5 become stubs, newest 5 stay identical
+  - user/assistant messages untouched (incl. assistant messages that contain `tool-call` parts)
+  - A message with mixed parts (text + tool-call in assistant): unchanged
+  - tool-error parts preserved
 - `routeModel`:
-  - "Plan meinen Tag" → sonnet, "Neuer Task: Milch" → haiku, "Räum die Inbox auf" → sonnet, "Hak X ab" → haiku
-- Session-Roundtrip:
-  - `loadOrCreateSession` in leerem Vault → neue Session-Datei
-  - Append + Save → Load liefert identische Messages zurück
-  - Neuer Tag → neue Session-Datei (alte bleibt)
-- Input-Validierung:
+  - "Plan my day" → sonnet, "New task: milk" → haiku, "Clean up the inbox" → sonnet, "Check off X" → haiku
+- Session roundtrip:
+  - `loadOrCreateSession` in an empty vault → new session file
+  - Append + save → load returns identical messages
+  - New day → new session file (old one stays)
+- Input validation:
   - 2001 chars → reject
-  - 2000 chars normale Sprache → accept
-  - `function foo() { return 1; }`-Paste mit 50 Zeilen → reject
-  - Normaler Task "Neuer Task: Angebot für VW schreiben" → accept
+  - 2000 chars of normal language → accept
+  - `function foo() { return 1; }` paste with 50 lines → reject
+  - Normal task "New task: write VW quote" → accept
 
-**Manueller Smoke-Test** (dokumentiert im PR): 3 Turns gegen echtes Vault, der erste erzeugt Cache-Writes, der zweite Cache-Reads (beobachtbar in Debug-Log), dritter ebenfalls Cache-Reads. Eine "Plan meinen Tag"-Nachricht routet zu Sonnet (sichtbar im Debug-Log).
+**Manual smoke test** (documented in the PR): 3 turns against the real vault — the first produces cache writes, the second cache reads (observable in the debug log), the third cache reads as well. A "Plan my day" message routes to Sonnet (visible in the debug log).
 
 ### Key Locations
 
-- `packages/core/src/system-prompt.ts` (+ evtl. `system-prompt.template.md` als Datei, die zur Compile-Zeit via `import` reingeladen wird)
+- `packages/core/src/system-prompt.ts` (+ possibly `system-prompt.template.md` as a file imported at compile time)
 - `packages/core/src/request-builder.ts`
 - `packages/core/src/tool-result-pruning.ts`
 - `packages/core/src/model-router.ts`
 - `packages/core/src/sessions.ts`
 - `packages/core/src/input-validation.ts`
-- `packages/core/src/__tests__/` — ein Test-File pro Module
-- `apps/cli/src/index.ts` (refaktoriert)
+- `packages/core/src/__tests__/` — one test file per module
+- `apps/cli/src/index.ts` (refactored)
 
 ### Key Discoveries
 
-- **Prompt-Caching ist manuell.** Das SDK cached nichts automatisch. Der `cacheControl`-Marker bestimmt das Ende des gecachten Blocks. Strategie für Phase 1: Ein einziger Marker auf dem `streamText`-Call, der alles bis dahin (System + Tool-Definitions) als cachebar markiert. Message-Ende-Marker mit `prepareStep` (für Message-History-Caching) ist Phase-2-Thema.
-- **Tool-Result-Pruning transformiert nur `role: 'tool'`-Messages.** Assistant-Messages mit `tool-call`-Parts bleiben unangetastet (sie zeigen "ein Call ist passiert", was für den Kontext wichtig ist — nur der konkrete Result wird gestubbt).
-- **Ein `tool-result`-Part hat die Felder `type: 'tool-result'`, `toolCallId`, `toolName`, `output`** (siehe SDK-Recherche §8). Pruning ersetzt `output` durch einen String, nicht das ganze Part.
-- **K=5** laut Architektur-Spec. Tunable, aber MVP-Fix.
-- **R12 Session-Start-Suggestion** ist in Phase 1 eine Text-Response (keine Generative UI). Der System Prompt enthält die State-Tabelle aus R12; die Entscheidung welche Suggestion trifft das LLM beim ersten Turn einer neuen Session.
-- **Input-Heuristik darf nicht zu aggressiv sein.** Ein Task wie "Schreib Code-Review für PR #42" enthält zwar Sonderzeichen, aber nicht in den Proportionen die die Heuristik rejected. Testfälle decken ehrliche Kantenfälle ab.
-- **Session-Switching ist explizit kein MVP-Feature.** Die Session-Datei der heutigen Session wird geladen; vergangene Sessions liegen nur auf Disk, werden aber von der CLI nicht angefasst. Phase 2a bringt die UI dafür.
+- **Prompt caching is manual.** The SDK caches nothing automatically. The `cacheControl` marker defines the end of the cached block. Phase 1 strategy: a single marker on the `streamText` call that flags everything up to that point (system + tool definitions) as cacheable. End-of-message markers via `prepareStep` (for message-history caching) is a Phase 2 topic.
+- **Tool-result pruning only transforms `role: 'tool'` messages.** Assistant messages with `tool-call` parts stay untouched (they show "a call happened", which matters for context — only the concrete result is stubbed).
+- **A `tool-result` part has the fields `type: 'tool-result'`, `toolCallId`, `toolName`, `output`** (see SDK research §8). Pruning replaces `output` with a string, not the whole part.
+- **K=5** per the architecture spec. Tunable, but fixed for MVP.
+- **R12 session-start suggestion** is a text response in Phase 1 (no generative UI). The system prompt contains the state table from R12; the LLM decides which suggestion to make on the first turn of a new session.
+- **The input heuristic must not be too aggressive.** A task like "Write code review for PR #42" contains special chars but not in the proportions the heuristic rejects. Test cases cover honest edge cases.
+- **Session switching is explicitly not an MVP feature.** Today's session file is loaded; past sessions just sit on disk and are not touched by the CLI. Phase 2a brings the UI for that.
 
 ---
 
-## Task 5: Daily-Note-Lifecycle (R5) + Clock-Injection
+## Task 5: Daily-note lifecycle (R5) + clock injection
 
 ### Instructions
 
-Automatische Archivierung beim Tageswechsel. Läuft server-side (hier: CLI-side) **vor** jedem LLM-Request, damit das LLM immer einen sauberen Tages-State sieht.
+Automatic archiving on day change. Runs server-side (here: CLI-side) **before** every LLM request, so the LLM always sees a clean day-state.
 
 **`packages/core/src/lifecycle.ts`:**
 ```ts
@@ -440,139 +440,139 @@ export async function runDailyLifecycle(
 ): Promise<{ archivedPaths: string[]; createdTodayPath: string | null }>;
 ```
 
-- `todayIso = YYYY-MM-DD` aus dem übergebenen `today`
-- `existing = await repo.list('daily/')` (nur direkte Kinder, keine Subfolder)
-- Für jedes `daily/YYYY-MM-DD.md` mit `date < today`:
+- `todayIso = YYYY-MM-DD` from the passed-in `today`
+- `existing = await repo.list('daily/')` (only direct children, no subfolders)
+- For each `daily/YYYY-MM-DD.md` with `date < today`:
   - `content = await repo.read(file)`
-  - Offene Checkboxen `- [ ]` in Zeilen entfernen (exakt: Zeilen die mit optionalem Whitespace + `- [ ]` beginnen, werden gestrichen — nicht durchgestrichen, einfach weg)
-  - Im Log-Bereich am Ende der Note: `- Archiviert am ${todayIso}: offene Items entfernt (→ manuell neu einplanen)` anhängen, falls offene Items entfernt wurden
-  - `- [x]`-Zeilen bleiben
-  - Write zu `archive/daily/YYYY-MM-DD.md` via `repo.write(newPath, newContent, 'Archived daily note')`
-  - **Delete-Semantik:** Da es in `FileRepository` kein `delete` gibt, wird der alte `daily/YYYY-MM-DD.md` durch einen **expliziten Move** ersetzt. Ergänze das Interface um `move(from, to, changeSummary)` — einfacher Read + Write(to) + Delete(from). Implementierungen:
-    - `LocalFileRepository.move`: `fs.rename` + History-Eintrag mit `contentBefore`/`contentAfter`
-    - `InMemoryFileRepository.move`: Map-Umbenennen + History
-  - History-Eintrag mit `changeSummary: 'Archived daily note YYYY-MM-DD'` und `changedBy: 'system'`
-- Wenn `daily/${todayIso}.md` nicht existiert: `repo.write('daily/' + todayIso + '.md', '', 'Created new daily note for today')` mit `changedBy: 'system'`
-- Return-Objekt für Logging/Tests
+  - Remove open checkboxes `- [ ]` in lines (exactly: lines starting with optional whitespace + `- [ ]` are dropped — not struck through, simply gone)
+  - In the log section at the end of the note: append `- Archived on ${todayIso}: open items removed (→ replan manually)` if open items were removed
+  - `- [x]` lines stay
+  - Write to `archive/daily/YYYY-MM-DD.md` via `repo.write(newPath, newContent, 'Archived daily note')`
+  - **Delete semantics:** since `FileRepository` has no `delete`, the old `daily/YYYY-MM-DD.md` is replaced via an **explicit move**. Extend the interface with `move(from, to, changeSummary)` — simple read + write(to) + delete(from). Implementations:
+    - `LocalFileRepository.move`: `fs.rename` + history entry with `contentBefore`/`contentAfter`
+    - `InMemoryFileRepository.move`: rename in the map + history
+  - History entry with `changeSummary: 'Archived daily note YYYY-MM-DD'` and `changedBy: 'system'`
+- If `daily/${todayIso}.md` does not exist: `repo.write('daily/' + todayIso + '.md', '', 'Created new daily note for today')` with `changedBy: 'system'`
+- Return object for logging/tests
 
-**Clock-Injection:**
-- `runDailyLifecycle` nimmt `today: Date` als Parameter — **niemals intern `new Date()`**
-- CLI-Entrypoint:
-  - Default: `today = new Date()` direkt vor jedem LLM-Request
-  - Env-Override: `GTD_NOW_OVERRIDE=2026-04-25T09:00:00Z` → `today = new Date(env)` — für Task-6-E2E-Tests und manuelle Tageswechsel-Simulation
-- Model-Router und System-Prompt-Builder kriegen denselben `today`-Wert — Single Source of Truth pro Request.
+**Clock injection:**
+- `runDailyLifecycle` takes `today: Date` as a parameter — **never internal `new Date()`**
+- CLI entrypoint:
+  - Default: `today = new Date()` directly before every LLM request
+  - Env override: `GTD_NOW_OVERRIDE=2026-04-25T09:00:00Z` → `today = new Date(env)` — for Task 6 E2E tests and manual day-change simulation
+- Model router and system-prompt builder receive the same `today` value — single source of truth per request.
 
-**CLI-Integration:**
-- Vor jedem `streamText`-Aufruf: `await runDailyLifecycle(repo, today)`
-- Nur einmal pro CLI-Run dagegen zu prüfen wäre falsch — wenn der User die CLI über Mitternacht offen lässt, soll der Wechsel erkannt werden
-- Kein Crash wenn nix zu archivieren ist; der Aufruf ist idempotent
+**CLI integration:**
+- Before every `streamText` call: `await runDailyLifecycle(repo, today)`
+- Checking only once per CLI run would be wrong — if the user leaves the CLI open across midnight, the change should be detected
+- No crash if there is nothing to archive; the call is idempotent
 
 ### Acceptance
 
-Vitest-Suite gegen `InMemoryFileRepository` + gemockten Clock:
+Vitest suite against `InMemoryFileRepository` + a mocked clock:
 
-- **Szenario A — Gestrige Note vorhanden, heutige fehlt:**
-  - Vor: `daily/2026-04-23.md` mit offenen `[ ]` + `[x]`-Mix
+- **Scenario A — yesterday's note exists, today's missing:**
+  - Before: `daily/2026-04-23.md` with mixed open `[ ]` + `[x]`
   - `runDailyLifecycle(repo, new Date('2026-04-24T09:00Z'))`
-  - Nach: `daily/2026-04-23.md` weg, `archive/daily/2026-04-23.md` enthält Content mit entfernten `[ ]`-Zeilen + Log-Vermerk, `[x]`-Zeilen erhalten, neue leere `daily/2026-04-24.md` existiert
-  - History hat 2 neue Einträge
-- **Szenario B — Mehrere alte Notes (User 3 Tage weg):**
-  - Vor: `daily/2026-04-21.md`, `daily/2026-04-22.md`, `daily/2026-04-23.md`
-  - Nach: alle drei nach `archive/daily/` verschoben, `daily/2026-04-24.md` neu
-- **Szenario C — Heutige Note existiert bereits:**
-  - Vor: `daily/2026-04-24.md` mit Content
-  - Nach: unverändert, kein History-Eintrag, return `{ archivedPaths: [], createdTodayPath: null }`
-- **Szenario D — Idempotenz:**
-  - Zweiter Aufruf mit demselben `today` → keine Mutation, keine neuen History-Einträge
-- **Szenario E — Offene Checkboxen mit verschachtelter Einrückung:**
-  - `  - [ ] Sub-Task` (2 Leerzeichen Einrückung) → wird entfernt
-  - `- [x] Erledigt` → bleibt
-  - `- Normal text` → bleibt
+  - After: `daily/2026-04-23.md` is gone, `archive/daily/2026-04-23.md` contains content with `[ ]` lines removed + log note, `[x]` lines preserved, new empty `daily/2026-04-24.md` exists
+  - History has 2 new entries
+- **Scenario B — multiple old notes (user away for 3 days):**
+  - Before: `daily/2026-04-21.md`, `daily/2026-04-22.md`, `daily/2026-04-23.md`
+  - After: all three moved to `archive/daily/`, `daily/2026-04-24.md` is new
+- **Scenario C — today's note already exists:**
+  - Before: `daily/2026-04-24.md` with content
+  - After: unchanged, no history entry, return `{ archivedPaths: [], createdTodayPath: null }`
+- **Scenario D — idempotency:**
+  - Second call with the same `today` → no mutation, no new history entries
+- **Scenario E — open checkboxes with nested indentation:**
+  - `  - [ ] Sub-task` (2 spaces of indent) → removed
+  - `- [x] Done` → stays
+  - `- Normal text` → stays
 
 ### Key Locations
 
 - `packages/core/src/lifecycle.ts`
-- `packages/core/src/file-repository.ts` (+ `move`-Method)
-- `packages/core/src/local-file-repository.ts` (+ `move`-Impl)
-- `packages/core/src/in-memory-file-repository.ts` (+ `move`-Impl)
+- `packages/core/src/file-repository.ts` (+ `move` method)
+- `packages/core/src/local-file-repository.ts` (+ `move` impl)
+- `packages/core/src/in-memory-file-repository.ts` (+ `move` impl)
 - `packages/core/src/__tests__/lifecycle.test.ts`
-- `apps/cli/src/index.ts` (+ `runDailyLifecycle` vor jedem Turn)
+- `apps/cli/src/index.ts` (+ `runDailyLifecycle` before every turn)
 
 ### Key Discoveries
 
-- **Lifecycle läuft server-side, nicht LLM-side.** Das LLM bekommt ein fertig-archiviertes Tages-Layout und muss sich nicht um den Move kümmern (Spec "Automatischer Tageswechsel").
-- **Offene Checkboxen werden gelöscht, nicht durchgestrichen.** Das Log-Entry dokumentiert den Move; die Detail-Info, *was* offen war, steckt im `file_history`-Eintrag (`contentBefore`).
-- **Ein neues `move`-Primitiv im Interface ist sauberer als Read+Write+(Fehlendes Delete).** Ohne `move` wüsste das Repo nicht, dass es eine zweite Zeile im History-Log braucht (eine für Delete der Quell-Datei, eine für Create der Ziel-Datei). Mit `move` ist das ein semantisch atomarer Eintrag.
-- **Clock-Injection ist nicht nur Test-Infrastruktur.** Das `GTD_NOW_OVERRIDE`-Env-Var ermöglicht auch manuelle Dogfooding-Tests ("was passiert am Freitag?") ohne das System-Datum zu ändern.
+- **Lifecycle runs server-side, not LLM-side.** The LLM gets a fully-archived day layout and doesn't have to handle the move (spec "Automatic day change").
+- **Open checkboxes get deleted, not struck through.** The log entry documents the move; the detail of *what* was open lives in the `file_history` entry (`contentBefore`).
+- **A new `move` primitive in the interface is cleaner than read+write+(missing delete).** Without `move`, the repo would not know it needs a second history line (one for delete of the source, one for create of the target). With `move` it's one semantically atomic entry.
+- **Clock injection is more than test infrastructure.** The `GTD_NOW_OVERRIDE` env var also enables manual dogfooding tests ("what happens on Friday?") without changing the system date.
 
 ---
 
-## Task 6: End-to-End Acceptance gegen echte Claude API + Vault
+## Task 6: End-to-end acceptance against real Claude API + vault
 
 ### Instructions
 
-Scripted E2E-Harness, die die CLI als Subprozess gegen echte Haiku-API + ein dediziertes Test-Vault laufen lässt. Der erste Test, der beweist dass der gesamte Stack funktioniert.
+A scripted E2E harness that runs the CLI as a subprocess against the real Haiku API + a dedicated test vault. The first test that proves the entire stack works.
 
-**`apps/cli/test-e2e/` Struktur:**
-- `e2e.test.ts` — Vitest-Test-File (sollte mit `describe.runIf(process.env.ANTHROPIC_API_KEY)` laufen)
-- `seed-vault.ts` — generiert ein frisches Test-Vault in `$TMPDIR/gtd-e2e-vault-{uuid}/` mit bekanntem Seed-State
-- `cli-harness.ts` — spawnt `apps/cli` als Subprozess (via `execa` oder node `child_process`), schreibt Input, liest Output
-- `assertions.ts` — Matcher-Bibliothek, die auf File-State + History-Log assert'ed
+**`apps/cli/test-e2e/` structure:**
+- `e2e.test.ts` — Vitest test file (should run with `describe.runIf(process.env.ANTHROPIC_API_KEY)`)
+- `seed-vault.ts` — generates a fresh test vault in `$TMPDIR/gtd-e2e-vault-{uuid}/` with a known seed state
+- `cli-harness.ts` — spawns `apps/cli` as a subprocess (via `execa` or node `child_process`), writes input, reads output
+- `assertions.ts` — matcher library that asserts on file state + history log
 
-**Seed-Vault:**
+**Seed vault:**
 ```
 tasks/inbox.md:
-- [ ] Alte Inbox-Notiz
-- [ ] Idee: Buch über GTD
+- [ ] Old inbox note
+- [ ] Idea: book about GTD
 
 tasks/focus.md:
-- [ ] Praxis-Session vorbereiten
-- [ ] VW Angebot schreiben
-- [ ] Website-Text überarbeiten
+- [ ] Prep practice session
+- [ ] Write VW quote
+- [ ] Revise website copy
 
 tasks/next-actions.md:
 ## Work
-- [ ] Praxis-Session vorbereiten
-- [ ] VW Angebot schreiben
-## Persönlich
-- [ ] Zahnarzttermin machen
+- [ ] Prep practice session
+- [ ] Write VW quote
+## Personal
+- [ ] Make dentist appointment
 
 tasks/waiting.md:
-- [ ] Rückmeldung von Müller (seit 2026-04-17)
+- [ ] Reply from Müller (since 2026-04-17)
 
 tasks/someday-maybe.md:
-- [ ] Garagentor lackieren
+- [ ] Paint garage door
 
-daily/{today}.md: (leer)
+daily/{today}.md: (empty)
 ```
 
-**Szenarien (alle asserten auf File-State, nicht auf LLM-Text):**
+**Scenarios (all assert on file state, not LLM text):**
 
-1. **Read-only:** `"Was steht heute an?"` → CLI antwortet (stdout nicht leer); keine `file_history`-Einträge mit `changedBy: 'llm'` entstanden.
-2. **Create in Inbox:** `"Neuer Task: Milch kaufen"` → `tasks/inbox.md` enthält eine neue Zeile mit "Milch" (case-insensitive substring); Alt-Inhalte intakt.
-3. **Move (Single-Location R2):** `"Verschieb Milch kaufen nach Next Actions"` → keine Zeile in `inbox.md` mit "Milch", genau eine Zeile in `next-actions.md` mit "Milch". Spec-Invariante R2 hält.
-4. **Complete:** `"Hak Milch kaufen ab"` → Zeile in `next-actions.md` ist `[x]` oder entfernt. Keine offenen "Milch"-Einträge mehr.
-5. **Soft-Test Inbox-Cleanup:** `"Räum meine Inbox auf"` → Anzahl offener Items in `inbox.md` ist kleiner als vorher; die Differenz taucht entweder in `next-actions.md`, `waiting.md`, `someday-maybe.md` oder als `[x]` auf. **Property-Assertion:** Summe "offene + erledigte + archivierte" Task-Strings bleibt gleich (Lost-Task-Detektor). Keine Assertion auf welche Kategorie welches Item bekommt.
-6. **Tageswechsel:** CLI beenden, `GTD_NOW_OVERRIDE=2026-04-25T09:00:00Z` setzen, CLI neu starten, 1 beliebige User-Message senden → `archive/daily/{yesterday}.md` existiert mit gestrigem Content (offene Items gelöscht, Log-Vermerk vorhanden), neue `daily/2026-04-25.md` existiert.
-7. **History-Log-Check:** `.gtd-companion/file-history.jsonl` enthält einen Eintrag pro mutativem Turn (Szenarien 2-5 sowie die Lifecycle-Einträge aus 6).
+1. **Read-only:** `"What's on for today?"` → CLI answers (stdout non-empty); no `file_history` entries with `changedBy: 'llm'` were created.
+2. **Create in inbox:** `"New task: buy milk"` → `tasks/inbox.md` contains a new line with "milk" (case-insensitive substring); existing content intact.
+3. **Move (single-location R2):** `"Move buy milk to next actions"` → no line in `inbox.md` with "milk", exactly one line in `next-actions.md` with "milk". Spec invariant R2 holds.
+4. **Complete:** `"Check off buy milk"` → the line in `next-actions.md` is `[x]` or removed. No open "milk" entries remain.
+5. **Soft-test inbox cleanup:** `"Clean up my inbox"` → number of open items in `inbox.md` is smaller than before; the difference appears either in `next-actions.md`, `waiting.md`, `someday-maybe.md`, or as `[x]`. **Property assertion:** sum of "open + done + archived" task strings stays the same (lost-task detector). No assertion on which category each item ends up in.
+6. **Day change:** stop the CLI, set `GTD_NOW_OVERRIDE=2026-04-25T09:00:00Z`, restart, send any single user message → `archive/daily/{yesterday}.md` exists with yesterday's content (open items removed, log note present), new `daily/2026-04-25.md` exists.
+7. **History-log check:** `.gtd-companion/file-history.jsonl` contains one entry per mutating turn (scenarios 2-5 plus the lifecycle entries from 6).
 
-**Test-Laufzeit und Kosten:**
-- Test läuft nur wenn `ANTHROPIC_API_KEY` gesetzt ist (`describe.runIf`), sonst skip
-- Alle Turns nutzen Haiku (hardcoded in CLI für diesen Test-Modus, oder weil `routeModel` das so entscheidet)
-- Budget-Check: Ein Full-Run soll unter 2 Minuten und unter ~$0.05 bleiben
-- Bei Failure: **Kein automatisches Aufräumen** des Test-Vaults — `console.log` gibt den Pfad aus, damit der Entwickler manuell inspizieren kann. Cleanup in `afterEach` nur bei Erfolg.
+**Test runtime and cost:**
+- Test runs only when `ANTHROPIC_API_KEY` is set (`describe.runIf`), otherwise skip
+- All turns use Haiku (hardcoded in CLI for this test mode, or because `routeModel` decides so)
+- Budget check: a full run should stay under 2 minutes and under ~$0.05
+- On failure: **no automatic cleanup** of the test vault — `console.log` prints the path so the developer can inspect manually. Cleanup in `afterEach` only on success.
 
-**Harness-Details:**
-- CLI-Subprozess via `execa` mit `PATH`, `VAULT_PATH`, `ANTHROPIC_API_KEY`, optional `GTD_NOW_OVERRIDE`
-- Input-Stream: pro Szenario eine Line an stdin schreiben, dann stdout lesen bis der Prompt `> ` wieder erscheint (Ready-Indicator)
-- Timeout pro Turn: 30s (Agentic Loop kann mehrere Tool-Calls brauchen)
-- Nach allen Szenarien: `SIGINT` + `SIGINT` zum Beenden
+**Harness details:**
+- CLI subprocess via `execa` with `PATH`, `VAULT_PATH`, `ANTHROPIC_API_KEY`, optionally `GTD_NOW_OVERRIDE`
+- Input stream: per scenario write one line to stdin, then read stdout until the prompt `> ` reappears (ready indicator)
+- Per-turn timeout: 30s (the agentic loop may need several tool calls)
+- After all scenarios: `SIGINT` + `SIGINT` to terminate
 
 ### Acceptance
 
-- `pnpm --filter cli test:e2e` grün wenn `ANTHROPIC_API_KEY` gesetzt ist
-- Skip-Nachricht klar sichtbar wenn Key fehlt ("skipped — set ANTHROPIC_API_KEY to run e2e")
-- Eine Dokumentations-Zeile im `README.md`: wie man den Test lokal laufen lässt, wie teuer er ist
+- `pnpm --filter cli test:e2e` green when `ANTHROPIC_API_KEY` is set
+- Skip message clearly visible when the key is missing ("skipped — set ANTHROPIC_API_KEY to run e2e")
+- One documentation line in `README.md`: how to run the test locally and how expensive it is
 
 ### Key Locations
 
@@ -580,17 +580,17 @@ daily/{today}.md: (leer)
 - `apps/cli/test-e2e/seed-vault.ts`
 - `apps/cli/test-e2e/cli-harness.ts`
 - `apps/cli/test-e2e/assertions.ts`
-- `apps/cli/package.json` (+ `test:e2e`-Script)
-- `README.md` (E2E-Abschnitt)
+- `apps/cli/package.json` (+ `test:e2e` script)
+- `README.md` (E2E section)
 
 ### Key Discoveries
 
-- **LLM-Output ist nicht-deterministisch.** Assertions **nur** auf Dateisystem-State und `file_history`, niemals auf exakten LLM-Text. Erlaubt: grobe String-Checks ("output contains 'Milch'") für Read-only-Szenarien.
-- **R2 (Single-Location) ist die stärkste Property-Assertion.** Nach jedem mutativen Turn: für jeden Task-String darf maximal ein offenes Vorkommen existieren (Ausnahme: Focus ↔ Next Actions darf doppeln).
-- **Lost-Task-Detektor:** Summe aller unique Task-Strings über alle Listen (inkl. archiviert und erledigt) ist monoton nicht-fallend. Wenn diese Invariante bricht, hat das System einen Task verloren — das ist der Kern-Trust-Risk aus der Produktspec.
-- **Szenario 6 (Tageswechsel) funktioniert nur dank Task-5-Clock-Injection.** Ohne `GTD_NOW_OVERRIDE` wäre Tageswechsel nicht reproduzierbar testbar.
-- **Die Tests müssen robust gegen Modell-Updates sein.** Wenn Haiku in 6 Monaten anders antwortet, sollen die Tests immer noch grün sein — darum Property-Assertions statt Text-Matches.
+- **LLM output is non-deterministic.** Assertions go **only** against filesystem state and `file_history`, never against exact LLM text. Allowed: rough string checks ("output contains 'milk'") for read-only scenarios.
+- **R2 (single-location) is the strongest property assertion.** After every mutating turn: for any task string at most one open occurrence may exist (exception: focus ↔ next actions may duplicate).
+- **Lost-task detector:** the sum of all unique task strings across all lists (incl. archived and done) is monotonically non-decreasing. If this invariant breaks, the system has lost a task — that is the core trust risk from the product spec.
+- **Scenario 6 (day change) only works thanks to Task 5 clock injection.** Without `GTD_NOW_OVERRIDE`, day change would not be reproducibly testable.
+- **The tests must be robust against model updates.** If Haiku answers differently in 6 months, the tests should still pass — hence property assertions instead of text matches.
 
 ---
 
-_Plan erstellt: 2026-04-24. Basiert auf Architecture Spec v1 + Vercel-SDK-Recherche v1._
+_Plan created: 2026-04-24. Based on architecture spec v1 + Vercel SDK research v1._

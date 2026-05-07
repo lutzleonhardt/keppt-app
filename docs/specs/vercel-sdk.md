@@ -1,156 +1,156 @@
-Ich habe jetzt alle relevanten Informationen gesammelt. Hier ist die vollständige, quellengestützte Antwort auf alle Fragen:
+I have now collected all the relevant information. Here is the complete, source-backed answer to all questions:
 
 ---
 
-# Vercel AI SDK — Recherche-Ergebnisse
+# Vercel AI SDK — Research Results
 
-## 1. Pakete & Versionen
+## 1. Packages & Versions
 
-**Aktuelle Versionen (main/beta branch, Stand 2026-04-24):**
+**Current versions (main/beta branch, as of 2026-04-24):**
 
 - `ai`: [`7.0.0-beta.111`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/ai/package.json?L3)
 - `@ai-sdk/anthropic`: [`4.0.0-beta.37`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/anthropic/package.json?L3)
-- **Node-Requirement**: `>=18` (beide Pakete, definiert in [`engines`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/anthropic/package.json?L65-L67))
+- **Node requirement**: `>=18` (both packages, defined in [`engines`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/anthropic/package.json?L65-L67))
 
-> **Achtung:** `main` ist derzeit im **Pre-Release-Modus** (beta). Die letzten stabilen Major-Versionen waren `ai@4.x` / `@ai-sdk/anthropic@1.x`. Prüfe vor dem Einsatz, ob du die Beta nutzen willst oder auf ein stable release wartest.
+> **Caution:** `main` is currently in **pre-release mode** (beta). The latest stable major versions were `ai@4.x` / `@ai-sdk/anthropic@1.x`. Before adopting, check whether you want to use the beta or wait for a stable release.
 
 ---
 
-## 2. Claude-Modell-IDs
+## 2. Claude Model IDs
 
-Direkt aus [`anthropic-options.ts`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/anthropic/src/anthropic-options.ts?L4-L21):
+Directly from [`anthropic-options.ts`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/anthropic/src/anthropic-options.ts?L4-L21):
 
 ```typescript
 // Haiku:
-'claude-3-haiku-20240307'      // klassisch, stabil
-'claude-haiku-4-5-20251001'    // neuere Generation
+'claude-3-haiku-20240307'      // classic, stable
+'claude-haiku-4-5-20251001'    // newer generation
 'claude-haiku-4-5'             // alias
 
 // Sonnet:
-'claude-sonnet-4-20250514'     // aktuell empfohlen
+'claude-sonnet-4-20250514'     // currently recommended
 'claude-sonnet-4-5-20250929'
 'claude-sonnet-4-5'
 'claude-sonnet-4-6'
 
-// Opus (für Vollständigkeit):
+// Opus (for completeness):
 'claude-opus-4-20250514'
-'claude-opus-4-7'              // neuestes, mit Adaptive Thinking
+'claude-opus-4-7'              // newest, with Adaptive Thinking
 ```
 
-Alle IDs akzeptieren auch `(string & {})` — d.h. beliebige Strings sind möglich für forward-compatibility.
+All IDs also accept `(string & {})` — i.e. arbitrary strings are possible for forward-compatibility.
 
 ---
 
 ## 3. `streamText` vs `generateText`
 
-Beide haben identische Parameter-Signaturen. Der Unterschied liegt im Return-Typ:
+Both have identical parameter signatures. The difference lies in the return type:
 
-- **`generateText`**: wartet auf die vollständige Antwort, gibt ein aufgelöstes Objekt zurück (`text`, `toolCalls`, `toolResults`, `usage`, `response.messages`, `steps`)
-- **`streamText`**: gibt sofort ein Objekt mit **PromiseLike-Promises und Streams** zurück
+- **`generateText`**: waits for the full response, returns a resolved object (`text`, `toolCalls`, `toolResults`, `usage`, `response.messages`, `steps`)
+- **`streamText`**: returns immediately an object with **PromiseLike promises and streams**
 
-### `streamText` Return-API (aus [`stream-text.mdx`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/07-reference/01-ai-sdk-core/02-stream-text.mdx?L2170-L2870)):
+### `streamText` Return API (from [`stream-text.mdx`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/07-reference/01-ai-sdk-core/02-stream-text.mdx?L2170-L2870)):
 
 ```typescript
 const result = streamText({ model, ... });
 
 // Text-only stream — AsyncIterable<string> & ReadableStream<string>
-result.textStream            // → wirft Error bei Fehler
+result.textStream            // → throws Error on failure
 
-// Alle Events inkl. tool-call, tool-result, error, reasoning
+// All events incl. tool-call, tool-result, error, reasoning
 result.fullStream            // → AsyncIterable<TextStreamPart> & ReadableStream<TextStreamPart>
 
-// Promises (konsumieren den Stream automatisch):
+// Promises (consume the stream automatically):
 await result.text            // string
 await result.usage           // { inputTokens, outputTokens, totalTokens, cachedInputTokens, ... }
-await result.totalUsage      // wie usage, aber Summe aller Steps bei multi-step
+await result.totalUsage      // like usage, but sum of all steps in multi-step
 await result.toolCalls       // TypedToolCall[]
 await result.toolResults     // TypedToolResult[]
 await result.finishReason    // 'stop' | 'length' | 'tool-calls' | ...
 await result.response        // { id, modelId, timestamp, headers, messages: ResponseMessage[] }
-await result.steps           // StepResult[] — alle Zwischenschritte
-await result.content         // ContentPart[] des letzten Steps
+await result.steps           // StepResult[] — all intermediate steps
+await result.content         // ContentPart[] of the last step
 await result.providerMetadata
 ```
 
 ---
 
-## 4. Tool-Definition
+## 4. Tool Definition
 
-### Signatur `tool()` (aus [`tool.mdx`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/07-reference/01-ai-sdk-core/20-tool.mdx) und [`tools-and-tool-calling.mdx`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/03-ai-sdk-core/15-tools-and-tool-calling.mdx)):
+### `tool()` signature (from [`tool.mdx`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/07-reference/01-ai-sdk-core/20-tool.mdx) and [`tools-and-tool-calling.mdx`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/03-ai-sdk-core/15-tools-and-tool-calling.mdx)):
 
 ```typescript
 import { tool } from 'ai';
 import { z } from 'zod';
 
 const myTool = tool({
-  description: 'Optional. What the tool does.',   // beeinflusst Auswahl durch LLM
-  inputSchema: z.object({ ... }),                  // Zod-Schema ODER jsonSchema() — REQUIRED
+  description: 'Optional. What the tool does.',   // influences selection by LLM
+  inputSchema: z.object({ ... }),                  // Zod schema OR jsonSchema() — REQUIRED
   execute: async (input, options) => {
     // options: { toolCallId, messages, abortSignal, context }
-    return result;  // beliebiger Typ, wird als JSON an LLM zurückgegeben
+    return result;  // arbitrary type, returned as JSON to the LLM
   },
-  strict: true,           // optional: strikte Validierung (nicht alle Provider)
-  outputSchema: z.object({ ... }),  // optional: für Type-Inference
-  onInputStart: (opts) => {},   // nur bei streamText, wenn Argumente zu streamen beginnen
+  strict: true,           // optional: strict validation (not all providers)
+  outputSchema: z.object({ ... }),  // optional: for type inference
+  onInputStart: (opts) => {},   // only with streamText, when arguments start streaming
   onInputDelta: ({ inputTextDelta, ...opts }) => {},
   onInputAvailable: ({ input, ...opts }) => {},
 });
 ```
 
-**Schema-Typ:** Zod **oder** `jsonSchema()` Helper aus dem SDK. **Kein raw JSON-Schema-Objekt** ohne den Helper.
+**Schema type:** Zod **or** the `jsonSchema()` helper from the SDK. **No raw JSON schema object** without the helper.
 
-> **Wichtig für v5/v7:** Der Parameter heißt jetzt **`inputSchema`** (früher `parameters`). Es gibt ein Codemod im Repo für die Migration.
+> **Important for v5/v7:** The parameter is now called **`inputSchema`** (formerly `parameters`). There is a codemod in the repo for the migration.
 
 ---
 
-## 5. Verhalten wenn `execute` wirft
+## 5. Behavior when `execute` throws
 
-Aus den Docs ([`tools-and-tool-calling.mdx#handling-errors`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/03-ai-sdk-core/15-tools-and-tool-calling.mdx?L997-L040)):
+From the docs ([`tools-and-tool-calling.mdx#handling-errors`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/03-ai-sdk-core/15-tools-and-tool-calling.mdx?L997-L040)):
 
 > "When tool execution fails (errors thrown by your tool's `execute` function), the AI SDK adds them as `tool-error` content parts **to enable automated LLM roundtrips in multi-step scenarios**."
 
-**Das bedeutet:**
-- **Der Stream crasht nicht.**
-- Der Fehler wird als `{ type: 'tool-error', toolName, toolCallId, error }` Part in den Steps eingebettet.
-- Bei `streamText` erscheinen diese als `tool-error`-Parts im `fullStream`.
-- Bei multi-step (`stopWhen`) wird das LLM mit dem `tool-error` als Tool-Result konfrontiert und kann es im nächsten Step verarbeiten.
+**This means:**
+- **The stream does not crash.**
+- The error is embedded as a `{ type: 'tool-error', toolName, toolCallId, error }` part in the steps.
+- With `streamText` these appear as `tool-error` parts in the `fullStream`.
+- In multi-step (`stopWhen`), the LLM is presented with the `tool-error` as a tool result and can process it in the next step.
 
-**Für eure `edit_file`-Retry-Semantik:** Ihr müsst **nicht** selbst den Fehler fangen und zurückspielen — das SDK tut das automatisch. Ihr müsst nur `stopWhen: isStepCount(N)` setzen, damit das LLM mehrere Versuche bekommt.
+**For your `edit_file` retry semantics:** You do **not** need to catch the error yourself and feed it back — the SDK does that automatically. You only need to set `stopWhen: isStepCount(N)` so the LLM gets multiple attempts.
 
 ---
 
 ## 6. `toolChoice`
 
-Aus [`language-model.ts`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/ai/src/types/language-model.ts?L96-L106):
+From [`language-model.ts`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/ai/src/types/language-model.ts?L96-L106):
 
 ```typescript
 type ToolChoice<TOOLS> =
-  | 'auto'       // Modell entscheidet (Default)
-  | 'required'   // Modell MUSS ein Tool aufrufen
-  | 'none'       // Modell darf KEINE Tools aufrufen
-  | { type: 'tool', toolName: Extract<keyof TOOLS, string> }  // spezifisches Tool erzwingen
+  | 'auto'       // Model decides (default)
+  | 'required'   // Model MUST call a tool
+  | 'none'       // Model may NOT call any tools
+  | { type: 'tool', toolName: Extract<keyof TOOLS, string> }  // force a specific tool
 ```
 
-Für den CLI-Use-Case: `toolChoice: 'auto'` (Default) ist korrekt.
+For the CLI use case: `toolChoice: 'auto'` (default) is correct.
 
 ---
 
 ## 7. Agentic Loop — `stopWhen` / `isStepCount`
 
-**Was zählt ein "Step"?** Aus der Implementierung ([`generate-text.ts`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/ai/src/generate-text/generate-text.ts?L237)) und den Docs:
+**What counts as a "step"?** From the implementation ([`generate-text.ts`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/ai/src/generate-text/generate-text.ts?L237)) and the docs:
 
 > "Each step represents a single LLM invocation."
 
-Ein Step = **ein LLM-Call**. Tool-Execution selbst ist kein separater Step.
+A step = **one LLM call**. Tool execution itself is not a separate step.
 
 ```
-Step 1: LLM → erzeugt tool-call → Tool wird ausgeführt
-Step 2: LLM erhält tool-result → erzeugt Antwort oder weiteren tool-call
+Step 1: LLM → produces tool-call → tool is executed
+Step 2: LLM receives tool-result → produces a response or another tool-call
 ```
 
-**Default:** `stopWhen = isStepCount(1)` — d.h. ohne explizites `stopWhen` macht `streamText`/`generateText` **nur einen einzigen LLM-Call**, kein automatisches agentic looping!
+**Default:** `stopWhen = isStepCount(1)` — i.e. without an explicit `stopWhen`, `streamText`/`generateText` performs **only a single LLM call**, no automatic agentic looping!
 
-**Beim Erreichen:** Kein Error, sauberer Abbruch. Das letzte Step-Ergebnis wird normal zurückgegeben. `isStepCount(N)` stoppt, wenn N Steps ausgeführt wurden (N LLM-Calls). Die Default-Annahme der SDK-Docs: `isStepCount(20)` für agentische Loops.
+**On reaching the limit:** No error, clean termination. The last step result is returned normally. `isStepCount(N)` stops when N steps have been executed (N LLM calls). Default assumption in the SDK docs: `isStepCount(20)` for agentic loops.
 
 ```typescript
 import { isStepCount } from 'ai';
@@ -158,33 +158,33 @@ import { isStepCount } from 'ai';
 const result = streamText({
   model,
   tools,
-  stopWhen: isStepCount(10),  // max 10 LLM-Calls
+  stopWhen: isStepCount(10),  // max 10 LLM calls
   prompt: '...',
 });
 ```
 
 ---
 
-## 8. `response.messages` für Persistenz
+## 8. `response.messages` for Persistence
 
-Aus [`tools-and-tool-calling.mdx#response-messages`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/03-ai-sdk-core/15-tools-and-tool-calling.mdx?L535-L560):
+From [`tools-and-tool-calling.mdx#response-messages`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/03-ai-sdk-core/15-tools-and-tool-calling.mdx?L535-L560):
 
 ```typescript
 const messages: ModelMessage[] = [ /* ... */ ];
 
 const { response } = await generateText({ model, messages, tools });
-// oder bei streamText:
+// or with streamText:
 const response = await result.response;
 
 messages.push(...response.messages);
 // response.messages: Array<ResponseMessage>
-// enthält assistant-message (mit tool-call parts) + tool-message (mit tool-result parts)
+// contains assistant-message (with tool-call parts) + tool-message (with tool-result parts)
 ```
 
-**Format der Messages (`ModelMessage`-Typen):**
+**Format of the messages (`ModelMessage` types):**
 
 ```typescript
-// Assistant-Message mit Tool-Call:
+// Assistant message with tool call:
 {
   role: 'assistant',
   content: [
@@ -193,37 +193,37 @@ messages.push(...response.messages);
   ]
 }
 
-// Tool-Result-Message:
+// Tool result message:
 {
   role: 'tool',
   content: [
     { type: 'tool-result', toolCallId: '...', toolName: '...', output: { ... } }
-    // oder bei Fehler:
+    // or on error:
     { type: 'tool-error', toolCallId: '...', toolName: '...', error: Error }
   ]
 }
 ```
 
-Alle Steps bekommt ihr über `result.steps` (Array von `StepResult`), jeder Step hat `response.messages`.
+You get all steps via `result.steps` (array of `StepResult`); each step has `response.messages`.
 
 ---
 
-## 9. Streaming im Terminal
+## 9. Streaming in the Terminal
 
 ### `textStream`:
 
 ```typescript
 const result = streamText({ model, prompt: '...' });
 
-// einfach, korrekt:
+// simple, correct:
 for await (const chunk of result.textStream) {
   process.stdout.write(chunk);
 }
 ```
 
-`textStream` ist `AsyncIterableStream<string>` — direkt iterierbar, kein Helper nötig.
+`textStream` is `AsyncIterableStream<string>` — directly iterable, no helper needed.
 
-### `fullStream` für Tool-Call-Events:
+### `fullStream` for tool-call events:
 
 ```typescript
 for await (const part of result.fullStream) {
@@ -238,7 +238,7 @@ for await (const part of result.fullStream) {
       process.stdout.write(`\n[${part.toolName} starting...]\n`);
       break;
     case 'tool-result':
-      // tool fertig
+      // tool finished
       break;
     case 'tool-error':
       console.error(`Tool ${part.toolName} failed:`, part.error);
@@ -249,7 +249,7 @@ for await (const part of result.fullStream) {
 }
 ```
 
-`fullStream`-Typen aus [`stream-text.mdx`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/07-reference/01-ai-sdk-core/02-stream-text.mdx?L2849-L2952): `'text'`, `'reasoning'`, `'source'`, `'tool-call'`, `'tool-call-streaming-start'`, `'tool-call-delta'`, `'tool-result'`, `'tool-error'`, `'custom'`, `'error'`, `'finish'`.
+`fullStream` types from [`stream-text.mdx`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/07-reference/01-ai-sdk-core/02-stream-text.mdx?L2849-L2952): `'text'`, `'reasoning'`, `'source'`, `'tool-call'`, `'tool-call-streaming-start'`, `'tool-call-delta'`, `'tool-result'`, `'tool-error'`, `'custom'`, `'error'`, `'finish'`.
 
 ### AbortController:
 
@@ -263,20 +263,20 @@ const result = streamText({
   tools: {
     myTool: tool({
       execute: async (args, { abortSignal }) => {
-        return fetch(url, { signal: abortSignal }); // weiterleiten
+        return fetch(url, { signal: abortSignal }); // forward
       },
     }),
   },
 });
 ```
 
-Das `abortSignal` wird automatisch an alle Tool-Executes weitergegeben.
+The `abortSignal` is automatically forwarded to all tool executes.
 
 ---
 
 ## 10. System Prompt
 
-Das SDK bevorzugt den **`system`-Parameter** (String):
+The SDK prefers the **`system` parameter** (string):
 
 ```typescript
 streamText({
@@ -286,7 +286,7 @@ streamText({
 });
 ```
 
-Alternativ als erste Message mit `role: 'system'`:
+Alternatively as the first message with `role: 'system'`:
 ```typescript
 messages: [
   { role: 'system', content: 'You are ...' },
@@ -294,25 +294,25 @@ messages: [
 ]
 ```
 
-Beide Formen funktionieren. Der `system`-Parameter ist die empfohlene Form im SDK.
+Both forms work. The `system` parameter is the recommended form in the SDK.
 
 ---
 
-## 11. Messages-Array-Format
+## 11. Messages Array Format
 
 ```typescript
-// User-Message:
+// User message:
 { role: 'user', content: 'string' }
-// oder mit Parts:
+// or with parts:
 { role: 'user', content: [{ type: 'text', text: '...' }] }
 
-// Assistant-Message:
+// Assistant message:
 { role: 'assistant', content: [
   { type: 'text', text: '...' },
   { type: 'tool-call', toolCallId: '...', toolName: '...', input: { ... } }
 ]}
 
-// Tool-Result-Message:
+// Tool result message:
 { role: 'tool', content: [
   { type: 'tool-result', toolCallId: '...', toolName: '...', output: { ... } }
 ]}
@@ -320,9 +320,9 @@ Beide Formen funktionieren. Der `system`-Parameter ist die empfohlene Form im SD
 
 ---
 
-## 12. Modellwechsel (Router)
+## 12. Model Switching (Router)
 
-Ja, das Modell wird **pro `streamText`-Call** frei gewählt:
+Yes, the model is freely chosen **per `streamText` call**:
 
 ```typescript
 import { anthropic } from '@ai-sdk/anthropic';
@@ -336,17 +336,17 @@ function modelRouter(intent: 'fast' | 'complex') {
 const result = streamText({ model: modelRouter(intent), ... });
 ```
 
-Zusätzlich: `prepareStep` erlaubt sogar einen **Per-Step-Modellwechsel** innerhalb desselben agentic loops ([`prepareStep`-Docs](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/03-ai-sdk-core/15-tools-and-tool-calling.mdx?L469-L505)).
+In addition: `prepareStep` even allows a **per-step model switch** within the same agentic loop ([`prepareStep` docs](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/03-ai-sdk-core/15-tools-and-tool-calling.mdx?L469-L505)).
 
 ---
 
-## 13. Usage & Token-Details
+## 13. Usage & Token Details
 
-### Basis-Usage (aus [`stream-text.mdx`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/07-reference/01-ai-sdk-core/02-stream-text.mdx?L2192-L2320)):
+### Basic usage (from [`stream-text.mdx`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/07-reference/01-ai-sdk-core/02-stream-text.mdx?L2192-L2320)):
 
 ```typescript
-const usage = await result.usage;  // letzter Step
-const totalUsage = await result.totalUsage;  // Summe aller Steps
+const usage = await result.usage;  // last step
+const totalUsage = await result.totalUsage;  // sum of all steps
 
 usage.inputTokens        // number | undefined
 usage.outputTokens       // number | undefined
@@ -354,19 +354,19 @@ usage.totalTokens        // number | undefined
 usage.cachedInputTokens  // number | undefined (deprecated/simple view)
 ```
 
-### Detaillierte Cache-Tokens (für Phase 1 berücksichtigen!):
+### Detailed cache tokens (consider for Phase 1!):
 
-Im `totalUsage`-Objekt gibt es `inputTokenDetails`:
+In the `totalUsage` object there is `inputTokenDetails`:
 
 ```typescript
-totalUsage.inputTokenDetails.noCacheTokens    // nicht gecachte Input-Tokens
-totalUsage.inputTokenDetails.cacheReadTokens  // Cache-Reads (billig)
-totalUsage.inputTokenDetails.cacheWriteTokens // Cache-Writes (teurer)
+totalUsage.inputTokenDetails.noCacheTokens    // non-cached input tokens
+totalUsage.inputTokenDetails.cacheReadTokens  // cache reads (cheap)
+totalUsage.inputTokenDetails.cacheWriteTokens // cache writes (more expensive)
 totalUsage.outputTokenDetails.textTokens
 totalUsage.outputTokenDetails.reasoningTokens
 ```
 
-Außerdem via `onFinish`-Callback:
+Also via the `onFinish` callback:
 
 ```typescript
 streamText({
@@ -378,22 +378,22 @@ streamText({
 });
 ```
 
-Die rohen Provider-Daten sind über `usage.raw` erreichbar.
+The raw provider data is accessible via `usage.raw`.
 
 ---
 
 ## 14. Anthropic Prompt Caching
 
-### Automatisch vs. manuell:
+### Automatic vs. manual:
 
-Das SDK **bietet kein automatisches Caching** — ihr müsst `cacheControl`-Marker explizit setzen.
+The SDK **does not provide automatic caching** — you must set `cacheControl` markers explicitly.
 
-### Methode 1: Via `providerOptions` auf Messages (empfohlen):
+### Method 1: Via `providerOptions` on messages (recommended):
 
-Aus dem [Dynamic Prompt Caching Cookbook](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/cookbook/05-node/90-dynamic-prompt-caching.mdx):
+From the [Dynamic Prompt Caching Cookbook](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/cookbook/05-node/90-dynamic-prompt-caching.mdx):
 
 ```typescript
-// Message-level (SDK übersetzt auf letzten Content-Block):
+// Message-level (SDK translates to the last content block):
 {
   role: 'user',
   content: 'my message',
@@ -403,14 +403,14 @@ Aus dem [Dynamic Prompt Caching Cookbook](https://lutzleo.sourcegraph.app/r/gith
 }
 ```
 
-### Methode 2: Via `providerOptions` auf dem `streamText`-Call (System Prompt + Tools):
+### Method 2: Via `providerOptions` on the `streamText` call (system prompt + tools):
 
-Aus [`anthropic-options.ts`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/anthropic/src/anthropic-options.ts?L115-L120):
+From [`anthropic-options.ts`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/anthropic/src/anthropic-options.ts?L115-L120):
 
 ```typescript
 streamText({
   model: anthropic('claude-sonnet-4-20250514'),
-  system: 'Langer System-Prompt...',
+  system: 'Long system prompt...',
   providerOptions: {
     anthropic: {
       cacheControl: { type: 'ephemeral' }
@@ -420,37 +420,37 @@ streamText({
 });
 ```
 
-**Was wird gecacht:** Anthropic cached alles bis zum letzten mit `cacheControl` markierten Block. Standard-Strategie: System Prompt + Tool-Definitions + Message-History (via `prepareStep` bei jedem Step das letzte Message-Ende markieren).
+**What gets cached:** Anthropic caches everything up to the last block marked with `cacheControl`. Standard strategy: system prompt + tool definitions + message history (using `prepareStep` to mark the end of the latest message at every step).
 
-**TTL:** Standard `5m`, alternativ `1h` via `ttl`-Feld.
+**TTL:** Default `5m`, alternatively `1h` via the `ttl` field.
 
-**Cache-Kosten:** Cache-Writes kosten 25% mehr als normale Input-Tokens; Cache-Reads kosten 10%.
+**Cache costs:** Cache writes cost 25% more than normal input tokens; cache reads cost 10%.
 
 ---
 
-## 15. Testing mit `MockLanguageModelV4`
+## 15. Testing with `MockLanguageModelV4`
 
-**Offiziell unterstützt**, importierbar aus `ai/test`:
+**Officially supported**, importable from `ai/test`:
 
 ```typescript
 import { MockLanguageModelV4 } from 'ai/test';
 import { simulateReadableStream } from 'ai';
 ```
 
-**Signatur** ([`mock-language-model-v4.ts`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/ai/src/test/mock-language-model-v4.ts)):
+**Signature** ([`mock-language-model-v4.ts`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/ai/src/test/mock-language-model-v4.ts)):
 
 ```typescript
 new MockLanguageModelV4({
   provider?: string,       // default: 'mock-provider'
   modelId?: string,        // default: 'mock-model-id'
 
-  // doGenerate: für generateText
+  // doGenerate: for generateText
   doGenerate?:
     | LanguageModelV4['doGenerate']           // async function
-    | LanguageModelV4GenerateResult           // ein festes Ergebnis
-    | LanguageModelV4GenerateResult[],        // Array für sequentielle Calls
+    | LanguageModelV4GenerateResult           // a fixed result
+    | LanguageModelV4GenerateResult[],        // array for sequential calls
 
-  // doStream: für streamText
+  // doStream: for streamText
   doStream?:
     | LanguageModelV4['doStream']
     | LanguageModelV4StreamResult
@@ -458,7 +458,7 @@ new MockLanguageModelV4({
 })
 ```
 
-**Beispiel deterministischer Tool-Call-Chain** (aus der [Testing-Doku](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/03-ai-sdk-core/55-testing.mdx)):
+**Example of a deterministic tool-call chain** (from the [testing docs](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/03-ai-sdk-core/55-testing.mdx)):
 
 ```typescript
 const result = streamText({
@@ -485,51 +485,51 @@ const result = streamText({
 });
 ```
 
-Tool-Call-Sequenzen: `doStream` als **Array** übergeben — jeder Eintrag ist die Antwort des N-ten LLM-Calls im multi-step loop.
+Tool-call sequences: pass `doStream` as an **array** — each entry is the response of the Nth LLM call in the multi-step loop.
 
 ---
 
 ## 16. Telemetry (`experimental_telemetry`)
 
-Aus [`telemetry.mdx`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/03-ai-sdk-core/60-telemetry.mdx) und der Implementierung:
+From [`telemetry.mdx`](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/content/docs/03-ai-sdk-core/60-telemetry.mdx) and the implementation:
 
 ```typescript
 import { registerTelemetry } from 'ai';
 import { OpenTelemetry } from '@ai-sdk/otel';
 
-// Einmalig beim App-Start:
+// Once at app startup:
 registerTelemetry(new OpenTelemetry());
 
-// Per-Call opt-out oder Metadata:
+// Per-call opt-out or metadata:
 streamText({
   telemetry: { functionId: 'my-agent-step' },
-  // oder: experimental_telemetry (deprecated alias, funktioniert noch)
+  // or: experimental_telemetry (deprecated alias, still works)
 });
 ```
 
-Standardmäßig werden nach der Registrierung **alle AI SDK Calls** automatisch getrackt. Kein Per-Call-Opt-in nötig.
+By default, after registration, **all AI SDK calls** are tracked automatically. No per-call opt-in is required.
 
 ---
 
-## 17. Rate-Limit / 429 Handling
+## 17. Rate Limit / 429 Handling
 
-Aus dem [CHANGELOG](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/ai/CHANGELOG.md?L3987-L3990):
+From the [CHANGELOG](https://lutzleo.sourcegraph.app/r/github.com/vercel/ai/-/blob/packages/ai/CHANGELOG.md?L3987-L3990):
 
 > "Added automatic support for respecting rate limit headers (`retry-after-ms` and `retry-after`) in the SDK's retry logic. When these headers are present and contain reasonable values (0–60 seconds), the retry mechanism will use the server-specified delay instead of exponential backoff."
 
-**Das SDK hat eingebautes Auto-Retry mit Rate-Limit-Awareness.** Kein eigenes Wrapping nötig. Die Retry-Logik respektiert Anthropics `retry-after`-Header automatisch.
+**The SDK has built-in auto-retry with rate-limit awareness.** No custom wrapping is required. The retry logic respects Anthropic's `retry-after` header automatically.
 
 ---
 
-## Zusammenfassung der kritischen Punkte für eure Implementierung
+## Summary of the critical points for your implementation
 
-| Thema | Ergebnis |
+| Topic | Result |
 |---|---|
-| Tool-Fehler → LLM-Retry | Automatisch via `tool-error` Parts — SDK handled das, ihr braucht kein manuelles Wrapping |
-| Agentic Loop | `stopWhen: isStepCount(N)` — ein Step = ein LLM-Call; Default ist 1 (kein Loop!) |
-| Messages persistieren | `result.response.messages` (oder `(await result.response).messages` bei streamText) |
-| Terminal-Streaming | `for await (const chunk of result.textStream) process.stdout.write(chunk)` — fertig |
-| Tool-Status anzeigen | `fullStream` abonnieren, auf `tool-call`/`tool-call-streaming-start` reagieren |
-| Cache-Tokens | Über `totalUsage.inputTokenDetails.{cacheReadTokens, cacheWriteTokens}` |
-| Prompt Caching | Explizit: `providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } }` |
-| Testing | `MockLanguageModelV4` aus `ai/test` — offiziell, produktionsreif |
+| Tool error → LLM retry | Automatic via `tool-error` parts — the SDK handles it, no manual wrapping required |
+| Agentic loop | `stopWhen: isStepCount(N)` — one step = one LLM call; default is 1 (no loop!) |
+| Persisting messages | `result.response.messages` (or `(await result.response).messages` for streamText) |
+| Terminal streaming | `for await (const chunk of result.textStream) process.stdout.write(chunk)` — done |
+| Showing tool status | Subscribe to `fullStream`, react to `tool-call` / `tool-call-streaming-start` |
+| Cache tokens | Via `totalUsage.inputTokenDetails.{cacheReadTokens, cacheWriteTokens}` |
+| Prompt caching | Explicit: `providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } }` |
+| Testing | `MockLanguageModelV4` from `ai/test` — official, production-ready |
