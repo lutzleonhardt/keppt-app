@@ -9,9 +9,9 @@ coverage/
 # Brokk session artifacts
 .brokk
 
-# GTD Companion internal state (audit trail, session state).
+# keppt-app internal state (audit trail, session state).
 # Guard against dogfooding the CLI against the repo root.
-.gtd-companion/
+.keppt/
 /.idea/.gitignore
 /.idea/GTD-Companion.iml
 /.idea/modules.xml

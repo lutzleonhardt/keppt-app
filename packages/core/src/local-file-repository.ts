@@ -187,7 +187,7 @@ async function walk(root: string, dir: string, out: string[]): Promise<void> {
     throw err;
   }
   for (const entry of entries) {
-    // Skip dot-directories (.git, .obsidian, .gtd-companion, ...). Keeps
+    // Skip dot-directories (.git, .obsidian, .keppt, ...). Keeps
     // Obsidian config, git metadata, and our own audit trail out of list().
     if (entry.isDirectory() && entry.name.startsWith(".")) continue;
     const abs = path.join(dir, entry.name);

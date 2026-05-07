@@ -14,7 +14,7 @@ export interface HistoryEntry {
   changedBy: ChangeActor;
 }
 
-export const HISTORY_DIR = ".gtd-companion";
+export const HISTORY_DIR = ".keppt";
 export const HISTORY_FILE = "file-history.jsonl";
 
 export function historyFilePath(basePath: string): string {

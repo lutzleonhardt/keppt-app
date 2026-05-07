@@ -1,6 +1,6 @@
-# GTD Companion — Architecture & Design Spec
+# keppt-app — Architecture & Design Spec
 
-> Product Vision & Requirements: [[GTD Companion]]
+> Product Vision & Requirements: [[keppt-app]]
 
 ## Diagrams
 
@@ -135,7 +135,7 @@ sequenceDiagram
 
 **Hashbrown** (by Manfred Steyer, angulararchitects.io) is the key UI enabler. It allows the LLM to not just respond with text, but to select and render Angular components directly in the chat — via Structured Output and Tool Calling.
 
-**Why this matters for the GTD Companion:**
+**Why this matters for keppt-app:**
 
 The LLM doesn't just say "I moved 3 tasks" as text. It can render rich interactive cards in the chat:
 

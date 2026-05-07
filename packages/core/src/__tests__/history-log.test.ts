@@ -38,7 +38,7 @@ describe("history-log", () => {
     });
   });
 
-  it("appendHistoryEntry creates .gtd-companion dir and appends JSONL", async () => {
+  it("appendHistoryEntry creates .keppt dir and appends JSONL", async () => {
     const base = await makeBase();
     await appendHistoryEntry(base, {
       filePath: "tasks/inbox.md",

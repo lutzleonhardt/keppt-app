@@ -25,10 +25,10 @@ Lay down the pnpm monorepo foundation and deliver a validated `FileRepository` a
 - `packages/core/tsconfig.json` — excludes `__tests__/` from build output.
 - `packages/core/vitest.config.ts` — picks up `src/**/__tests__/**/*.test.ts`.
 - `packages/core/src/file-repository.ts` — `FileRepository` interface, `SearchResult`, `SearchScope`, `FileNotFoundError`.
-- `packages/core/src/history-log.ts` — `buildHistoryEntry` (pure) + `appendHistoryEntry` (fs), JSONL under `.gtd-companion/file-history.jsonl`, injectable clock + id factory.
+- `packages/core/src/history-log.ts` — `buildHistoryEntry` (pure) + `appendHistoryEntry` (fs), JSONL under `.keppt/file-history.jsonl`, injectable clock + id factory.
 - `packages/core/src/search.ts` — `formatToday(UTC)`, `isInScope(path, scope, today)`, `findMatches(...)` (case-insensitive, 1-based line numbers, ~80-char snippet, `.md`-only).
 - `packages/core/src/in-memory-file-repository.ts` — `Map<string,string>` + in-memory history trail, `getHistory()` test accessor.
-- `packages/core/src/local-file-repository.ts` — fs-backed repo, POSIX paths at the surface, native-sep only at `fs.*` boundary, recursive `walk` that skips `.gtd-companion/`.
+- `packages/core/src/local-file-repository.ts` — fs-backed repo, POSIX paths at the surface, native-sep only at `fs.*` boundary, recursive `walk` that skips `.keppt/`.
 - `packages/core/src/index.ts` — barrel export.
 - `packages/core/src/__tests__/file-repository.contract.ts` — parametrized 7-case contract suite (round-trip, missing-file, recursive+prefix list, history-on-write, scope filtering, 1-based line, case-insensitive search).
 - `packages/core/src/__tests__/{in-memory,local}-file-repository.test.ts` — drive the contract against both impls with a fixed clock (`2026-04-24T10:00:00Z`).
@@ -40,7 +40,7 @@ Lay down the pnpm monorepo foundation and deliver a validated `FileRepository` a
 - `docs/specs/architecture.md` — 19 lines added (Zwei-Schichten-Modell for scope enforcement). These changes were already in the working tree; got swept into the commit.
 
 ### Modified — session 2026-04-24 (post-review hardening)
-- `packages/core/src/file-repository.ts` (modified) — added `InvalidPathError` and shared `validateFilePath()` (rejects absolute paths, `..`, `.`, empty segments, backslash, null bytes, and the reserved `.gtd-companion/` prefix).
+- `packages/core/src/file-repository.ts` (modified) — added `InvalidPathError` and shared `validateFilePath()` (rejects absolute paths, `..`, `.`, empty segments, backslash, null bytes, and the reserved `.keppt/` prefix).
 - `packages/core/src/local-file-repository.ts` (modified) — `resolve()` now validates and does belt-and-suspenders containment via `path.relative`; `write()` reordered to history-first + temp-file + atomic `rename` with temp-cleanup on failure; `walk()` now skips dot-directories and emits `.md` files only; comments hardened to document the phantom-entry tradeoff.
 - `packages/core/src/in-memory-file-repository.ts` (modified) — calls `validateFilePath` on read/write; `list()` filters to `.md` for contract parity with local.
 - `packages/core/src/history-log.ts` (modified) — comment rewritten as an explicit caller contract ("append BEFORE mutating the file"); acknowledges phantom entries as tolerated.
@@ -51,7 +51,7 @@ Lay down the pnpm monorepo foundation and deliver a validated `FileRepository` a
 - `apps/cli/package.json` (modified) — `test` script now runs `vitest run`; `engines.node` → `>=20`.
 - `packages/core/package.json`, `package.json` (modified) — `engines.node` → `>=20` (matches `.nvmrc` pin; Node 18 is EOL).
 - `docs/plans/phase-1-cli.md` (modified) — Node engine references updated to `>=20`.
-- `.gitignore` (modified) — added `.gtd-companion/` with a comment explaining the dogfooding guard rail.
+- `.gitignore` (modified) — added `.keppt/` with a comment explaining the dogfooding guard rail.
 
 ## Files Read (Context Only)
 
@@ -63,7 +63,7 @@ Lay down the pnpm monorepo foundation and deliver a validated `FileRepository` a
 1. **ESM everywhere** (`"type": "module"`, `NodeNext`) — matches the Vercel AI SDK usage coming in Task 3; avoids CJS/ESM interop pain later.
 2. **Single TS config base** + per-workspace `tsconfig.json` that extends it — keeps strict options consistent without duplicating them.
 3. **Case-insensitive, `.md`-only search, 1-based line numbers.** Plan was silent on case sensitivity; chose case-insensitive to match how GTD users think. Restricting to `.md` avoids accidentally matching the JSONL history log or future state files.
-4. **`.gtd-companion/` is excluded from `list()`.** Otherwise every `search` would see its own history-log file and leak internal state into LLM context.
+4. **`.keppt/` is excluded from `list()`.** Otherwise every `search` would see its own history-log file and leak internal state into LLM context.
 5. **Injectable `now()` on both repos and on `buildHistoryEntry`.** Task 5 already needs clock injection; adding it now costs nothing and makes all tests deterministic.
 6. **Split `history-log.ts` into `buildHistoryEntry` (pure) + `appendHistoryEntry` (fs).** Lets `InMemoryFileRepository` keep its history in RAM without touching disk, and the fs path stays a thin wrapper.
 7. **Shared parametrized contract suite** (`file-repository.contract.ts`) — both impls are driven through the exact same cases, so any future repo (e.g. cloud-backed in Phase 2) drops into the same test harness.
@@ -73,10 +73,10 @@ Lay down the pnpm monorepo foundation and deliver a validated `FileRepository` a
 
 — session 2026-04-24 (post-review hardening)
 
-11. **Path validation is shared**, not per-impl. Two independent reviews (local adversarial + Codex) flagged `LocalFileRepository.resolve()` as the #1 trust-boundary bug (allowed `../`, absolute, and `.gtd-companion/` writes → audit-trail tampering). Chose a shared `validateFilePath()` in `file-repository.ts` called by both impls, so the guarantee is part of the `FileRepository` contract, not a local detail. Rejected the alternative of validating only in `LocalFileRepository` because Task 2's `edit` path and any future impl would re-derive the same rules.
+11. **Path validation is shared**, not per-impl. Two independent reviews (local adversarial + Codex) flagged `LocalFileRepository.resolve()` as the #1 trust-boundary bug (allowed `../`, absolute, and `.keppt/` writes → audit-trail tampering). Chose a shared `validateFilePath()` in `file-repository.ts` called by both impls, so the guarantee is part of the `FileRepository` contract, not a local detail. Rejected the alternative of validating only in `LocalFileRepository` because Task 2's `edit` path and any future impl would re-derive the same rules.
 12. **Belt-and-suspenders containment** in `LocalFileRepository.resolve()`: after syntactic validation, verify `path.relative(basePath, resolved)` doesn't start with `..` or go absolute. Cheap defense against a validator regression.
 13. **`write()` is history-first, then temp-file + atomic `rename`.** Codex review said "persist the previous version before exposing the new one." The original flow (writeFile then append) would silently lose the pre-mutation content if the history append failed. Tradeoff accepted: if `writeFile`/`rename` fails *after* the history append succeeds, the log keeps a phantom entry. Acceptable because `contentBefore` still matches the real disk state at log time, retries just append another accurate entry, and a rollback over a phantom is a no-op. A two-phase pending/committed log is deferred to whenever a rollback UI is actually built.
-14. **`walk()` skips all dot-directories and emits only `.md`.** The original `walk` leaked `.obsidian/`, `.git/`, images, and PDFs into every `list()` call, which would flood LLM context once pointed at a real vault. `InMemoryFileRepository.list()` also filters to `.md` so the contract is consistent across impls. Collapses the old `.gtd-companion`-specific special-case into the generic dot-dir rule.
+14. **`walk()` skips all dot-directories and emits only `.md`.** The original `walk` leaked `.obsidian/`, `.git/`, images, and PDFs into every `list()` call, which would flood LLM context once pointed at a real vault. `InMemoryFileRepository.list()` also filters to `.md` so the contract is consistent across impls. Collapses the old `.keppt`-specific special-case into the generic dot-dir rule.
 15. **Bumped `engines.node` to `>=20`** across root, `@gtd/core`, and `@gtd/cli`, and updated `phase-1-cli.md` accordingly. The drift between `engines >=18`, `.nvmrc 20`, and the plan's `>=18` was ambiguous; `20` matches `.nvmrc` and reflects Node 18 being EOL.
 16. **CLI smoke test via vitest**, not `node --test`. Vitest is resolvable from `apps/cli` through the workspace; avoided adding it as a direct devDep (lock-file churn) and avoided `node --test` + `tsx` (extra dep). Trade-off: the test requires `@gtd/core` to be built first (vitest doesn't transpile across package boundaries to `dist/`). That's desirable — it forces `pnpm -r build` before `pnpm -r test` in CI, catching stale-dist regressions.
 17. **Comments on the history invariant rewritten as a contract**, not a footnote. The original `history-log.ts` comment said "acceptable for Phase 1"; the new version states the call-order requirement ("Callers must append BEFORE mutating") and names phantom entries as an explicit tolerated case. Future code reading these files should not be surprised by the ordering.
@@ -132,7 +132,7 @@ Two independent reviews (local adversarial + Codex) both flagged critical & high
 
 — session 2026-04-24 (post-review hardening)
 
-4. **Log filename convention drift.** This file is `task-1-2026-04-24-monorepo-file-repository.md`; the documented convention is `task-{N}-{slug}.md` with no date. Not renamed now (would split history across a rename diff mid-task). Future task logs should follow the convention strictly. (→ no task; stylistic.)
+4. **Log filename convention drift (resolved).** Originally landed as `task-1-2026-04-24-monorepo-file-repository.md`; the documented convention is `task-{N}-{slug}.md` with no date. Renamed to `task-1-monorepo-file-repository.md` after Task 2. Future task logs follow the convention strictly. (→ no task; stylistic.)
 5. **Two-phase history log (pending/committed) deferred.** The current write is history-first + atomic rename, which tolerates a phantom log entry if the file write fails. Acceptable for Phase 1 single-user (see Key Decision #13). Revisit whenever a rollback UI is actually built. (→ Phase 2.)
 6. **Plan Task-1 acceptance criteria should explicitly cover path containment.** The plan's Task-1 block did not list "rejects `../`, absolute, reserved paths" as acceptance. Two reviews caught the gap. Consider tightening the plan's "Verification" language for future tasks that expose paths to LLMs. (→ plan hygiene, no code task.)
 
@@ -154,7 +154,7 @@ export function validateFilePath(filePath: string): void;  // throws InvalidPath
 ```
 
 - Paths are POSIX. "Today" is driven by the injected `now()` (default `() => new Date()`).
-- **Path validation is part of the contract.** Any new `FileRepository` method that takes a user/LLM path MUST call `validateFilePath()` before doing anything. The validator rejects: empty, null byte, backslash, absolute, `..`/`.` segments, empty segments, and any path whose first segment is `.gtd-companion` (reserved for the audit trail). Task 2's `edit(filePath, ...)` needs the same guard.
+- **Path validation is part of the contract.** Any new `FileRepository` method that takes a user/LLM path MUST call `validateFilePath()` before doing anything. The validator rejects: empty, null byte, backslash, absolute, `..`/`.` segments, empty segments, and any path whose first segment is `.keppt` (reserved for the audit trail). Task 2's `edit(filePath, ...)` needs the same guard.
 - **`write()` is history-first + atomic rename.** When Task 2 adds `edit()`, follow the same order: compute `contentBefore`/`contentAfter`, call `appendHistoryEntry(...)` with them, *then* do the atomic file swap. Never expose the new content before the history entry is durable.
 - **Phantom history entries are tolerated**, not a bug. If a file swap fails after the history append, the log keeps an entry whose `contentAfter` never landed. `contentBefore` still matches the real disk state at log time, so retries append a fresh accurate entry. Do not add rollback-on-failure logic to `write()` — the audit trail is the rollback mechanism.
 - **`list()` filters to `.md` and skips dot-directories.** Both impls do this via the contract. If Task 2 or later ever wants to manage non-markdown assets, add a new method (`listAll`?) rather than widening `list()` — changing it breaks the LLM-context guarantee.

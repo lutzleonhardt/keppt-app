@@ -291,7 +291,7 @@ export function runFileRepositoryContract(
         ["backslash separator", "tasks\\inbox.md"],
         ["empty string", ""],
         ["leading slash segment", "//tasks/inbox.md"],
-        ["reserved history dir", ".gtd-companion/file-history.jsonl"],
+        ["reserved history dir", ".keppt/file-history.jsonl"],
         ["null byte", "tasks/\0bad.md"],
       ];
 

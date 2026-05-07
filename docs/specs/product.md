@@ -1,6 +1,6 @@
-# GTD Companion — Product Spec
+# keppt-app — Product Spec
 
-> Technical Architecture & Design: [[GTD Companion - Architecture]]
+> Technical Architecture & Design: [[keppt-app - Architecture]]
 
 ## The Problem
 
@@ -121,7 +121,7 @@ Leaning toward: **Start with Option B (emergent), offer Option A as optional boo
 
 ## Differentiators
 
-|Aspect|Traditional Task Apps|GTD Companion|
+|Aspect|Traditional Task Apps|keppt-app|
 |---|---|---|
 |Input method|Forms, fields, taps|Voice / natural language|
 |GTD maintenance|Manual (user sorts, reviews, plans)|Automated (LLM handles it)|

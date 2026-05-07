@@ -70,7 +70,7 @@ interface SearchResult { filePath: string; snippet: string; line: number; }
 **`InMemoryFileRepository`:** Map<string, string> for tests, same interface.
 
 **History log (local replacement for `file_history`):**
-- Append-only JSON Lines under `basePath/.gtd-companion/file-history.jsonl`
+- Append-only JSON Lines under `basePath/.keppt/file-history.jsonl`
 - One line per write/edit: `{ id, filePath, contentBefore, contentAfter, changeSummary, changedAt, changedBy: 'llm' | 'user' | 'system' }`
 - `contentBefore` is the previous content (empty on create). This enables rollback. For large files this is acceptable — Phase 1 is single-user, single vault.
 
@@ -81,7 +81,7 @@ interface SearchResult { filePath: string; snippet: string; line: number; }
 - Vitest suite in `packages/core` green:
   - `LocalFileRepository` against a temp directory: read/write/list/search happy paths + read-on-missing-file throws the defined error
   - `InMemoryFileRepository` against the same scenario (parameterized over the same tests)
-  - Write produces a correct history entry in `.gtd-companion/file-history.jsonl`
+  - Write produces a correct history entry in `.keppt/file-history.jsonl`
   - Search finds hits across multiple files, respects scope (`active` vs. `archive` vs. `all`)
 - `pnpm -r build` green
 - `pnpm -r test` green
@@ -104,7 +104,7 @@ interface SearchResult { filePath: string; snippet: string; line: number; }
   tasks/{inbox,focus,next-actions,waiting,someday-maybe}.md
   daily/YYYY-MM-DD.md    ← always exactly one file: today
   archive/daily/*.md     ← archived daily notes
-  .gtd-companion/        ← app state (history log, later: sessions)
+  .keppt/        ← app state (history log, later: sessions)
   ```
 - There is **no** `projects/` directory (R6 — projects are subheadings inside `next-actions.md`).
 - There is **no** `archive/tasks/` (R7 — completed tasks are deleted; the trail lives in history + daily-note log).
@@ -360,7 +360,7 @@ The "productization pass" over Task 3. The inline code from Task 3 gets refactor
 
 **Session persistence:**
 - `packages/core/src/sessions.ts`: `loadOrCreateSession(repo, today)` / `appendMessages(session, new)` / `saveSession(repo, session)`
-- Session storage: `basePath/.gtd-companion/sessions/YYYY-MM-DD.json` with `{ date, messages: ModelMessage[] }`
+- Session storage: `basePath/.keppt/sessions/YYYY-MM-DD.json` with `{ date, messages: ModelMessage[] }`
 - CLI loads today's session at startup, writes after each turn
 - Session switching (continuing a past session) is **not** MVP — it's not in Phase 1
 
@@ -554,7 +554,7 @@ daily/{today}.md: (empty)
 4. **Complete:** `"Check off buy milk"` → the line in `next-actions.md` is `[x]` or removed. No open "milk" entries remain.
 5. **Soft-test inbox cleanup:** `"Clean up my inbox"` → number of open items in `inbox.md` is smaller than before; the difference appears either in `next-actions.md`, `waiting.md`, `someday-maybe.md`, or as `[x]`. **Property assertion:** sum of "open + done + archived" task strings stays the same (lost-task detector). No assertion on which category each item ends up in.
 6. **Day change:** stop the CLI, set `GTD_NOW_OVERRIDE=2026-04-25T09:00:00Z`, restart, send any single user message → `archive/daily/{yesterday}.md` exists with yesterday's content (open items removed, log note present), new `daily/2026-04-25.md` exists.
-7. **History-log check:** `.gtd-companion/file-history.jsonl` contains one entry per mutating turn (scenarios 2-5 plus the lifecycle entries from 6).
+7. **History-log check:** `.keppt/file-history.jsonl` contains one entry per mutating turn (scenarios 2-5 plus the lifecycle entries from 6).
 
 **Test runtime and cost:**
 - Test runs only when `ANTHROPIC_API_KEY` is set (`describe.runIf`), otherwise skip

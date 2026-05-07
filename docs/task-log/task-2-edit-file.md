@@ -68,7 +68,7 @@ all-or-nothing apply, single history entry on success.
 
 - `docs/plans/phase-1-cli.md` — preamble + Task 2 block only (per `/start-task`
   contract).
-- `docs/task-log/task-1-2026-04-24-monorepo-file-repository.md` — previous
+- `docs/task-log/task-1-monorepo-file-repository.md` — previous
   task's "Context for Next Task" section.
 - `packages/core/src/history-log.ts`, `file-repository.ts`,
   `local-file-repository.ts`, `in-memory-file-repository.ts`,

@@ -40,7 +40,7 @@ export class InvalidPathError extends Error {
   }
 }
 
-const RESERVED_PREFIX = ".gtd-companion";
+const RESERVED_PREFIX = ".keppt";
 
 export function validateFilePath(filePath: string): void {
   if (typeof filePath !== "string" || filePath.length === 0) {

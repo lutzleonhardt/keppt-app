@@ -1,4 +1,4 @@
-# GTD Companion
+# keppt-app
 
 > **GTD that maintains itself.** You talk, the system files. Chat is the only surface; GTD runs in the engine room; voice is the default input.
 
@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://keppt.de">
-    <img src="assets/keppt.png" alt="GTD Companion — interactive demo on keppt.de" width="280">
+    <img src="assets/keppt.png" alt="keppt-app — interactive demo on keppt.de" width="280">
   </a>
   <br>
   <em>Try it interactively → <a href="https://keppt.de">keppt.de</a></em>
