@@ -1,3 +1,5 @@
+import type { EditResult, SearchReplaceEdit } from "./edit.js";
+
 export type SearchScope = "active" | "archive" | "all";
 
 export interface SearchResult {
@@ -9,6 +11,11 @@ export interface SearchResult {
 export interface FileRepository {
   read(filePath: string): Promise<string>;
   write(filePath: string, content: string, changeSummary: string): Promise<void>;
+  edit(
+    filePath: string,
+    edits: readonly SearchReplaceEdit[],
+    changeSummary: string,
+  ): Promise<EditResult>;
   list(prefix?: string): Promise<string[]>;
   search(query: string, scope?: SearchScope): Promise<SearchResult[]>;
 }

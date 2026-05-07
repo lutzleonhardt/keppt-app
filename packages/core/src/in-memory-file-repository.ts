@@ -1,5 +1,7 @@
+import type { EditResult, SearchReplaceEdit } from "./edit.js";
+import { planAndApplyEdits } from "./edit.js";
 import type { FileRepository, SearchResult, SearchScope } from "./file-repository.js";
-import { FileNotFoundError, validateFilePath } from "./file-repository.js";
+import { FileNotFoundError, InvalidPathError, validateFilePath } from "./file-repository.js";
 import { buildHistoryEntry, type ChangeActor, type HistoryEntry } from "./history-log.js";
 import { findMatches, formatToday, isInScope } from "./search.js";
 
@@ -42,6 +44,37 @@ export class InMemoryFileRepository implements FileRepository {
     );
   }
 
+  async edit(
+    filePath: string,
+    edits: readonly SearchReplaceEdit[],
+    changeSummary: string,
+  ): Promise<EditResult> {
+    try {
+      validateFilePath(filePath);
+    } catch (err) {
+      if (err instanceof InvalidPathError) return missingFileError(edits);
+      throw err;
+    }
+    const original = this.files.get(filePath);
+    if (original === undefined) return missingFileError(edits);
+
+    const result = planAndApplyEdits(original, edits);
+    if (!result.ok) return { ok: false, error: result.error };
+
+    this.files.set(filePath, result.next);
+    this.historyEntries.push(
+      buildHistoryEntry({
+        filePath,
+        contentBefore: original,
+        contentAfter: result.next,
+        changeSummary,
+        changedBy: this.changedBy,
+        now: this.now,
+      }),
+    );
+    return { ok: true };
+  }
+
   async list(prefix?: string): Promise<string[]> {
     const paths = [...this.files.keys()]
       .filter((p) => p.toLowerCase().endsWith(".md"))
@@ -63,4 +96,15 @@ export class InMemoryFileRepository implements FileRepository {
   getHistory(): readonly HistoryEntry[] {
     return this.historyEntries;
   }
+}
+
+function missingFileError(edits: readonly SearchReplaceEdit[]): EditResult {
+  return {
+    ok: false,
+    error: {
+      failedSearch: edits[0]?.search ?? "",
+      matchCount: 0,
+      currentContent: "",
+    },
+  };
 }

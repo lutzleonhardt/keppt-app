@@ -1,4 +1,10 @@
 export type {
+  EditError,
+  EditResult,
+  SearchReplaceEdit,
+} from "./edit.js";
+export { planAndApplyEdits } from "./edit.js";
+export type {
   FileRepository,
   SearchResult,
   SearchScope,

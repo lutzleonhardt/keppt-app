@@ -135,6 +135,153 @@ export function runFileRepositoryContract(
       expect(hits).toHaveLength(1);
     });
 
+    describe("edit", () => {
+      it("applies a single unique edit and appends one history entry", async () => {
+        const { repo, readHistory } = await makeHarness();
+        await repo.write("tasks/inbox.md", "hello world", "create");
+        const result = await repo.edit(
+          "tasks/inbox.md",
+          [{ search: "world", replace: "there" }],
+          "greet",
+        );
+        expect(result).toEqual({ ok: true });
+        expect(await repo.read("tasks/inbox.md")).toBe("hello there");
+
+        const lines = await readHistory();
+        expect(lines).toHaveLength(2); // initial write + edit
+        const last = JSON.parse(lines[1]!);
+        expect(last).toMatchObject({
+          filePath: "tasks/inbox.md",
+          contentBefore: "hello world",
+          contentAfter: "hello there",
+          changeSummary: "greet",
+        });
+      });
+
+      it("applies three edits in one call as a single history entry", async () => {
+        const { repo, readHistory } = await makeHarness();
+        await repo.write("tasks/inbox.md", "alpha\nbeta\ngamma\n", "create");
+        const result = await repo.edit(
+          "tasks/inbox.md",
+          [
+            { search: "alpha", replace: "ALPHA" },
+            { search: "beta", replace: "BETA" },
+            { search: "gamma", replace: "GAMMA" },
+          ],
+          "upcase",
+        );
+        expect(result).toEqual({ ok: true });
+        expect(await repo.read("tasks/inbox.md")).toBe("ALPHA\nBETA\nGAMMA\n");
+
+        const lines = await readHistory();
+        expect(lines).toHaveLength(2); // initial write + one batch edit
+      });
+
+      it("returns structured error and writes no history when the file is missing", async () => {
+        const { repo, readHistory } = await makeHarness();
+        const result = await repo.edit(
+          "tasks/missing.md",
+          [{ search: "anything", replace: "x" }],
+          "noop",
+        );
+        expect(result).toEqual({
+          ok: false,
+          error: { failedSearch: "anything", matchCount: 0, currentContent: "" },
+        });
+        expect(await readHistory()).toHaveLength(0);
+      });
+
+      it("returns matchCount:0 and leaves file + history untouched when search is absent", async () => {
+        const { repo, readHistory } = await makeHarness();
+        await repo.write("tasks/inbox.md", "hello world", "create");
+        const result = await repo.edit(
+          "tasks/inbox.md",
+          [{ search: "xyzzy", replace: "x" }],
+          "noop",
+        );
+        expect(result.ok).toBe(false);
+        expect(result.error).toEqual({
+          failedSearch: "xyzzy",
+          matchCount: 0,
+          currentContent: "hello world",
+        });
+        expect(await repo.read("tasks/inbox.md")).toBe("hello world");
+        expect(await readHistory()).toHaveLength(1); // only the initial write
+      });
+
+      it("returns matchCount:2 and leaves file + history untouched when search is ambiguous", async () => {
+        const { repo, readHistory } = await makeHarness();
+        await repo.write("tasks/inbox.md", "foo foo", "create");
+        const result = await repo.edit(
+          "tasks/inbox.md",
+          [{ search: "foo", replace: "bar" }],
+          "noop",
+        );
+        expect(result.ok).toBe(false);
+        expect(result.error).toEqual({
+          failedSearch: "foo",
+          matchCount: 2,
+          currentContent: "foo foo",
+        });
+        expect(await repo.read("tasks/inbox.md")).toBe("foo foo");
+        expect(await readHistory()).toHaveLength(1);
+      });
+
+      it("is atomic across edits: mid-sequence ambiguity aborts the whole batch", async () => {
+        const { repo, readHistory } = await makeHarness();
+        await repo.write("tasks/inbox.md", "one\ndup\ntwo\ndup\nthree\n", "create");
+        const result = await repo.edit(
+          "tasks/inbox.md",
+          [
+            { search: "one", replace: "ONE" },
+            { search: "dup", replace: "DUP" },
+            { search: "three", replace: "THREE" },
+          ],
+          "noop",
+        );
+        expect(result.ok).toBe(false);
+        expect(result.error).toMatchObject({ failedSearch: "dup", matchCount: 2 });
+        expect(await repo.read("tasks/inbox.md")).toBe("one\ndup\ntwo\ndup\nthree\n");
+        expect(await readHistory()).toHaveLength(1);
+      });
+
+      it("rejects overlapping edits and leaves the file unchanged", async () => {
+        const { repo, readHistory } = await makeHarness();
+        await repo.write("tasks/inbox.md", "the quick brown fox", "create");
+        const result = await repo.edit(
+          "tasks/inbox.md",
+          [
+            { search: "quick brown", replace: "slow red" },
+            { search: "brown fox", replace: "green cat" },
+          ],
+          "noop",
+        );
+        expect(result.ok).toBe(false);
+        expect(result.error).toMatchObject({
+          failedSearch: "brown fox",
+          matchCount: 0,
+        });
+        expect(await repo.read("tasks/inbox.md")).toBe("the quick brown fox");
+        expect(await readHistory()).toHaveLength(1);
+      });
+
+      it("translates InvalidPathError into a structured EditResult (no throw, no history)", async () => {
+        const { repo, readHistory } = await makeHarness();
+        const result = await repo.edit(
+          "../escape.md",
+          [{ search: "x", replace: "y" }],
+          "noop",
+        );
+        expect(result.ok).toBe(false);
+        expect(result.error).toEqual({
+          failedSearch: "x",
+          matchCount: 0,
+          currentContent: "",
+        });
+        expect(await readHistory()).toHaveLength(0);
+      });
+    });
+
     describe("path validation", () => {
       const bad: Array<[string, string]> = [
         ["absolute path", "/etc/passwd"],

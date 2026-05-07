@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -73,6 +73,24 @@ describe("LocalFileRepository — atomic write", () => {
     });
   });
 
+  it("edit() preserves prior file content when history append fails", async () => {
+    const base = await makeTempBase();
+    const repo = new LocalFileRepository(base, { now: () => FIXED_NOW });
+
+    await repo.write("tasks/inbox.md", "hello world", "create");
+    const target = path.join(base, "tasks/inbox.md");
+    expect(await readFile(target, "utf8")).toBe("hello world");
+
+    // Break the history file so the atomic write inside edit() throws.
+    await rm(historyFilePath(base));
+    await mkdir(historyFilePath(base));
+
+    await expect(
+      repo.edit("tasks/inbox.md", [{ search: "world", replace: "there" }], "greet"),
+    ).rejects.toBeDefined();
+    expect(await readFile(target, "utf8")).toBe("hello world");
+  });
+
   it("leaves no .tmp residue after a successful write", async () => {
     const base = await makeTempBase();
     const repo = new LocalFileRepository(base, { now: () => FIXED_NOW });
@@ -82,13 +100,64 @@ describe("LocalFileRepository — atomic write", () => {
   });
 });
 
+describe("LocalFileRepository — edit concurrency", () => {
+  it("aborts and surfaces current content when the file changes between plan and commit", async () => {
+    const base = await makeTempBase();
+    const target = path.join(base, "tasks/inbox.md");
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, "hello world", "utf8");
+
+    // The protected fsReadUtf8 hook is the only seam needed to deterministically
+    // simulate a concurrent writer: on the second read inside edit() (the CAS
+    // recheck), mutate the file out-of-band and return the new bytes. If the
+    // CAS guard is missing, edit() will overwrite "concurrent change" with
+    // the stale planned output ("hello there") and log a corrupt history entry.
+    class StaleReadRepo extends LocalFileRepository {
+      public reads = 0;
+      protected async fsReadUtf8(abs: string): Promise<string> {
+        this.reads++;
+        if (this.reads === 2) {
+          await writeFile(abs, "concurrent change", "utf8");
+          return "concurrent change";
+        }
+        return super.fsReadUtf8(abs);
+      }
+    }
+
+    const repo = new StaleReadRepo(base, { now: () => FIXED_NOW });
+    const result = await repo.edit(
+      "tasks/inbox.md",
+      [{ search: "world", replace: "there" }],
+      "greet",
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toEqual({
+      failedSearch: "world",
+      matchCount: 0,
+      currentContent: "concurrent change",
+    });
+    // The concurrent writer's bytes survive — the stale plan is not committed.
+    expect(await readFile(target, "utf8")).toBe("concurrent change");
+
+    // No history entry was appended for the aborted edit.
+    let historyLines: string[] = [];
+    try {
+      const raw = await readFile(historyFilePath(base), "utf8");
+      historyLines = raw.split("\n").filter((l) => l.length > 0);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+    expect(historyLines).toHaveLength(0);
+  });
+});
+
 describe("LocalFileRepository — list filters", () => {
   it("skips dot-directories and non-markdown files", async () => {
     const base = await makeTempBase();
     // Externally planted junk that should NOT appear in list().
     await mkdir(path.join(base, ".obsidian"), { recursive: true });
     await mkdir(path.join(base, ".git", "objects"), { recursive: true });
-    const { writeFile } = await import("node:fs/promises");
     await writeFile(path.join(base, ".obsidian", "config.json"), "{}");
     await writeFile(path.join(base, ".git", "HEAD"), "ref: refs/heads/main");
     await writeFile(path.join(base, "image.png"), "PNGDATA");
