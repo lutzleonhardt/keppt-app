@@ -17,7 +17,16 @@ export interface FileRepository {
     changeSummary: string,
   ): Promise<EditResult>;
   list(prefix?: string): Promise<string[]>;
-  search(query: string, scope?: SearchScope): Promise<SearchResult[]>;
+  // `today` lets callers (the LLM tool layer) impose the turn's date on
+  // search-scope filtering instead of letting the repository read its own
+  // clock. Required to keep search consistent with the canRead gate when a
+  // session crosses UTC midnight: the prompt and gate already share one
+  // `today` per turn (see `BuildToolsOptions { now }`), and search must use
+  // the same value or the repo can drop the turn day's daily note before
+  // the tool-layer postfilter runs. When omitted, the repo falls back to
+  // its own clock — kept for non-tool callers and for backwards-compatible
+  // contract tests.
+  search(query: string, scope?: SearchScope, today?: string): Promise<SearchResult[]>;
 }
 
 export class FileNotFoundError extends Error {

@@ -22,9 +22,16 @@ async function main(): Promise<void> {
   const vaultPath = requireEnv("VAULT_PATH");
   requireEnv("ANTHROPIC_API_KEY");
 
-  const repo = new LocalFileRepository(vaultPath);
-  const tools = buildTools(repo);
-  const system = buildMinimalSystemPrompt(new Date());
+  // Shared clock between the system prompt, the tool gate, and the
+  // repository's own scope/history calculations. Rebuilt at the start of
+  // each turn so a session that crosses UTC midnight doesn't end up with a
+  // prompt date that disagrees with what canRead / canWrite / repo.search
+  // enforce — which would turn normal "today's daily note" reads into
+  // out_of_scope failures, drop the turn day's daily from search hits, and
+  // hide the file the prompt just told the model to use.
+  let turnNow = new Date();
+  const repo = new LocalFileRepository(vaultPath, { now: () => turnNow });
+  const tools = buildTools(repo, { now: () => turnNow });
   const messages: ModelMessage[] = [];
 
   const rl = createInterface({ input: stdin, output: stdout, prompt: "> " });
@@ -66,6 +73,11 @@ async function main(): Promise<void> {
     const controller = new AbortController();
     activeAbort = controller;
     const pendingUser: ModelMessage = { role: "user", content: line };
+
+    // Snapshot the turn clock so the system prompt and every tool call this
+    // turn agree on "today" — see the tools' { now } closure above.
+    turnNow = new Date();
+    const system = buildMinimalSystemPrompt(turnNow);
 
     try {
       const result = streamText({

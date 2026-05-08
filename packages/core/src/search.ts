@@ -1,4 +1,5 @@
 import type { SearchResult, SearchScope } from "./file-repository.js";
+import { isInActiveScope, isInArchiveScope } from "./gtd-layout.js";
 
 const SNIPPET_CONTEXT = 40; // chars either side of the match → ~80-char window
 
@@ -11,9 +12,8 @@ export function formatToday(d: Date): string {
 
 export function isInScope(filePath: string, scope: SearchScope, today: string): boolean {
   const p = filePath.replace(/\\/g, "/");
-  if (!p.endsWith(".md")) return false;
-  const inActive = p.startsWith("tasks/") || p === `daily/${today}.md`;
-  const inArchive = p.startsWith("archive/daily/");
+  const inActive = isInActiveScope(p, today);
+  const inArchive = isInArchiveScope(p);
   if (scope === "active") return inActive;
   if (scope === "archive") return inArchive;
   return inActive || inArchive;

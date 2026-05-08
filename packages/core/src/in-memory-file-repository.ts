@@ -82,11 +82,15 @@ export class InMemoryFileRepository implements FileRepository {
     return prefix ? paths.filter((p) => p.startsWith(prefix)) : paths;
   }
 
-  async search(query: string, scope: SearchScope = "active"): Promise<SearchResult[]> {
-    const today = formatToday(this.now());
+  async search(
+    query: string,
+    scope: SearchScope = "active",
+    today?: string,
+  ): Promise<SearchResult[]> {
+    const t = today ?? formatToday(this.now());
     const results: SearchResult[] = [];
     for (const [filePath, content] of this.files) {
-      if (!isInScope(filePath, scope, today)) continue;
+      if (!isInScope(filePath, scope, t)) continue;
       results.push(...findMatches(filePath, content, query));
     }
     return results;

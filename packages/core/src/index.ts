@@ -32,4 +32,17 @@ export {
   type HistoryEntry,
   type BuildHistoryInput,
 } from "./history-log.js";
-export { buildTools, type ReadFileResult } from "./tools.js";
+export {
+  buildTools,
+  type BuildToolsOptions,
+  type EditFileError,
+  type EditFileResult,
+  type ReadFileResult,
+  type WriteFileResult,
+} from "./tools.js";
+export {
+  canRead,
+  canWrite,
+  isInActiveScope,
+  isInArchiveScope,
+} from "./gtd-layout.js";

@@ -165,12 +165,16 @@ export class LocalFileRepository implements FileRepository {
     return prefix ? paths.filter((p) => p.startsWith(prefix)) : paths;
   }
 
-  async search(query: string, scope: SearchScope = "active"): Promise<SearchResult[]> {
-    const today = formatToday(this.now());
+  async search(
+    query: string,
+    scope: SearchScope = "active",
+    today?: string,
+  ): Promise<SearchResult[]> {
+    const t = today ?? formatToday(this.now());
     const all = await this.list();
     const results: SearchResult[] = [];
     for (const filePath of all) {
-      if (!isInScope(filePath, scope, today)) continue;
+      if (!isInScope(filePath, scope, t)) continue;
       const content = await readFile(this.resolve(filePath), "utf8");
       results.push(...findMatches(filePath, content, query));
     }

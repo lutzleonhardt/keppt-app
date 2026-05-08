@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { FileRepository } from "../file-repository.js";
 import { FileNotFoundError, InvalidPathError } from "../file-repository.js";
+import { canRead } from "../gtd-layout.js";
 
 export interface ContractHarness {
   repo: FileRepository;
@@ -133,6 +134,34 @@ export function runFileRepositoryContract(
       await repo.write("tasks/inbox.md", "Buy MILK", "");
       const hits = await repo.search("milk", "active");
       expect(hits).toHaveLength(1);
+    });
+
+    // Regression for the Codex review of Task 3.5: search must not surface
+    // content from paths read_file would deny. The previous broader scope
+    // predicates were an exfiltration channel via snippets.
+    it("search does not surface content from paths denied by canRead", async () => {
+      const { repo } = await makeHarness();
+      const today = "2026-04-24"; // matches the harness clock
+      const denied = [
+        "tasks/projects/work.md",
+        "tasks/random.md",
+        "archive/daily/note.md", // non-date archive entry
+        "archive/tasks/old.md",
+      ];
+      for (const p of denied) {
+        await repo.write(p, "secret-token-xyz", "seed");
+        // sanity: each seeded path must indeed be denied by canRead
+        expect(canRead(p, today)).toBe(false);
+      }
+      // also seed an allowed path so the assertion is not vacuously zero
+      await repo.write("tasks/inbox.md", "secret-token-xyz", "seed");
+
+      for (const scope of ["active", "archive", "all"] as const) {
+        const hits = await repo.search("secret-token-xyz", scope);
+        for (const h of hits) {
+          expect(canRead(h.filePath, today)).toBe(true);
+        }
+      }
     });
 
     describe("edit", () => {

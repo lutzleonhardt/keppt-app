@@ -30,8 +30,10 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 1. Monorepo + FileRepository + LocalFileRepository (read/write/list/search + JSON history)
 2. `edit_file` with atomic search/replace (uniqueness check + structured error returns)
 3. CLI + Vercel AI SDK + tool handlers (minimal prompt) → **first real console run**
+3.5. GTD layout policy gate (`canRead` / `canWrite` at the `buildTools` boundary) — Task-3 follow-up, closes Codex adversarial-review finding #1. See `docs/task-log/task-3.5-gtd-layout-policy.md`.
 4. System prompt R1-R13 + request builder + tool-result pruning + model router + session persistence + input heuristic + prompt caching
 5. Daily-note lifecycle (R5) + clock injection
+5.5. Vault readiness on turn start (`ensureVaultReady`: first-run task-file init + day rollover) — Task-5 follow-up, post-created after planning. Closes the gap that the original Task 5 left first-run task files non-existent and pre-created empty daily notes the user may never use, **and** closes the Task-3.5 follow-up Codex finding (medium): without rollover, the new `canRead` gate makes a stale `daily/<yesterday>.md` unreachable to `list_files`/`search_files`/`read_file` until rollover runs. See `docs/task-log/task-5.5-vault-readiness.md`.
 6. End-to-end acceptance against real Claude API + vault
 
 ---
@@ -504,6 +506,90 @@ Vitest suite against `InMemoryFileRepository` + a mocked clock:
 - **Open checkboxes get deleted, not struck through.** The log entry documents the move; the detail of *what* was open lives in the `file_history` entry (`contentBefore`).
 - **A new `move` primitive in the interface is cleaner than read+write+(missing delete).** Without `move`, the repo would not know it needs a second history line (one for delete of the source, one for create of the target). With `move` it's one semantically atomic entry.
 - **Clock injection is more than test infrastructure.** The `GTD_NOW_OVERRIDE` env var also enables manual dogfooding tests ("what happens on Friday?") without changing the system date.
+
+---
+
+## Task 5.5: Vault readiness on turn start (`ensureVaultReady`)
+
+> **Post-created task.** Added after Task 5 was planned; refines and replaces parts of Task 5's design. Background: the per-turn clock fix (single `turnNow` threaded through prompt and `gtd-layout` predicates) exposed two adjacent gaps — (a) on a fresh vault the 5 GTD task files do not exist, so `read_file("tasks/inbox.md")` returns `FileNotFoundError`; (b) Task 5 pre-creates `daily/<today>.md` as an empty file, which over time fills `archive/daily/` with empty no-op notes for days the user never used the app. Both belong to the same "make the vault match the layout policy at the start of every turn" step.
+>
+> **Also closes a Codex adversarial-review finding from Task 3.5** (medium, verbatim):
+>
+> > **Stale daily notes become unreachable without rollover integration** (`apps/cli/src/index.ts:77-80`)
+> >
+> > The turn setup now only snapshots `turnNow` and builds the prompt from it; there is still no lifecycle/readiness call before the LLM tools run. At the same time, the new gate only allows `daily/${today}.md` and archived dailies, so an existing `daily/2026-05-07.md` left behind when the user opens the CLI on 2026-05-08 is filtered from `list_files`, excluded from active search, and rejected by `read_file` as `out_of_scope`. Because `rg` shows no implemented rollover/`ensureVaultReady` path, this change can make yesterday's real note inaccessible to the LLM until a manual move or a future task lands.
+> >
+> > *Recommendation:* Before shipping the gate, add an idempotent per-turn readiness step here using the same `turnNow` that moves stale `daily/YYYY-MM-DD.md` files into `archive/daily/`, or temporarily allow reads of date-formatted `daily/*.md` until that rollover path exists.
+>
+> Sequencing note: Task 3.5 (the gate) ships first with this finding deliberately deferred to 5.5 — the dev-only blast radius (single-user CLI, manual recovery available) does not justify holding 3.5 until 5.5 is ready. The acceptance test below labelled "Day rollover from yesterday" is the regression Codex asked for.
+
+### Instructions
+
+A single, idempotent vault-readiness step that runs **before every turn** (not just at app start) using the same `turnNow` value the prompt and tool gate already share. Long idle gaps (user away for days) are the exact reason this can't be an app-startup hook.
+
+**`packages/core/src/vault-readiness.ts`:**
+```ts
+export async function ensureVaultReady(
+  repo: FileRepository,
+  today: string,            // YYYY-MM-DD, derived from the per-turn clock
+): Promise<{ createdTaskFiles: string[]; archivedDailies: string[] }>;
+```
+
+What it does, in order:
+
+1. **First-run task-file init.** For each of the 5 GTD task files (`tasks/inbox.md`, `tasks/focus.md`, `tasks/next-actions.md`, `tasks/waiting.md`, `tasks/someday-maybe.md`), if missing → create as empty (no heading, no frontmatter — the LLM adds structure on first write). Existing files are left untouched.
+2. **Day rollover.** For each `daily/YYYY-MM-DD.md` whose date ≠ `today` → move to `archive/daily/<that-date>.md`, applying the same open-checkbox handling Task 5 already specifies (`- [ ]` lines removed, log line appended). Non-date entries in `daily/` (e.g. `daily/notes.md` someone manually dropped) are skipped.
+3. **No pre-create of today's daily note.** This is the deliberate change vs. Task 5: `daily/<today>.md` is created lazily by the LLM's first `write_file`. Days the user never opens the app leave no empty archive entry.
+
+Idempotency: a second call in the same turn is a no-op. The archive move skips when the target already exists (last-writer-wins on concurrent CLI sessions is fine — the content is the same).
+
+System-actor history entries: every mutation done by `ensureVaultReady` is logged with `changedBy: 'system'`, not `'llm'`. `LocalFileRepository` already supports `changedBy` per-instance via `LocalFileRepositoryOptions`; the readiness call uses a separate system-actor handle (or a per-call override — to be decided in implementation, both are acceptable as long as the audit trail stays honest).
+
+**CLI integration (`apps/cli/src/index.ts`):**
+
+- Capture `turnNow = new Date()` at turn start (single source of truth — the per-turn clock fix).
+- Call `await ensureVaultReady(repo, formatToday(turnNow))` **before** building the system prompt and tools.
+- Then build prompt + tools using the same `turnNow`. Pass `turnNow` (or its string form) into `buildTools` so `canRead` / `canWrite` / `isInActiveScope` and `repo.search` all see the same date.
+
+**Supersedes** the following pieces of Task 5:
+
+- "If `daily/${todayIso}.md` does not exist: `repo.write(...)`" — removed. Lazy-create only.
+- The `runDailyLifecycle` return shape changes to `{ createdTaskFiles, archivedDailies }`. The "createdTodayPath" field is gone.
+- The function lives at `packages/core/src/vault-readiness.ts` (new name `ensureVaultReady`) rather than `lifecycle.ts`. If Task 5 lands first, rename and refactor; if 5.5 lands first, write directly under the new name.
+
+The `move` primitive on `FileRepository` (Task 5's design) stays — readiness uses it for the rollover.
+
+### Acceptance
+
+Vitest suite against `InMemoryFileRepository` + a stub clock:
+
+- **Fresh vault:** `ensureVaultReady(repo, '2026-05-08')` on an empty repo → 5 `tasks/*.md` files exist as empty strings, `daily/2026-05-08.md` does **not** exist, `archive/daily/` empty. Five history entries, all `changedBy: 'system'`.
+- **Existing task files preserved:** seed `tasks/inbox.md` with `"- [ ] keep me\n"`, run readiness → file content unchanged, no history entry for it. Other 4 task files created.
+- **Day rollover from yesterday:** seed `daily/2026-05-07.md` with mixed `[ ]`/`[x]`, run readiness with `today='2026-05-08'` → `daily/2026-05-07.md` gone, `archive/daily/2026-05-07.md` exists with `[ ]` lines removed + log line, `daily/2026-05-08.md` does **not** exist.
+- **Multiple stale dailies:** seed `daily/2026-05-05.md`, `daily/2026-05-06.md`, `daily/2026-05-07.md` → all three moved, `daily/` empty afterwards, `daily/2026-05-08.md` not pre-created.
+- **Today's daily already exists:** seed `daily/2026-05-08.md` with content → unchanged, not archived, no history entry.
+- **Non-date file in `daily/`:** seed `daily/notes.md` → left in place, not archived, not treated as today's note.
+- **Idempotency:** call twice with the same `today` → second call produces no history entries, no mutations.
+- **System actor:** all mutations the readiness step performs log with `changedBy: 'system'`, never `'llm'`.
+
+Plus one `LocalFileRepository` happy-path test against a temp directory to confirm parity with `InMemoryFileRepository`.
+
+### Key Locations
+
+- `packages/core/src/vault-readiness.ts` (replaces `lifecycle.ts` from Task 5)
+- `packages/core/src/file-repository.ts` (+ `move` method — already in Task 5 scope)
+- `packages/core/src/local-file-repository.ts` (+ `move` impl, system-actor handle wiring)
+- `packages/core/src/in-memory-file-repository.ts` (+ `move` impl)
+- `packages/core/src/__tests__/vault-readiness.test.ts`
+- `apps/cli/src/index.ts` (call `ensureVaultReady` before prompt/tools every turn)
+- `docs/task-log/task-5.5-vault-readiness.md`
+
+### Key Discoveries
+
+- **First-run init and rollover share the same trigger and the same invariant owner.** Splitting them across two functions would just couple them implicitly forever — every caller has to remember to invoke both, in the right order, with the same `today`. One function, one place.
+- **Lazy daily-note creation matters more than it sounds.** The "user logs in once a month" case is not a corner case for a personal GTD tool — pre-creating empty notes for unused days produces persistent noise in `archive/daily/` that the user has no way to clean up except manually.
+- **Empty task files vs. files with headings.** The decision is "empty" because the LLM will add structure on first write anyway, and an Obsidian sidebar shows the file either way. A pre-baked `# Inbox` heading would also force a content-aware migration if we ever change the heading style.
+- **Why this is a Task-5 follow-up, not a Task-5 amendment.** Keeping it as a separate dated task makes the design evolution legible: Task 5 captured what we knew at planning time; Task 5.5 captures what the per-turn clock fix surfaced. Future readers can see why the design changed.
 
 ---
 

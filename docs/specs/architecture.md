@@ -860,15 +860,25 @@ The scope rules are deliberately **not** enforced in the `FileRepository`, but i
 
 This way the repository abstraction stays cleanly swappable (Local/Supabase/InMemory) and the GTD semantics live where they belong: at the boundary to the LLM.
 
-### Automatic Day Rollover (Server-Side)
+### Vault Readiness on Turn Start (Server-Side)
 
-The archive move of the daily note and the creation of a new session are **server-side lifecycle operations**, not an LLM tool call. They happen on the user's first request on a new calendar day (`current_date != latest_session.date`), before the LLM request is built:
+> **Amended after planning** (replaces the original "Automatic Day Rollover" section). First-run task-file initialization and day rollover were originally treated as separate concerns. They share the same trigger (turn start), the same single-clock-per-turn invariant, and the same audit-trail requirement, so they are now one **vault-readiness** step. See `docs/plans/phase-1-cli.md` Task 5.5.
 
-1. Find all `daily/*.md` files of the user. For each whose date < today: move to `archive/daily/{date}.md` (`INSERT INTO file_history` + `UPDATE files SET file_path = ...` in one transaction).
-2. `INSERT INTO sessions (user_id, date = today)` — new session.
-3. Process the request with the new session and the (now empty, to be filled by the LLM shortly) today's daily note.
+A single, idempotent server-side step runs **before every LLM request** (not just at app start), using the per-turn `today` value the system prompt and the `canRead`/`canWrite` gate already share. Long idle gaps (user away for days) are the exact reason this can't be an app-startup-only hook.
 
-This way the LLM stays out of the archiving mechanics — it simply always sees a clean day state.
+**What the readiness step does, in order:**
+
+1. **First-run task-file init.** Ensure each of the 5 GTD task files exists (`tasks/inbox.md`, `tasks/focus.md`, `tasks/next-actions.md`, `tasks/waiting.md`, `tasks/someday-maybe.md`). Missing → create as empty (no heading, no frontmatter — the LLM adds structure on first write). Existing files are untouched.
+2. **Day rollover for daily notes.** For each `daily/YYYY-MM-DD.md` whose date < today: open `- [ ]` checkbox lines are removed, a log line `- Archived on <today>: open items removed (→ replan manually)` is appended if any were removed, and the file is moved to `archive/daily/<that-date>.md`. Recorded as a `file_history` entry with `change_summary = "Archived daily note YYYY-MM-DD"`. Non-date entries in `daily/` (e.g. `daily/notes.md` someone manually dropped) are skipped.
+3. **No pre-create of today's daily note.** `daily/<today>.md` is created lazily by the LLM's first `write_file`. Days the user never opens the app leave no empty archive entry — keeping `archive/daily/` truthful as a record of days actually used.
+4. **Session.** Phase 2+ (Supabase): `INSERT INTO sessions (user_id, date = today)` if no session exists for today. Phase 1 (CLI): equivalent local-file session row in `.keppt/sessions/<today>.json`.
+
+**Properties:**
+
+- **Idempotent.** A second call within the same turn (or a concurrent CLI session) is a no-op. Archive moves skip when the target already exists.
+- **System-actor audit trail.** All mutations the readiness step performs are logged with `changedBy: 'system'`, never `'llm'` or `'user'`. The audit trail makes the boundary between LLM-driven and lifecycle-driven changes explicit.
+- **Single-clock invariant.** The same `today` value flows into the readiness step, the system prompt, the `canRead`/`canWrite`/`isInActiveScope` predicates in the LLM tool layer, and `FileRepository.search`'s scope filter. Capturing it once per turn is what prevents UTC-midnight drift between "what the prompt told the LLM" and "what the gate enforces."
+- **Server-side, not LLM-side.** The LLM never archives or initializes — it always sees a clean day state and a complete set of task files. The "create a new daily note" example listed under `write_file` is the one place where the LLM may also write `daily/<today>.md`, but only as the lazy first-write of today's note.
 
 ## How File Versioning Works (No Git Needed)
 
@@ -1000,7 +1010,7 @@ Primary write tool. Applies one or more search/replace edits to an existing file
 
 **`write_file(file_path: string, content: string, change_summary: string): void`** *(fallback for create / full rewrite)*
 Writes the entire content of a file. Used **only** when `edit_file` doesn't fit:
-- Create a new file that doesn't exist yet (e.g. a fresh `daily/YYYY-MM-DD.md` on day rollover — but typically the server-side lifecycle does this, not the LLM).
+- Create a new file that doesn't exist yet — most commonly today's `daily/YYYY-MM-DD.md` on the LLM's first daily-note write of the day. The server-side vault-readiness step (see "Vault Readiness on Turn Start") archives stale dailies but deliberately does **not** pre-create today's note, so the first `write_file` to `daily/<today>.md` is the LLM's responsibility.
 - Complete rewrite that replaces the whole file anyway (e.g. weekly review cleanup of a very small file, structural reorganization of a file).
 - Example: `write_file("daily/2026-04-18.md", "...", "Created daily note for 2026-04-18")`
 - For incremental changes to existing files → use `edit_file`.
