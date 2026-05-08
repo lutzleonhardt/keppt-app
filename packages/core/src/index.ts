@@ -32,3 +32,4 @@ export {
   type HistoryEntry,
   type BuildHistoryInput,
 } from "./history-log.js";
+export { buildTools, type ReadFileResult } from "./tools.js";
