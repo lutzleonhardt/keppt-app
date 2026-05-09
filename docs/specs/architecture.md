@@ -777,6 +777,178 @@ RLS policies must **not** rely on JOINs or subqueries to other tables. Every pol
 **Rule 4: Defense in depth — RLS as the last line of defense.**
 The app logic (FileRepository, LLM tools) already operates in user scope. RLS is the additional security layer that kicks in when a bug in app logic loses scope. Especially with LLM agents that generate SQL or tool calls, this redundancy is essential.
 
+## Operational Logging & Error Surfaces
+
+Operational logging is separate from the product audit trail. `file_history`
+answers "what changed in the user's GTD files?" Operational logs answer "why
+did the CLI, backend, stream, client, tool loop, or provider call fail?" These
+two streams have different audiences, retention rules, and privacy constraints.
+
+The shared core must not import or call runtime-specific logging APIs:
+
+- no `console.*` in `packages/core`
+- no Pino imports in `packages/core`
+- no Sentry/OpenTelemetry imports in `packages/core`
+- no browser or Capacitor logging APIs in `packages/core`
+
+Instead, the shared layer defines a small logging contract that every runtime
+can implement:
+
+```ts
+interface Logger {
+  debug(event: LogEvent): void;
+  info(event: LogEvent): void;
+  warn(event: LogEvent): void;
+  error(event: LogEvent): void;
+}
+
+interface LogEvent {
+  message: string;
+  code?: string;
+  phase?: string;
+  requestId?: string;
+  userId?: string;
+  sessionId?: string;
+  err?: unknown;
+  meta?: Record<string, unknown>;
+}
+```
+
+The concrete logger belongs to the entrypoint:
+
+| Runtime | Logger implementation | Output |
+|---------|-----------------------|--------|
+| CLI | `CliLogger` | short terminal messages + vault-local `.keppt/logs/*.jsonl` diagnostics |
+| Backend | `BackendLogger` | Pino JSON logs to stdout/stderr; optional Sentry error sink |
+| Web/Capacitor app | `FrontendLogger` | dev console in development; Sentry client events in production |
+| Tests | `NoopLogger` / `MemoryLogger` | no output or in-memory assertions |
+
+User-facing output is a separate concern from logging. The CLI terminal stream,
+the backend SSE stream, and the Angular chat UI should use runtime-specific
+output sinks. They are not operational loggers. This prevents terminal concepts
+from leaking into the web app and prevents frontend UI events from being treated
+as server diagnostics.
+
+### Backend Logging
+
+The backend wraps Pino behind `BackendLogger`. In production it writes
+structured JSON to stdout/stderr so the container platform can collect, rotate,
+and retain logs. It should not write long-lived log files inside the container.
+Local development may optionally pretty-print logs or write local diagnostics
+when running against `LocalFileRepository`.
+
+Every request receives a `requestId` at the HTTP boundary. Auth middleware adds
+`userId` after validating the Supabase JWT or applying the `DEV_USER_ID` stub in
+the local-vault server path. For the MVP, the real internal user ID may be
+included in operational metadata; hashing can be revisited when the privacy
+policy demands it.
+
+Every backend log event should include the relevant subset of:
+
+- `requestId`
+- `userId`
+- `sessionId`
+- route
+- phase (`auth`, `request_builder`, `provider_stream`, `tool_call`, `sse`)
+- provider and model
+- status code
+- retryability
+- duration
+- stable error code
+
+Pino is the normal operational log. Sentry is not a logger replacement; it is an
+error/incident sink. The backend logger may forward redacted `error` events and
+selected high-value `warn` events to Sentry.
+
+### Frontend/App Logging
+
+The Angular/Capacitor app uses the same `Logger` shape but a different
+implementation. It captures:
+
+- Angular `ErrorHandler` failures
+- unhandled promise/runtime errors
+- network failures
+- SSE stream aborts and structured stream errors
+- app version, platform, environment, `userId`, and `requestId` when available
+
+The app must not send chat text, prompts, GTD file contents, or full server
+responses to Sentry. If the backend returns a structured error containing a
+`requestId`, the client attaches that ID to its own frontend event and may show
+it as a support/debug ID.
+
+### API and SSE Error Contract
+
+HTTP API errors return a stable shape:
+
+```json
+{
+  "error": {
+    "code": "provider_unavailable",
+    "message": "The AI provider is temporarily unavailable.",
+    "requestId": "..."
+  }
+}
+```
+
+SSE chat streams emit a structured error event before closing whenever possible:
+
+```json
+{
+  "type": "error",
+  "error": {
+    "code": "provider_unavailable",
+    "message": "The AI provider is temporarily unavailable.",
+    "requestId": "..."
+  }
+}
+```
+
+The client displays the stable message and keeps the `requestId` for support.
+It never receives stack traces, provider request bodies, provider response
+bodies, API keys, cookies, or raw tool payloads.
+
+### Cloud Redaction Rules
+
+Cloud logs and Sentry events are metadata-only by default. The following values
+must not be sent to cloud logging or observability tools:
+
+- API keys, bearer tokens, cookies, session headers, Supabase JWTs
+- OAuth provider tokens
+- Stripe/RevenueCat secrets
+- full prompt/message bodies
+- GTD file contents and user profile contents
+- tool-result payloads that contain file content
+- provider request bodies and response bodies
+
+Allowed metadata includes model ID, provider name, status code, retryability,
+request ID, route/phase, tool name, non-sensitive file path, token counts,
+duration, and user ID for the MVP.
+
+## Operational Observability MVP Tasks
+
+Observability is added in layers, not as one large production-hardening task:
+
+**Phase 1 follow-up: shared logging abstraction**
+- Add `Logger`/`LogEvent` to the shared layer.
+- Add `NoopLogger`/`MemoryLogger` for tests.
+- Move CLI console/error handling behind `CliLogger` and terminal output sinks.
+- Keep the existing vault-local `.keppt/logs/cli-errors.jsonl` behavior.
+- Ensure `packages/core` has no direct `console.*` usage.
+
+**Phase 2a.0: backend operational logging foundation**
+- Add request ID middleware.
+- Add `BackendLogger` wrapping Pino.
+- Attach `userId` to logger context after auth.
+- Emit structured metadata-only logs to stdout/stderr.
+- Define stable API/SSE error response shape.
+- Add tests for redaction helpers and server error shapes.
+
+**Phase 2a.x: Sentry integration**
+- Add a redacted backend Sentry sink for exceptions.
+- Add Angular/Capacitor `FrontendLogger` and `ErrorHandler` integration.
+- Attach release, environment, platform, `userId`, and `requestId`.
+- Correlate frontend and backend failures via `requestId`.
+
 ## Archive Layout & Lifecycle
 
 "Archive" in this app means: **outside the active LLM routine context, but accessible on demand**. Nothing is deleted (except completed tasks — see below), but it is moved out of the active path into an archive directory so that the daily context stays lean.
@@ -1385,6 +1557,20 @@ Validate the core hypothesis: do the prompts work? Is the GTD system usable via 
 ### Phase 2a: Backend + Angular — "It chats in the app"
 
 The shared core moves into an Express server. Angular client communicates via SSE. Supabase as database + auth. **No payment, no App Store** — the goal is a functioning chat with persistence.
+
+**2a.0: Operational logging foundation**
+
+Before the shared core is hosted behind HTTP, the server gets the minimal
+operational logging foundation from "Operational Logging & Error Surfaces":
+
+- `BackendLogger` wraps Pino and writes structured JSON to stdout/stderr
+- request ID middleware attaches a `requestId` to every request
+- auth middleware attaches `userId` to logger context after JWT validation or
+  `DEV_USER_ID` stub resolution
+- `POST /api/chat` and SSE stream failures use the stable API/SSE error shape
+- logs are metadata-only by default; prompts, GTD files, provider bodies, tool
+  results, headers, and tokens are redacted or omitted
+- Sentry is left as a follow-up integration, not required for this foundation
 
 **2a.1: Express backend service — against the vault**
 

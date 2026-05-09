@@ -1,7 +1,7 @@
 # Operational Logging & Observability Notes
 
 **Date:** 2026-05-09
-**Status:** Draft / architecture follow-up input
+**Status:** Architecture decision input for Phase 1 follow-up and Phase 2a
 
 ## Why This Exists
 
@@ -15,6 +15,56 @@ provider response body.
 That exposed a missing architecture decision: Keppt already has a product audit
 trail (`file_history`), but it does not yet have an operational logging and
 observability design for CLI, backend, and Web/App clients.
+
+## Current Decision
+
+Operational logging becomes a small shared foundation, not a framework:
+
+- `packages/core` defines a minimal `Logger` / `LogEvent` contract and shared
+  error/redaction helpers.
+- `packages/core` must not import or call `console`, Pino, Sentry,
+  OpenTelemetry, browser APIs, or Capacitor APIs.
+- CLI, backend, and frontend each provide their own logger implementation.
+- User-facing output is separate from operational logging:
+  - CLI terminal output uses a terminal output sink.
+  - Backend streaming uses an SSE output sink.
+  - Angular/Capacitor rendering uses UI state and components.
+- Pino is the backend's normal structured logger.
+- Sentry is an error/incident sink, not a logger replacement.
+- OpenTelemetry is deferred until distributed tracing is useful.
+- For the MVP, the internal Supabase `userId` may be included directly in
+  operational metadata. Hashing can be revisited with the privacy policy.
+
+Suggested shared shape:
+
+```ts
+interface Logger {
+  debug(event: LogEvent): void;
+  info(event: LogEvent): void;
+  warn(event: LogEvent): void;
+  error(event: LogEvent): void;
+}
+
+interface LogEvent {
+  message: string;
+  code?: string;
+  phase?: string;
+  requestId?: string;
+  userId?: string;
+  sessionId?: string;
+  err?: unknown;
+  meta?: Record<string, unknown>;
+}
+```
+
+Runtime implementations:
+
+| Runtime | Implementation | Behavior |
+|---------|----------------|----------|
+| CLI | `CliLogger` | short terminal summary + vault-local JSONL diagnostics |
+| Backend | `BackendLogger` | Pino JSON to stdout/stderr + optional redacted Sentry sink |
+| Web/Capacitor app | `FrontendLogger` | dev console in development + Sentry client events in production |
+| Tests | `NoopLogger` / `MemoryLogger` | no output or in-memory assertions |
 
 ## Core Distinction
 
@@ -105,12 +155,16 @@ client.
 Recommended direction:
 
 - Use structured JSON logs in the backend.
+- Write backend production logs to stdout/stderr, not long-lived container
+  files. The hosting platform is responsible for collection, rotation, and
+  retention.
 - Attach a correlation/request ID to every `/api/chat` request.
 - Include the correlation ID in:
   - server logs
   - SSE stream error events
   - client-visible support/debug messages
   - Sentry/OpenTelemetry events
+- Attach `userId` after auth and `sessionId` once the chat session is known.
 - Capture backend exceptions in Sentry or an equivalent service.
 - Capture frontend exceptions separately, with release/version metadata.
 - Use OpenTelemetry if distributed tracing becomes useful; Sentry alone may be
@@ -157,7 +211,33 @@ Recommended direction:
 - Show a user-appropriate message.
 - Include a support/debug ID when useful.
 - Send client-side exceptions to Sentry with release/environment metadata.
+- Attach platform, app version, `userId`, and `requestId` where available.
 - Do not include full chat content by default in frontend error events.
+
+### Backend Structured Log Example
+
+```json
+{
+  "timestamp": "2026-05-09T12:00:00.000Z",
+  "level": "error",
+  "service": "api",
+  "env": "production",
+  "requestId": "req_...",
+  "userId": "00000000-0000-0000-0000-000000000000",
+  "sessionId": "00000000-0000-0000-0000-000000000001",
+  "route": "POST /api/chat",
+  "phase": "provider_stream",
+  "provider": "anthropic",
+  "model": "claude-haiku-4-5",
+  "statusCode": 400,
+  "errorCode": "provider_low_balance",
+  "retryable": false,
+  "durationMs": 1234
+}
+```
+
+This is the shape cloud logs should prefer: enough metadata to debug routing,
+provider, cost, and correlation problems without sending user content.
 
 ## Redaction Rules Needed For Cloud Logging
 
@@ -186,7 +266,43 @@ For cloud observability, prefer structured metadata over raw payloads:
 - file path, if not sensitive
 - token counts
 - duration
-- user ID hash or internal user ID, depending on privacy policy
+- internal user ID for the MVP; hash later if required by the privacy policy
+
+## Implementation Tasks
+
+### Phase 1 Follow-Up: Shared Logging Abstraction
+
+Add a task after the current CLI observability follow-ups:
+
+- Define `Logger` and `LogEvent` in the shared layer.
+- Add `NoopLogger` and `MemoryLogger` for tests.
+- Move shared-core console usage behind injected logging.
+- Move CLI UX output behind a terminal output sink, separate from logging.
+- Keep the current `.keppt/logs/cli-errors.jsonl` behavior for verbose local
+  diagnostics.
+- Verify `packages/core` has no direct `console.*`, Pino, or Sentry usage.
+
+### Phase 2a.0: Backend Operational Logging Foundation
+
+Before or at the start of the Express/Fastify backend task:
+
+- Add request ID middleware.
+- Add `BackendLogger` wrapping Pino.
+- Attach `userId` after auth.
+- Emit metadata-only JSON logs to stdout/stderr.
+- Define the stable API error response and SSE error event shape.
+- Add redaction helper tests and server error-shape tests.
+- Do not require Sentry yet.
+
+### Phase 2a.x: Sentry Integration
+
+Once backend and app error surfaces exist:
+
+- Add backend Sentry sink for redacted exceptions.
+- Add Angular/Capacitor `FrontendLogger`.
+- Integrate Angular `ErrorHandler`.
+- Attach release, environment, platform, `userId`, and `requestId`.
+- Correlate frontend and backend failures via `requestId`.
 
 ## Retention
 
@@ -208,10 +324,11 @@ The current `architecture.md` already says:
 - `file_history` is the source of truth for user-visible change history.
 - The History View reads `file_history`.
 
-What is missing:
+This note is now reflected in the architecture as:
 
 - Operational logging model.
-- Cloud observability provider decision.
+- Shared logger contract.
+- Runtime-specific logger implementations.
 - Correlation IDs.
 - Error code taxonomy.
 - Redaction policy.
@@ -220,19 +337,10 @@ What is missing:
 
 ## Proposed Follow-Up
 
-Add a dedicated architecture task before or during Phase 2a:
+The dedicated observability work is split into small tasks:
 
-**Operational observability spec**
-
-Scope:
-
-- Define error code taxonomy for API/SSE/client surfaces.
-- Define request/correlation ID propagation.
-- Choose Sentry, OpenTelemetry, or a minimal structured-log-only MVP.
-- Define redaction rules for prompts, files, tool results, headers, tokens, and
-  provider payloads.
-- Define retention defaults.
-- Define what the client displays vs. what the server logs.
-- Add tests for redaction helpers and server error response shape.
+- Phase 1 follow-up: shared `Logger` abstraction + CLI logger/output cleanup.
+- Phase 2a.0: backend Pino/requestId/API/SSE error foundation.
+- Phase 2a.x: Sentry backend + frontend integration.
 
 This should be separate from the product `file_history` work.

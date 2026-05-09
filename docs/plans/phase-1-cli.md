@@ -34,6 +34,7 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 3.6. CLI operational error logging — Task-3 manual-smoke follow-up, post-created 2026-05-09 after an Anthropic low-balance failure showed that the SDK default logs raw `APICallError` objects to stderr. The CLI prints a stable summary and writes full diagnostics to a vault-local JSONL log. See `docs/task-log/task-3.6-cli-error-logging.md`.
 3.7. Per-message retry budget for `edit_file` (`retry-budget.ts` + tool-layer wrapper) — Task-3 follow-up, post-created 2026-05-09 from a comparison review against an autonomous-agent build. Caps repeated `edit_file` failures on the same file within one user message at 2; 3rd attempt short-circuits to `retry_budget_exhausted`. See `docs/task-log/task-3.7-retry-budget.md`.
 3.8. Path-safety expansion (8 → 13 attack vectors): drive letters, segment trailing dots/whitespace, length caps, reserved Windows names, runtime symlink-escape check in `LocalFileRepository` — Task-3 follow-up, post-created 2026-05-09 from the same comparison review. See `docs/task-log/task-3.8-path-safety.md`.
+3.9. Shared logging abstraction — Task-3 follow-up, post-created 2026-05-09 from the operational logging architecture decision. Introduces a runtime-neutral `Logger`/`LogEvent` contract, keeps `packages/core` free of `console.*`, and moves CLI terminal output vs. diagnostics behind explicit adapters.
 4. System prompt R1-R13 + request builder + tool-result pruning + model router + session persistence + input heuristic + prompt caching
 5. Daily-note lifecycle (R5) + clock injection
 5.5. Vault readiness on turn start (`ensureVaultReady`: first-run task-file init + day rollover) — Task-5 follow-up, post-created after planning. Closes the gap that the original Task 5 left first-run task files non-existent and pre-created empty daily notes the user may never use, **and** closes the Task-3.5 follow-up Codex finding (medium): without rollover, the new `canRead` gate makes a stale `daily/<yesterday>.md` unreachable to `list_files`/`search_files`/`read_file` until rollover runs. See `docs/task-log/task-5.5-vault-readiness.md`.
@@ -313,7 +314,7 @@ Today is {TODAY_ISO} ({TODAY_WEEKDAY}).
 
 > **Post-created task.** Added 2026-05-09 from the manual Task-3 smoke test. An Anthropic account with no remaining balance returned a provider `APICallError`. The CLI's own catch printed a useful summary, but the Vercel AI SDK beta also ran its default `onError` handler first (`console.error(error)`), dumping the full stack, request body, response headers, and provider response to stderr.
 >
-> This is a CLI/dev observability task, not a product audit-trail task. `file_history` remains reserved for GTD file mutations; operational errors live in a separate `.keppt/logs/` JSONL file. The later server/Web-App observability design (Sentry/OpenTelemetry, request IDs, redaction rules) remains a separate architecture follow-up.
+> This is a CLI/dev observability task, not a product audit-trail task. `file_history` remains reserved for GTD file mutations; operational errors live in a separate `.keppt/logs/` JSONL file. The runtime-neutral logging boundary is handled by Task 3.9; backend Pino/request-ID work starts in Phase 2a.0, and Sentry remains a later Phase 2a integration.
 
 ### Instructions
 
@@ -376,10 +377,10 @@ Today is {TODAY_ISO} ({TODAY_WEEKDAY}).
 - **CLI diagnostics and product audit trail are different things.**
   `file_history` answers "what changed in the user's GTD files?" Operational
   failures answer "why did the app/LLM call fail?" and need separate logging.
-- **The Web-App needs a future observability spec.** The architecture currently
-  mentions logging only in passing ("Full control: ... logging") and specifies
-  `file_history`, but not Sentry/OpenTelemetry, correlation IDs, redaction,
-  retention, or user-facing error contracts.
+- **The Web-App needs a separate runtime logger.** The architecture now keeps
+  the shared core behind a small `Logger` contract, with CLI, backend, and
+  Angular/Capacitor providing their own implementations. Task 3.9 creates that
+  boundary; Phase 2a adds Pino/request IDs and later Sentry.
 
 ---
 
@@ -518,6 +519,97 @@ Extend `__tests__/file-repository.contract.ts` with a parametrized rejection tab
 - **Static + runtime split.** #9–#12 are syntactic and live in the shared validator (`InMemoryFileRepository` inherits them via the contract test for free). #13 needs filesystem state and lives in `LocalFileRepository` only.
 - **No URL-decoding anywhere.** We never `decodeURIComponent` paths, so `%2e%2e/etc` is opaque text and treated as an unknown filename, not traversal. Worth documenting as an explicit non-vector to prevent future "should we add this?" reopening.
 - **Trailing-dot rejection > trailing-dot normalization.** Stripping trailing dots silently would let two LLM messages addressing `foo.md` and `foo.md.` accidentally collide. Rejection makes the LLM see the structured error and adjust the next message.
+
+---
+
+## Task 3.9: Shared logging abstraction
+
+> **Post-created task.** Added 2026-05-09 from the operational logging architecture decision. Task 3.6 solved the immediate CLI provider-error leak. This task creates the runtime-neutral boundary needed before the same shared core is reused by the Express backend and Angular/Capacitor app.
+>
+> This is not a Sentry task and not a backend Pino task. It only makes the shared layer logging-safe and keeps CLI user output separate from operational diagnostics.
+
+### Instructions
+
+**Shared logger contract (`packages/core/src/logging.ts` or equivalent):**
+- Add a minimal `Logger` interface with `debug`, `info`, `warn`, and `error`.
+- Add a `LogEvent` type with:
+  - `message`
+  - optional `code`
+  - optional `phase`
+  - optional `requestId`
+  - optional `userId`
+  - optional `sessionId`
+  - optional `err`
+  - optional `meta`
+- Add `NoopLogger` for production defaults/tests that do not care.
+- Add `MemoryLogger` for tests that need assertions.
+- Keep the contract independent of Pino, Sentry, OpenTelemetry, browser APIs,
+  and Capacitor APIs.
+
+**CLI logger/output split:**
+- Introduce a CLI logger adapter that preserves the existing Task 3.6 behavior:
+  short terminal error summary + verbose vault-local `.keppt/logs/cli-errors.jsonl`
+  diagnostics for provider errors.
+- Introduce a terminal output sink for user-facing terminal output:
+  streamed assistant text, tool status lines, abort messages, and concise
+  user-facing errors.
+- Do not treat normal streamed assistant text as an operational log event.
+
+**Core cleanup:**
+- Audit `packages/core` for direct `console.*`.
+- Replace shared-core diagnostic calls with injected `Logger` usage.
+- If a core function does not naturally need logging, do not thread a logger
+  through just for symmetry. Prefer `NoopLogger` only at actual boundaries.
+- Tool errors returned to the LLM remain structured tool results; logging is
+  for diagnostics, not for changing tool semantics.
+
+**Redaction helper foundation:**
+- Add a small shared redaction helper for operational metadata:
+  - redact header keys matching `set-cookie`, `cookie`, `authorization`,
+    `x-api-key`, `api-key`
+  - leave room for backend-only redaction of prompt/file/provider payloads in
+    Phase 2a.0
+- Do not move the CLI's intentionally verbose local-only request-body logging
+  into cloud-safe helpers. CLI JSONL diagnostics are explicitly vault-local.
+
+### Acceptance
+
+- **T3.9-AC-01:** `packages/core` has no direct `console.log`,
+  `console.error`, `console.warn`, or `console.debug` usage.
+- **T3.9-AC-02:** `packages/core` imports no Pino, Sentry, OpenTelemetry,
+  browser, or Capacitor logging APIs.
+- **T3.9-AC-03:** Existing Task 3.6 behavior is preserved: provider stream
+  errors print one concise terminal message and write verbose diagnostics to
+  `.keppt/logs/cli-errors.jsonl`.
+- **T3.9-AC-04:** Normal assistant streaming and tool-status terminal lines go
+  through the terminal output sink, not the operational logger.
+- **T3.9-AC-05:** Tests can use `NoopLogger` without output and `MemoryLogger`
+  to assert emitted events.
+- **T3.9-AC-06:** Redaction tests cover sensitive header keys case-insensitively.
+
+### Key Locations
+
+- `packages/core/src/logging.ts`
+- `packages/core/src/__tests__/logging.test.ts`
+- `apps/cli/src/cli-logger.ts`
+- `apps/cli/src/terminal-output.ts`
+- `apps/cli/src/index.ts`
+- `apps/cli/src/cli-error-log.ts`
+- `apps/cli/test/cli-errors.test.ts`
+- `apps/cli/test/cli-error-log.test.ts`
+- `docs/task-log/task-3.9-shared-logging-abstraction.md`
+
+### Key Discoveries
+
+- **Logging and UI output are different contracts.** The CLI writes streamed
+  text to a terminal, the backend writes SSE events, and Angular renders UI
+  state. None of those should be modeled as operational logging.
+- **Sentry is a sink, not the shared abstraction.** The shared core emits
+  runtime-neutral events. Backend and frontend decide whether selected redacted
+  errors are sent to Sentry.
+- **Verbose local CLI logs are allowed; cloud logs are metadata-only.** Task
+  3.6 intentionally stores provider request diagnostics in a developer-owned
+  vault. Phase 2a must not reuse that payload shape for cloud observability.
 
 ---
 
