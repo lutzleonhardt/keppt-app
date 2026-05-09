@@ -646,12 +646,16 @@ The "productization pass" over Task 3. The inline code from Task 3 gets refactor
 - Appends the new user message
 
 **`packages/core/src/tool-result-pruning.ts`:**
-- Export `pruneToolResults(messages: ModelMessage[], k: number): ModelMessage[]`
-- Iterate `messages` backwards. The last K `tool`-role messages stay untouched. All older `tool` messages are transformed as follows:
-  - For each `tool-result` content part: `output` is replaced by the stub string: `[Previous ${toolName} result — superseded by current state; re-read if needed]`. `toolCallId` and `toolName` are preserved.
-  - `tool-error` parts stay untouched (error info may remain relevant for the LLM).
+- Export `pruneToolResults(messages: ModelMessage[], opts: { k: number; fileVersionAt: (path: string) => number | undefined; messageCreatedAt: (msg: ModelMessage) => number }): ModelMessage[]`
+- Two stubbing conditions per `tool-result` block — block is stubbed if **either** holds:
+  - **Age cap (K):** the block sits before the last `K` `tool`-role messages.
+  - **Version drift:** the block referenced a single file (extracted via `toolCallId → previous assistant tool-call.input.file_path`) and `fileVersionAt(filePath) > messageCreatedAt(toolMessage)`. If the path lookup fails (e.g. `list_files`, `search_files`), only the K-window applies.
+- For each stubbed `tool-result` content part: `output` is replaced by the stub string `[Previous ${toolName} result — superseded by current state; re-read if needed]`. `toolCallId` and `toolName` are preserved.
+- `tool-error` parts stay untouched (error info may remain relevant for the LLM).
 - `user` and `assistant` messages (incl. `tool-call` parts!) are **never** modified.
 - K from MVP spec: 5.
+- `fileVersionAt`: in the Supabase repo, joined from `files.updated_at`; in the local repo, `fs.stat(path).mtime` converted to ms epoch.
+- `messageCreatedAt`: in Supabase, `messages.created_at`; in CLI memory, an injected timestamp set when the message is appended.
 
 **`packages/core/src/model-router.ts`:**
 - Export `routeModel(userMessage: string): 'haiku' | 'sonnet'`
@@ -687,10 +691,13 @@ The "productization pass" over Task 3. The inline code from Task 3 gets refactor
 
 Vitest suite green:
 - **T4-AC-01:** `buildSystemPrompt({ today: new Date('2026-04-24') })` contains `"Today is Friday, 24. April 2026"` and all R1-R13 marker strings (each rule gets a unique anchor in the prompt — the test checks all 13 anchors).
-- **T4-AC-02:** `pruneToolResults` with K=5 and 10 tool messages transforms the oldest 5 into stubs and leaves the newest 5 identical.
+- **T4-AC-02:** `pruneToolResults` with K=5, 10 tool messages, and `fileVersionAt` returning a stable version (no drift) transforms the oldest 5 into stubs and leaves the newest 5 identical.
 - **T4-AC-03:** `pruneToolResults` leaves user/assistant messages untouched, including assistant messages that contain `tool-call` parts.
 - **T4-AC-04:** `pruneToolResults` leaves a message with mixed parts (text + tool-call in assistant) unchanged.
 - **T4-AC-05:** `pruneToolResults` preserves `tool-error` parts.
+- **T4-AC-05b:** `pruneToolResults` stubs a `tool-result` within the K-window when `fileVersionAt(filePath) > messageCreatedAt(toolMessage)` — version drift overrides the K-keep.
+- **T4-AC-05c:** `pruneToolResults` is granular per file: with two recent reads on `inbox.md` and `focus.md` and `fileVersionAt` reporting drift only for `focus.md`, the focus tool-result is stubbed and the inbox tool-result stays.
+- **T4-AC-05d:** `pruneToolResults` falls back to K-only for `list_files` / `search_files` results (no single `file_path` to look up); inside the K-window they stay verbatim, outside they are stubbed.
 - **T4-AC-06:** `routeModel` routes "Plan my day" → sonnet, "New task: milk" → haiku, "Clean up the inbox" → sonnet, and "Check off X" → haiku.
 - **T4-AC-07:** Session roundtrip: `loadOrCreateSession` in an empty vault creates a new session file.
 - **T4-AC-08:** Session roundtrip: append + save → load returns identical messages.
@@ -717,6 +724,8 @@ Vitest suite green:
 - **Prompt caching is manual.** The SDK caches nothing automatically. The `cacheControl` marker defines the end of the cached block. Phase 1 strategy: a single marker on the `streamText` call that flags everything up to that point (system + tool definitions) as cacheable. End-of-message markers via `prepareStep` (for message-history caching) is a Phase 2 topic.
 - **Tool-result pruning only transforms `role: 'tool'` messages.** Assistant messages with `tool-call` parts stay untouched (they show "a call happened", which matters for context — only the concrete result is stubbed).
 - **A `tool-result` part has the fields `type: 'tool-result'`, `toolCallId`, `toolName`, `output`** (see SDK research §8). Pruning replaces `output` with a string, not the whole part.
+- **Two stubbing conditions, OR-combined.** K=5 is the size cap (long-session token control); file-version drift is the freshness cap (catches external edits between turns and prior LLM-side `edit_file`/`write_file` calls in the same conversation). Either alone leaves a real gap — see architecture spec § *Context Management: Tool-Result Pruning*.
+- **`file_path` lives in the tool-call, not the tool-result.** The pruner joins `tool-result.toolCallId` to the previous assistant message's `tool-call.input.file_path`. `read_file`, `edit_file`, `write_file` all carry a single `file_path`. `list_files` and `search_files` don't and use the K-window only.
 - **K=5** per the architecture spec. Tunable, but fixed for MVP.
 - **R12 session-start suggestion** is a text response in Phase 1 (no generative UI). The system prompt contains the state table from R12; the LLM decides which suggestion to make on the first turn of a new session.
 - **The input heuristic must not be too aggressive.** A task like "Write code review for PR #42" contains special chars but not in the proportions the heuristic rejects. Test cases cover honest edge cases.

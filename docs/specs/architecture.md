@@ -1321,15 +1321,26 @@ Total: ~6-8K input tokens (predictable, constant)
 **Mechanics (during request build in the shared core):**
 
 1. Iterate over the message history.
-2. For every tool-result block older than the last `K` messages (MVP: K=5, tunable):
-   - Replace the concrete result with a stub: `[Previous read_file("tasks/next-actions.md") result — superseded by current state; re-read if needed]`
-   - The LLM knows: this read happened, but the content is no longer current.
-3. Recent tool-results (last K messages) remain complete — relevant for the ongoing multi-step operation.
-4. Active files are loaded fresh at the beginning of each request as before (implied by R4).
+2. For each `tool-result` block, stub it if **either** condition is true:
+   - **Age cap (K):** the block is older than the last `K` messages (MVP: K=5, tunable). Protects long sessions from unbounded context growth.
+   - **Version drift:** the file the block referenced has been modified since the block was produced — i.e. `file.updated_at > message.created_at`. Protects against stale snapshots when the user (or a later tool call in the conversation) changed the file outside the still-cached context. This is what catches the "user manually edits `inbox.md` in the web-app file editor between two chat messages" case.
+3. Stub format: `[Previous read_file("tasks/next-actions.md") result — superseded by current state; re-read if needed]`. `toolCallId` and `toolName` are preserved so the LLM still sees the call shape.
+4. Recent tool-results (within the last K messages **and** with no version drift) remain complete — relevant for ongoing multi-step operations and follow-up questions ("did I cover the milk task?").
+5. Active files are loaded fresh at the beginning of each request as before (implied by R4) — pruning operates on the **history**, not on the live state.
+
+**Why both conditions, not just one:**
+- K alone leaves a window for stale snapshots when the user edits files between turns. The cached read survives the K-window and the LLM can quietly operate on outdated content.
+- Version-drift alone breaks workflow continuity: the LLM reads files, asks a clarifying question, the user answers briefly — without a K-window every short follow-up forces a re-read of files that haven't changed. Multi-step agent workflows (Anthropic-style internal TODO lists in Phase 2) lose their working memory.
+- Combined: cheap multi-step continuation when files are stable, hard invalidation when files actually changed. Granular per file: editing `focus.md` stubs only the focus-related tool-results, not the inbox ones.
+
+**Looking up `file_path` per tool-result:** the path is in the **tool-call** (assistant message), not the tool-result. The pruner joins `tool-result.toolCallId → tool-call.input.file_path` from the previous assistant message. Tools without a single file path (`list_files`, `search_files`) fall under the K-window only — their results are cheap to recompute and don't carry file-snapshot risk.
+
+**Source of `updated_at`:** the server has direct read access. In Phase 2 (Supabase) the `files` table already carries `updated_at` (see schema below); in Phase 1 CLI (LocalFileRepository) it's `fs.stat(path).mtime`. The `messages` table carries `created_at`. The pruner needs no new state tracking — just one extra read of `files.updated_at` per distinct file referenced in the history.
 
 **What stays untouched:**
 - All `user` and `assistant` text messages — no matter how old.
 - `tool_call` blocks (the fact that a call happened stays visible — only the result is stubbed).
+- `tool-error` parts — error info may remain relevant for the LLM.
 - Follow-up question context ("Should I move it to Friday or Monday?" → "Friday") stays 100% preserved, because those are assistant and user text messages.
 
 **Important invariant:** Only tool-result blocks are stubbed, never text messages.
@@ -1338,9 +1349,9 @@ Total: ~6-8K input tokens (predictable, constant)
 
 **Why this replaces the old compaction strategy:**
 - **No trust killer:** No LLM-generated summaries in the context. Chat history stays literally readable.
-- **Cheaper:** No additional LLM summary call per 30 messages. Pure string operation.
+- **Cheaper:** No additional LLM summary call per 30 messages. Pure string operation + a couple of `updated_at` reads.
 - **Smaller context:** File contents (the most expensive tokens in the history) are replaced with ~30-token stubs. Context stays small even after 100+ messages.
-- **Safer:** The LLM cannot operate on an outdated file snapshot — the stub explicitly signals "re-read if needed".
+- **Safer:** The LLM cannot operate on an outdated file snapshot — version-drift invalidation is explicit, the K-window is the size safety net, and the stub explicitly signals "re-read if needed".
 
 **Messages table:**
 The `in_context` field is reinterpreted: `false` no longer means "was summarized away", but "is so far back that not even the tool call/text is in context anymore" (hard limit at e.g. 100 messages as a hard upper bound). `sessions.summary` is dropped in MVP.
