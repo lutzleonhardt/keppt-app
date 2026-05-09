@@ -31,8 +31,9 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 2. `edit_file` with atomic search/replace (uniqueness check + structured error returns)
 3. CLI + Vercel AI SDK + tool handlers (minimal prompt) → **first real console run**
 3.5. GTD layout policy gate (`canRead` / `canWrite` at the `buildTools` boundary) — Task-3 follow-up, closes Codex adversarial-review finding #1. See `docs/task-log/task-3.5-gtd-layout-policy.md`.
-3.6. Per-message retry budget for `edit_file` (`retry-budget.ts` + tool-layer wrapper) — Task-3 follow-up, post-created 2026-05-09 from a comparison review against an autonomous-agent build. Caps repeated `edit_file` failures on the same file within one user message at 2; 3rd attempt short-circuits to `retry_budget_exhausted`. See `docs/task-log/task-3.6-retry-budget.md`.
-3.7. Path-safety expansion (8 → 13 attack vectors): drive letters, segment trailing dots/whitespace, length caps, reserved Windows names, runtime symlink-escape check in `LocalFileRepository` — Task-3 follow-up, post-created 2026-05-09 from the same comparison review. See `docs/task-log/task-3.7-path-safety.md`.
+3.6. CLI operational error logging — Task-3 manual-smoke follow-up, post-created 2026-05-09 after an Anthropic low-balance failure showed that the SDK default logs raw `APICallError` objects to stderr. The CLI prints a stable summary and writes full diagnostics to a vault-local JSONL log. See `docs/task-log/task-3.6-cli-error-logging.md`.
+3.7. Per-message retry budget for `edit_file` (`retry-budget.ts` + tool-layer wrapper) — Task-3 follow-up, post-created 2026-05-09 from a comparison review against an autonomous-agent build. Caps repeated `edit_file` failures on the same file within one user message at 2; 3rd attempt short-circuits to `retry_budget_exhausted`. See `docs/task-log/task-3.7-retry-budget.md`.
+3.8. Path-safety expansion (8 → 13 attack vectors): drive letters, segment trailing dots/whitespace, length caps, reserved Windows names, runtime symlink-escape check in `LocalFileRepository` — Task-3 follow-up, post-created 2026-05-09 from the same comparison review. See `docs/task-log/task-3.8-path-safety.md`.
 4. System prompt R1-R13 + request builder + tool-result pruning + model router + session persistence + input heuristic + prompt caching
 5. Daily-note lifecycle (R5) + clock injection
 5.5. Vault readiness on turn start (`ensureVaultReady`: first-run task-file init + day rollover) — Task-5 follow-up, post-created after planning. Closes the gap that the original Task 5 left first-run task files non-existent and pre-created empty daily notes the user may never use, **and** closes the Task-3.5 follow-up Codex finding (medium): without rollover, the new `canRead` gate makes a stale `daily/<yesterday>.md` unreachable to `list_files`/`search_files`/`read_file` until rollover runs. See `docs/task-log/task-5.5-vault-readiness.md`.
@@ -308,7 +309,81 @@ Today is {TODAY_ISO} ({TODAY_WEEKDAY}).
 
 ---
 
-## Task 3.6: Per-message retry budget for `edit_file`
+## Task 3.6: CLI operational error logging
+
+> **Post-created task.** Added 2026-05-09 from the manual Task-3 smoke test. An Anthropic account with no remaining balance returned a provider `APICallError`. The CLI's own catch printed a useful summary, but the Vercel AI SDK beta also ran its default `onError` handler first (`console.error(error)`), dumping the full stack, request body, response headers, and provider response to stderr.
+>
+> This is a CLI/dev observability task, not a product audit-trail task. `file_history` remains reserved for GTD file mutations; operational errors live in a separate `.keppt/logs/` JSONL file. The later server/Web-App observability design (Sentry/OpenTelemetry, request IDs, redaction rules) remains a separate architecture follow-up.
+
+### Instructions
+
+**`apps/cli/src/cli-errors.ts`:**
+- Add `formatCliError(err)` for user-facing terminal output.
+- Detect `APICallError` from `ai` and format common provider failures:
+  - Anthropic low balance → short actionable message with request ID.
+  - 401/403 → credential/account-access hint.
+  - 429 → rate-limit hint.
+  - retryable provider errors → mark as temporary.
+- Unknown errors fall back to a concise message, not object inspection.
+
+**`apps/cli/src/cli-error-log.ts`:**
+- Add `appendCliErrorLog(vaultPath, err, context)` writing JSONL to:
+  `VAULT_PATH/.keppt/logs/cli-errors.jsonl`.
+- For `APICallError`, persist diagnostic fields needed during CLI dogfooding:
+  stack, URL, status, retryability, request body values, response body,
+  provider data, and response headers.
+- Redact sensitive headers (`set-cookie`, `cookie`, `authorization`,
+  `x-api-key`, `api-key`) before writing.
+- If log writing fails, return a structured result so the CLI can say where
+  it tried to write without crashing the REPL.
+
+**`apps/cli/src/index.ts`:**
+- Pass `onError: () => {}` to `streamText` to disable the SDK beta's default
+  raw `console.error(error)` stream logger.
+- In the existing stream `catch`, append the full diagnostic record to the
+  vault-local log, then print the formatted summary plus the log path.
+- Preserve the existing abort semantics and pending-user rollback.
+
+### Acceptance
+
+- **T3.6-AC-01:** Low-balance Anthropic `APICallError` formats to a short
+  terminal message containing status + request ID and does not include the
+  model/request body.
+- **T3.6-AC-02:** Stream errors do not get printed twice. The SDK default
+  raw stderr logger is disabled with `onError: () => {}`; the CLI owns the
+  one terminal message.
+- **T3.6-AC-03:** API-call diagnostics are written to
+  `.keppt/logs/cli-errors.jsonl` as JSONL, including useful debug fields and
+  redacted sensitive headers.
+- **T3.6-AC-04:** Non-abort stream errors do not crash the REPL; the existing
+  `finally` path resumes readline and prompts again.
+
+### Key Locations
+
+- `apps/cli/src/index.ts`
+- `apps/cli/src/cli-errors.ts`
+- `apps/cli/src/cli-error-log.ts`
+- `apps/cli/test/cli-errors.test.ts`
+- `apps/cli/test/cli-error-log.test.ts`
+- `docs/task-log/task-3.6-cli-error-logging.md`
+
+### Key Discoveries
+
+- **The SDK default `onError` logs raw errors.** In `ai@7.0.0-beta.116`,
+  `streamText` defaults to `onError = ({ error }) => console.error(error)`.
+  Handling `part.type === "error"` in the consumer is not enough to prevent
+  raw stderr output.
+- **CLI diagnostics and product audit trail are different things.**
+  `file_history` answers "what changed in the user's GTD files?" Operational
+  failures answer "why did the app/LLM call fail?" and need separate logging.
+- **The Web-App needs a future observability spec.** The architecture currently
+  mentions logging only in passing ("Full control: ... logging") and specifies
+  `file_history`, but not Sentry/OpenTelemetry, correlation IDs, redaction,
+  retention, or user-facing error contracts.
+
+---
+
+## Task 3.7: Per-message retry budget for `edit_file`
 
 > **Post-created task.** Added 2026-05-09 after a comparison review against an autonomous-agent build of the same plan. The current stop condition is `stopWhen: isStepCount(10)` (Task 3) — that bounds total steps but not the specific "LLM retries the same SEARCH/REPLACE three times in a row on the same file" pattern. Each retry round-trips a full `currentContent` snapshot, so the third attempt is paying twice for the second's failure context.
 >
@@ -350,11 +425,11 @@ export function createInMemoryRetryBudget(maxFailures = 2): RetryBudgetStore;
 
 Vitest suite against `InMemoryFileRepository` + a spy `repo`:
 
-- **T3.6-AC-01:** **Single-file exhaustion:** seed `tasks/inbox.md`, three `edit_file` calls with the same `messageId` and a non-matching `search`. Calls 1 and 2 return `search_not_found`; call 3 returns `retry_budget_exhausted` with `currentContent` populated. File unchanged after all three. No history entry from call 3.
-- **T3.6-AC-02:** **Per-file scope:** with `failedAttempts = 2` on `tasks/inbox.md` under `msg-1`, a failing `edit_file` on `tasks/focus.md` under the same `msg-1` returns `search_not_found`, NOT `retry_budget_exhausted`.
-- **T3.6-AC-03:** **`messageId` reset:** after exhausting on `tasks/inbox.md` under `msg-1`, the same call under `msg-2` returns `search_not_found` (counter for `msg-2` = 1).
-- **T3.6-AC-04:** **Success on file B doesn't reset failures on file A:** with `failedAttempts = 1` for inbox under `msg-1`, a successful edit on focus does not change inbox's counter — the next inbox failure becomes `failedAttempts = 2`.
-- **T3.6-AC-05:** **Short-circuit doesn't call `repo.edit`:** assert via spy that `repo.edit` is not invoked when `isExhausted` returns true (and therefore no history entry is appended).
+- **T3.7-AC-01:** **Single-file exhaustion:** seed `tasks/inbox.md`, three `edit_file` calls with the same `messageId` and a non-matching `search`. Calls 1 and 2 return `search_not_found`; call 3 returns `retry_budget_exhausted` with `currentContent` populated. File unchanged after all three. No history entry from call 3.
+- **T3.7-AC-02:** **Per-file scope:** with `failedAttempts = 2` on `tasks/inbox.md` under `msg-1`, a failing `edit_file` on `tasks/focus.md` under the same `msg-1` returns `search_not_found`, NOT `retry_budget_exhausted`.
+- **T3.7-AC-03:** **`messageId` reset:** after exhausting on `tasks/inbox.md` under `msg-1`, the same call under `msg-2` returns `search_not_found` (counter for `msg-2` = 1).
+- **T3.7-AC-04:** **Success on file B doesn't reset failures on file A:** with `failedAttempts = 1` for inbox under `msg-1`, a successful edit on focus does not change inbox's counter — the next inbox failure becomes `failedAttempts = 2`.
+- **T3.7-AC-05:** **Short-circuit doesn't call `repo.edit`:** assert via spy that `repo.edit` is not invoked when `isExhausted` returns true (and therefore no history entry is appended).
 
 ### Key Locations
 
@@ -362,7 +437,7 @@ Vitest suite against `InMemoryFileRepository` + a spy `repo`:
 - `packages/core/src/tools.ts` (+ wrap `edit_file`, extend `BuildToolsOptions`)
 - `packages/core/src/__tests__/retry-budget.test.ts`
 - `apps/cli/src/index.ts` (+ allocate budget once, fresh `messageId` per turn, pass to `buildTools`)
-- `docs/task-log/task-3.6-retry-budget.md`
+- `docs/task-log/task-3.7-retry-budget.md`
 
 ### Key Discoveries
 
@@ -372,7 +447,7 @@ Vitest suite against `InMemoryFileRepository` + a spy `repo`:
 
 ---
 
-## Task 3.7: Path-safety expansion (8 → 13 attack vectors)
+## Task 3.8: Path-safety expansion (8 → 13 attack vectors)
 
 > **Post-created task.** Added 2026-05-09 from the same comparison review. The current `validateFilePath` in `packages/core/src/file-repository.ts:54-82` covers 8 distinct vectors; the autonomous-agent build covered 13. Of the missing five, **one has real teeth on this stack (symlink escape)** and four are cheap defense-in-depth. None are urgent for a single-user vault, but the cost is one helper + a parametrized test table.
 
@@ -413,21 +488,21 @@ All four I/O methods (`read`, `write`, `edit`, `list`) route through `resolveSaf
 
 Extend `__tests__/file-repository.contract.ts` with a parametrized rejection table; add symlink-specific tests to `__tests__/local-file-repository.test.ts`.
 
-- **T3.7-AC-01:** **Static rejections (table-driven, runs against both repos):** ≥1 example per vector #1–#12 throws `InvalidPathError` with the documented `reason`. Examples for the new five:
+- **T3.8-AC-01:** **Static rejections (table-driven, runs against both repos):** ≥1 example per vector #1–#12 throws `InvalidPathError` with the documented `reason`. Examples for the new five:
   - `"C:foo.md"` → drive letter
   - `"tasks/foo.md "` → trailing whitespace
   - `"tasks/foo.md."` → trailing dot
   - `"a".repeat(5000) + ".md"` → length cap (total)
   - `"tasks/" + "a".repeat(300) + ".md"` → length cap (per-segment)
   - `"tasks/CON.md"`, `"daily/nul.md"`, `"tasks/com1.md"` → reserved device name (case-insensitive)
-- **T3.7-AC-02:** **Symlink escape — file (LocalFileRepository, temp dir):**
+- **T3.8-AC-02:** **Symlink escape — file (LocalFileRepository, temp dir):**
   - Setup: vault at `$tmp/vault`, secret at `$tmp/secret.md`, `fs.symlink($tmp/secret.md, $tmp/vault/tasks/escape.md)`.
   - `repo.read("tasks/escape.md")` throws `InvalidPathError { reason: "symlink escapes vault root" }`.
-- **T3.7-AC-03:** **Symlink escape — directory:**
+- **T3.8-AC-03:** **Symlink escape — directory:**
   - `fs.symlink($tmp, $tmp/vault/tasks/escape-dir)`, then `repo.read("tasks/escape-dir/secret.md")` throws.
-- **T3.7-AC-04:** **Symlink escape — write to non-existent file under symlinked parent:**
+- **T3.8-AC-04:** **Symlink escape — write to non-existent file under symlinked parent:**
   - With the directory symlink above, `repo.write("tasks/escape-dir/new.md", "...", "x")` throws (parent realpath check fires before the write).
-- **T3.7-AC-05:** **In-vault symlinks stay legal** (smoke test, drop if it overcomplicates the contract): a symlink whose target stays inside the vault resolves cleanly. Not a current use case — included only to prove the check isn't over-eager.
+- **T3.8-AC-05:** **In-vault symlinks stay legal** (smoke test, drop if it overcomplicates the contract): a symlink whose target stays inside the vault resolves cleanly. Not a current use case — included only to prove the check isn't over-eager.
 
 ### Key Locations
 
@@ -435,7 +510,7 @@ Extend `__tests__/file-repository.contract.ts` with a parametrized rejection tab
 - `packages/core/src/local-file-repository.ts` (+ `resolveSafe`, route I/O through it)
 - `packages/core/src/__tests__/file-repository.contract.ts` (+ parametrized rejection table for #1–#12)
 - `packages/core/src/__tests__/local-file-repository.test.ts` (+ symlink-escape scenarios)
-- `docs/task-log/task-3.7-path-safety.md`
+- `docs/task-log/task-3.8-path-safety.md`
 
 ### Key Discoveries
 

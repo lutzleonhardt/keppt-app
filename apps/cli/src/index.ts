@@ -4,6 +4,8 @@ import { stdin, stdout } from "node:process";
 import { anthropic } from "@ai-sdk/anthropic";
 import { isStepCount, streamText, type ModelMessage } from "ai";
 import { buildTools, LocalFileRepository } from "@gtd/core";
+import { appendCliErrorLog } from "./cli-error-log.js";
+import { formatCliError } from "./cli-errors.js";
 import { buildMinimalSystemPrompt } from "./minimal-prompt.js";
 
 const MAX_INPUT_CHARS = 2000;
@@ -87,6 +89,9 @@ async function main(): Promise<void> {
         tools,
         stopWhen: isStepCount(MAX_STEPS),
         abortSignal: controller.signal,
+        // The SDK default logs raw stream errors to stderr. The CLI logs the
+        // raw diagnostic record to .keppt/logs and prints a stable summary.
+        onError: () => {},
       });
 
       for await (const part of result.fullStream) {
@@ -112,7 +117,13 @@ async function main(): Promise<void> {
       if (controller.signal.aborted) {
         stdout.write("\n(stream aborted)\n");
       } else {
-        console.error("\nStream error:", err);
+        const log = await appendCliErrorLog(vaultPath, err, {
+          phase: "stream",
+        });
+        const logSuffix = log.ok
+          ? `\nDetails logged to: ${log.path}`
+          : `\nCould not write error log (${log.path}): ${log.error}`;
+        console.error(`\nStream error: ${formatCliError(err)}${logSuffix}`);
       }
     } finally {
       activeAbort = null;
@@ -123,6 +134,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(formatCliError(err));
   process.exit(1);
 });
