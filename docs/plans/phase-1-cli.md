@@ -82,13 +82,12 @@ interface SearchResult { filePath: string; snippet: string; line: number; }
 
 ### Acceptance
 
-- Vitest suite in `packages/core` green:
-  - `LocalFileRepository` against a temp directory: read/write/list/search happy paths + read-on-missing-file throws the defined error
-  - `InMemoryFileRepository` against the same scenario (parameterized over the same tests)
-  - Write produces a correct history entry in `.keppt/file-history.jsonl`
-  - Search finds hits across multiple files, respects scope (`active` vs. `archive` vs. `all`)
-- `pnpm -r build` green
-- `pnpm -r test` green
+- **T1-AC-01:** `LocalFileRepository` against a temp directory covers read/write/list/search happy paths + read-on-missing-file throws the defined error.
+- **T1-AC-02:** `InMemoryFileRepository` passes the same repository contract scenario, parameterized over the same tests.
+- **T1-AC-03:** A write produces a correct history entry in `.keppt/file-history.jsonl`.
+- **T1-AC-04:** Search finds hits across multiple files and respects scope (`active` vs. `archive` vs. `all`).
+- **T1-AC-05:** `pnpm -r build` is green.
+- **T1-AC-06:** `pnpm -r test` is green.
 
 ### Key Locations
 
@@ -153,13 +152,13 @@ edit(filePath: string, edits: SearchReplaceEdit[], changeSummary: string): Promi
 
 Vitest suite (against `InMemoryFileRepository`, since deterministic and faster):
 
-- Single-edit happy path: 1 hit → applied, history entry written, returns `{ ok: true }`
-- Multi-edit happy path (3 edits, all unique): all three applied, **one** history entry
-- `matchCount === 0`: returns `{ ok: false, error: { matchCount: 0, currentContent, failedSearch } }`, file unchanged, **no** history entry
-- `matchCount > 1`: returns `{ ok: false, error: { matchCount: 2, ... } }`, file unchanged
-- Atomicity: with 3 edits, if the 2nd is ambiguous → not a single edit is written
-- Overlapping edits (edit 2's search is destroyed by edit 1's replace) → clean error, file unchanged
-- `LocalFileRepository` again with a temp directory: one happy-path test to ensure the implementation behaves identically
+- **T2-AC-01:** Single-edit happy path: 1 hit → applied, history entry written, returns `{ ok: true }`.
+- **T2-AC-02:** Multi-edit happy path (3 edits, all unique): all three applied, **one** history entry.
+- **T2-AC-03:** `matchCount === 0`: returns `{ ok: false, error: { matchCount: 0, currentContent, failedSearch } }`, file unchanged, **no** history entry.
+- **T2-AC-04:** `matchCount > 1`: returns `{ ok: false, error: { matchCount: 2, ... } }`, file unchanged.
+- **T2-AC-05:** Atomicity: with 3 edits, if the 2nd is ambiguous → not a single edit is written.
+- **T2-AC-06:** Overlapping edits (edit 2's search is destroyed by edit 1's replace) → clean error, file unchanged.
+- **T2-AC-07:** `LocalFileRepository` again with a temp directory: one happy-path test ensures the implementation behaves identically.
 
 ### Key Locations
 
@@ -283,18 +282,13 @@ Today is {TODAY_ISO} ({TODAY_WEEKDAY}).
 
 ### Acceptance
 
-- **Manual smoke test** (documented in the PR/commit message as a transcript) against a real test vault + the real Haiku API:
-  1. `> List my tasks` — LLM calls `list_files({ prefix: 'tasks/' })` + `read_file(...)` and answers sensibly
-  2. `> New task: buy milk` — LLM calls `edit_file` on `tasks/inbox.md`, new line appears
-  3. `> Check off buy milk` — LLM finds the task, sets `[x]` or removes it
-  4. `> What's on for today?` — LLM reads focus + today's daily note and answers
-  5. Ctrl+C during stream: stream cancels, prompt returns
-
-- **Vitest integration test** with `MockLanguageModelV4` (`ai/test`):
-  - Script a 3-step tool chain: (1) `list_files` → (2) `read_file` → (3) text response
-  - Repo is `InMemoryFileRepository` with predefined state
-  - Assertion: after the run the expected tool calls were made **in the right order**; the last step contains the expected text
-  - Second test: simulated `edit_file` ambiguity → LLM gets `{ ok: false, error: ... }` as tool result → second `edit_file` call with extended search → successful apply
+- **T3-AC-01:** Manual smoke test transcript against a real test vault + the real Haiku API: `> List my tasks` makes the LLM call `list_files({ prefix: 'tasks/' })` + `read_file(...)` and answer sensibly.
+- **T3-AC-02:** Manual smoke test transcript: `> New task: buy milk` makes the LLM call `edit_file` on `tasks/inbox.md`, and a new line appears.
+- **T3-AC-03:** Manual smoke test transcript: `> Check off buy milk` makes the LLM find the task and set `[x]` or remove it.
+- **T3-AC-04:** Manual smoke test transcript: `> What's on for today?` makes the LLM read focus + today's daily note and answer.
+- **T3-AC-05:** Manual smoke test transcript: Ctrl+C during stream cancels the stream and returns the prompt.
+- **T3-AC-06:** Vitest integration test with `MockLanguageModelV4` (`ai/test`) scripts a 3-step chain (`list_files` → `read_file` → text response) against `InMemoryFileRepository`; the expected tool calls happen **in the right order** and the last step contains the expected text.
+- **T3-AC-07:** Vitest integration test simulates `edit_file` ambiguity: the LLM gets `{ ok: false, error: ... }` as a tool result, then makes a second `edit_file` call with extended search, and the edit applies successfully.
 
 ### Key Locations
 
@@ -356,11 +350,11 @@ export function createInMemoryRetryBudget(maxFailures = 2): RetryBudgetStore;
 
 Vitest suite against `InMemoryFileRepository` + a spy `repo`:
 
-- **Single-file exhaustion:** seed `tasks/inbox.md`, three `edit_file` calls with the same `messageId` and a non-matching `search`. Calls 1 and 2 return `search_not_found`; call 3 returns `retry_budget_exhausted` with `currentContent` populated. File unchanged after all three. No history entry from call 3.
-- **Per-file scope:** with `failedAttempts = 2` on `tasks/inbox.md` under `msg-1`, a failing `edit_file` on `tasks/focus.md` under the same `msg-1` returns `search_not_found`, NOT `retry_budget_exhausted`.
-- **`messageId` reset:** after exhausting on `tasks/inbox.md` under `msg-1`, the same call under `msg-2` returns `search_not_found` (counter for `msg-2` = 1).
-- **Success on file B doesn't reset failures on file A:** with `failedAttempts = 1` for inbox under `msg-1`, a successful edit on focus does not change inbox's counter — the next inbox failure becomes `failedAttempts = 2`.
-- **Short-circuit doesn't call `repo.edit`:** assert via spy that `repo.edit` is not invoked when `isExhausted` returns true (and therefore no history entry is appended).
+- **T3.6-AC-01:** **Single-file exhaustion:** seed `tasks/inbox.md`, three `edit_file` calls with the same `messageId` and a non-matching `search`. Calls 1 and 2 return `search_not_found`; call 3 returns `retry_budget_exhausted` with `currentContent` populated. File unchanged after all three. No history entry from call 3.
+- **T3.6-AC-02:** **Per-file scope:** with `failedAttempts = 2` on `tasks/inbox.md` under `msg-1`, a failing `edit_file` on `tasks/focus.md` under the same `msg-1` returns `search_not_found`, NOT `retry_budget_exhausted`.
+- **T3.6-AC-03:** **`messageId` reset:** after exhausting on `tasks/inbox.md` under `msg-1`, the same call under `msg-2` returns `search_not_found` (counter for `msg-2` = 1).
+- **T3.6-AC-04:** **Success on file B doesn't reset failures on file A:** with `failedAttempts = 1` for inbox under `msg-1`, a successful edit on focus does not change inbox's counter — the next inbox failure becomes `failedAttempts = 2`.
+- **T3.6-AC-05:** **Short-circuit doesn't call `repo.edit`:** assert via spy that `repo.edit` is not invoked when `isExhausted` returns true (and therefore no history entry is appended).
 
 ### Key Locations
 
@@ -419,21 +413,21 @@ All four I/O methods (`read`, `write`, `edit`, `list`) route through `resolveSaf
 
 Extend `__tests__/file-repository.contract.ts` with a parametrized rejection table; add symlink-specific tests to `__tests__/local-file-repository.test.ts`.
 
-- **Static rejections (table-driven, runs against both repos):** ≥1 example per vector #1–#12 throws `InvalidPathError` with the documented `reason`. Examples for the new five:
+- **T3.7-AC-01:** **Static rejections (table-driven, runs against both repos):** ≥1 example per vector #1–#12 throws `InvalidPathError` with the documented `reason`. Examples for the new five:
   - `"C:foo.md"` → drive letter
   - `"tasks/foo.md "` → trailing whitespace
   - `"tasks/foo.md."` → trailing dot
   - `"a".repeat(5000) + ".md"` → length cap (total)
   - `"tasks/" + "a".repeat(300) + ".md"` → length cap (per-segment)
   - `"tasks/CON.md"`, `"daily/nul.md"`, `"tasks/com1.md"` → reserved device name (case-insensitive)
-- **Symlink escape — file (LocalFileRepository, temp dir):**
+- **T3.7-AC-02:** **Symlink escape — file (LocalFileRepository, temp dir):**
   - Setup: vault at `$tmp/vault`, secret at `$tmp/secret.md`, `fs.symlink($tmp/secret.md, $tmp/vault/tasks/escape.md)`.
   - `repo.read("tasks/escape.md")` throws `InvalidPathError { reason: "symlink escapes vault root" }`.
-- **Symlink escape — directory:**
+- **T3.7-AC-03:** **Symlink escape — directory:**
   - `fs.symlink($tmp, $tmp/vault/tasks/escape-dir)`, then `repo.read("tasks/escape-dir/secret.md")` throws.
-- **Symlink escape — write to non-existent file under symlinked parent:**
+- **T3.7-AC-04:** **Symlink escape — write to non-existent file under symlinked parent:**
   - With the directory symlink above, `repo.write("tasks/escape-dir/new.md", "...", "x")` throws (parent realpath check fires before the write).
-- **In-vault symlinks stay legal** (smoke test, drop if it overcomplicates the contract): a symlink whose target stays inside the vault resolves cleanly. Not a current use case — included only to prove the check isn't over-eager.
+- **T3.7-AC-05:** **In-vault symlinks stay legal** (smoke test, drop if it overcomplicates the contract): a symlink whose target stays inside the vault resolves cleanly. Not a current use case — included only to prove the check isn't over-eager.
 
 ### Key Locations
 
@@ -525,25 +519,20 @@ The "productization pass" over Task 3. The inline code from Task 3 gets refactor
 ### Acceptance
 
 Vitest suite green:
-- `buildSystemPrompt({ today: new Date('2026-04-24') })` contains `"Today is Friday, 24. April 2026"` and all R1-R13 marker strings (each rule gets a unique anchor in the prompt — the test checks all 13 anchors)
-- `pruneToolResults`:
-  - K=5, 10 tool messages → oldest 5 become stubs, newest 5 stay identical
-  - user/assistant messages untouched (incl. assistant messages that contain `tool-call` parts)
-  - A message with mixed parts (text + tool-call in assistant): unchanged
-  - tool-error parts preserved
-- `routeModel`:
-  - "Plan my day" → sonnet, "New task: milk" → haiku, "Clean up the inbox" → sonnet, "Check off X" → haiku
-- Session roundtrip:
-  - `loadOrCreateSession` in an empty vault → new session file
-  - Append + save → load returns identical messages
-  - New day → new session file (old one stays)
-- Input validation:
-  - 2001 chars → reject
-  - 2000 chars of normal language → accept
-  - `function foo() { return 1; }` paste with 50 lines → reject
-  - Normal task "New task: write VW quote" → accept
-
-**Manual smoke test** (documented in the PR): 3 turns against the real vault — the first produces cache writes, the second cache reads (observable in the debug log), the third cache reads as well. A "Plan my day" message routes to Sonnet (visible in the debug log).
+- **T4-AC-01:** `buildSystemPrompt({ today: new Date('2026-04-24') })` contains `"Today is Friday, 24. April 2026"` and all R1-R13 marker strings (each rule gets a unique anchor in the prompt — the test checks all 13 anchors).
+- **T4-AC-02:** `pruneToolResults` with K=5 and 10 tool messages transforms the oldest 5 into stubs and leaves the newest 5 identical.
+- **T4-AC-03:** `pruneToolResults` leaves user/assistant messages untouched, including assistant messages that contain `tool-call` parts.
+- **T4-AC-04:** `pruneToolResults` leaves a message with mixed parts (text + tool-call in assistant) unchanged.
+- **T4-AC-05:** `pruneToolResults` preserves `tool-error` parts.
+- **T4-AC-06:** `routeModel` routes "Plan my day" → sonnet, "New task: milk" → haiku, "Clean up the inbox" → sonnet, and "Check off X" → haiku.
+- **T4-AC-07:** Session roundtrip: `loadOrCreateSession` in an empty vault creates a new session file.
+- **T4-AC-08:** Session roundtrip: append + save → load returns identical messages.
+- **T4-AC-09:** Session roundtrip: new day → new session file, while the old one stays.
+- **T4-AC-10:** Input validation rejects 2001 chars.
+- **T4-AC-11:** Input validation accepts 2000 chars of normal language.
+- **T4-AC-12:** Input validation rejects a `function foo() { return 1; }` paste with 50 lines.
+- **T4-AC-13:** Input validation accepts normal task text such as "New task: write VW quote".
+- **T4-AC-14:** Manual smoke test transcript against the real vault: 3 turns produce cache writes on the first turn, cache reads on the second and third turns (observable in the debug log), and a "Plan my day" message routes to Sonnet (visible in the debug log).
 
 ### Key Locations
 
@@ -613,20 +602,20 @@ export async function runDailyLifecycle(
 
 Vitest suite against `InMemoryFileRepository` + a mocked clock:
 
-- **Scenario A — yesterday's note exists, today's missing:**
+- **T5-AC-01:** **Scenario A — yesterday's note exists, today's missing:**
   - Before: `daily/2026-04-23.md` with mixed open `[ ]` + `[x]`
   - `runDailyLifecycle(repo, new Date('2026-04-24T09:00Z'))`
   - After: `daily/2026-04-23.md` is gone, `archive/daily/2026-04-23.md` contains content with `[ ]` lines removed + log note, `[x]` lines preserved, new empty `daily/2026-04-24.md` exists
   - History has 2 new entries
-- **Scenario B — multiple old notes (user away for 3 days):**
+- **T5-AC-02:** **Scenario B — multiple old notes (user away for 3 days):**
   - Before: `daily/2026-04-21.md`, `daily/2026-04-22.md`, `daily/2026-04-23.md`
   - After: all three moved to `archive/daily/`, `daily/2026-04-24.md` is new
-- **Scenario C — today's note already exists:**
+- **T5-AC-03:** **Scenario C — today's note already exists:**
   - Before: `daily/2026-04-24.md` with content
   - After: unchanged, no history entry, return `{ archivedPaths: [], createdTodayPath: null }`
-- **Scenario D — idempotency:**
+- **T5-AC-04:** **Scenario D — idempotency:**
   - Second call with the same `today` → no mutation, no new history entries
-- **Scenario E — open checkboxes with nested indentation:**
+- **T5-AC-05:** **Scenario E — open checkboxes with nested indentation:**
   - `  - [ ] Sub-task` (2 spaces of indent) → removed
   - `- [x] Done` → stays
   - `- Normal text` → stays
@@ -703,16 +692,15 @@ The `move` primitive on `FileRepository` (Task 5's design) stays — readiness u
 
 Vitest suite against `InMemoryFileRepository` + a stub clock:
 
-- **Fresh vault:** `ensureVaultReady(repo, '2026-05-08')` on an empty repo → 5 `tasks/*.md` files exist as empty strings, `daily/2026-05-08.md` does **not** exist, `archive/daily/` empty. Five history entries, all `changedBy: 'system'`.
-- **Existing task files preserved:** seed `tasks/inbox.md` with `"- [ ] keep me\n"`, run readiness → file content unchanged, no history entry for it. Other 4 task files created.
-- **Day rollover from yesterday:** seed `daily/2026-05-07.md` with mixed `[ ]`/`[x]`, run readiness with `today='2026-05-08'` → `daily/2026-05-07.md` gone, `archive/daily/2026-05-07.md` exists with `[ ]` lines removed + log line, `daily/2026-05-08.md` does **not** exist.
-- **Multiple stale dailies:** seed `daily/2026-05-05.md`, `daily/2026-05-06.md`, `daily/2026-05-07.md` → all three moved, `daily/` empty afterwards, `daily/2026-05-08.md` not pre-created.
-- **Today's daily already exists:** seed `daily/2026-05-08.md` with content → unchanged, not archived, no history entry.
-- **Non-date file in `daily/`:** seed `daily/notes.md` → left in place, not archived, not treated as today's note.
-- **Idempotency:** call twice with the same `today` → second call produces no history entries, no mutations.
-- **System actor:** all mutations the readiness step performs log with `changedBy: 'system'`, never `'llm'`.
-
-Plus one `LocalFileRepository` happy-path test against a temp directory to confirm parity with `InMemoryFileRepository`.
+- **T5.5-AC-01:** **Fresh vault:** `ensureVaultReady(repo, '2026-05-08')` on an empty repo → 5 `tasks/*.md` files exist as empty strings, `daily/2026-05-08.md` does **not** exist, `archive/daily/` empty. Five history entries, all `changedBy: 'system'`.
+- **T5.5-AC-02:** **Existing task files preserved:** seed `tasks/inbox.md` with `"- [ ] keep me\n"`, run readiness → file content unchanged, no history entry for it. Other 4 task files created.
+- **T5.5-AC-03:** **Day rollover from yesterday:** seed `daily/2026-05-07.md` with mixed `[ ]`/`[x]`, run readiness with `today='2026-05-08'` → `daily/2026-05-07.md` gone, `archive/daily/2026-05-07.md` exists with `[ ]` lines removed + log line, `daily/2026-05-08.md` does **not** exist.
+- **T5.5-AC-04:** **Multiple stale dailies:** seed `daily/2026-05-05.md`, `daily/2026-05-06.md`, `daily/2026-05-07.md` → all three moved, `daily/` empty afterwards, `daily/2026-05-08.md` not pre-created.
+- **T5.5-AC-05:** **Today's daily already exists:** seed `daily/2026-05-08.md` with content → unchanged, not archived, no history entry.
+- **T5.5-AC-06:** **Non-date file in `daily/`:** seed `daily/notes.md` → left in place, not archived, not treated as today's note.
+- **T5.5-AC-07:** **Idempotency:** call twice with the same `today` → second call produces no history entries, no mutations.
+- **T5.5-AC-08:** **System actor:** all mutations the readiness step performs log with `changedBy: 'system'`, never `'llm'`.
+- **T5.5-AC-09:** One `LocalFileRepository` happy-path test against a temp directory confirms parity with `InMemoryFileRepository`.
 
 ### Key Locations
 
@@ -796,9 +784,9 @@ daily/{today}.md: (empty)
 
 ### Acceptance
 
-- `pnpm --filter cli test:e2e` green when `ANTHROPIC_API_KEY` is set
-- Skip message clearly visible when the key is missing ("skipped — set ANTHROPIC_API_KEY to run e2e")
-- One documentation line in `README.md`: how to run the test locally and how expensive it is
+- **T6-AC-01:** `pnpm --filter cli test:e2e` is green when `ANTHROPIC_API_KEY` is set.
+- **T6-AC-02:** Skip message is clearly visible when the key is missing ("skipped — set ANTHROPIC_API_KEY to run e2e").
+- **T6-AC-03:** `README.md` contains one documentation line explaining how to run the test locally and how expensive it is.
 
 ### Key Locations
 
