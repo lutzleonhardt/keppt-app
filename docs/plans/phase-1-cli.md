@@ -31,6 +31,8 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 2. `edit_file` with atomic search/replace (uniqueness check + structured error returns)
 3. CLI + Vercel AI SDK + tool handlers (minimal prompt) → **first real console run**
 3.5. GTD layout policy gate (`canRead` / `canWrite` at the `buildTools` boundary) — Task-3 follow-up, closes Codex adversarial-review finding #1. See `docs/task-log/task-3.5-gtd-layout-policy.md`.
+3.6. Per-message retry budget for `edit_file` (`retry-budget.ts` + tool-layer wrapper) — Task-3 follow-up, post-created 2026-05-09 from a comparison review against an autonomous-agent build. Caps repeated `edit_file` failures on the same file within one user message at 2; 3rd attempt short-circuits to `retry_budget_exhausted`. See `docs/task-log/task-3.6-retry-budget.md`.
+3.7. Path-safety expansion (8 → 13 attack vectors): drive letters, segment trailing dots/whitespace, length caps, reserved Windows names, runtime symlink-escape check in `LocalFileRepository` — Task-3 follow-up, post-created 2026-05-09 from the same comparison review. See `docs/task-log/task-3.7-path-safety.md`.
 4. System prompt R1-R13 + request builder + tool-result pruning + model router + session persistence + input heuristic + prompt caching
 5. Daily-note lifecycle (R5) + clock injection
 5.5. Vault readiness on turn start (`ensureVaultReady`: first-run task-file init + day rollover) — Task-5 follow-up, post-created after planning. Closes the gap that the original Task 5 left first-run task files non-existent and pre-created empty daily notes the user may never use, **and** closes the Task-3.5 follow-up Codex finding (medium): without rollover, the new `canRead` gate makes a stale `daily/<yesterday>.md` unreachable to `list_files`/`search_files`/`read_file` until rollover runs. See `docs/task-log/task-5.5-vault-readiness.md`.
@@ -309,6 +311,144 @@ Today is {TODAY_ISO} ({TODAY_WEEKDAY}).
 - **`fullStream` vs `textStream`:** we want to see tool-call events in the terminal ("[read_file…]"), so `fullStream`. `textStream` would only show the LLM speaking.
 - **Persisting response messages:** `(await result.response).messages` returns the assistant message (incl. tool-call parts) + tool messages (with tool-result parts) of the last run. Appending them to the `messages` array is enough for the in-memory session. Disk persistence comes in Task 4.
 - **Current date in the stub prompt:** even this minimal prompt must include the current date (R13), otherwise Haiku will guess at weekdays.
+
+---
+
+## Task 3.6: Per-message retry budget for `edit_file`
+
+> **Post-created task.** Added 2026-05-09 after a comparison review against an autonomous-agent build of the same plan. The current stop condition is `stopWhen: isStepCount(10)` (Task 3) — that bounds total steps but not the specific "LLM retries the same SEARCH/REPLACE three times in a row on the same file" pattern. Each retry round-trips a full `currentContent` snapshot, so the third attempt is paying twice for the second's failure context.
+>
+> Lives at the tool layer wrapping `edit_file` — the SEARCH/REPLACE engine in `edit.ts` stays a pure planner with no awareness of LLM-loop history.
+
+### Instructions
+
+**`packages/core/src/retry-budget.ts`:**
+```ts
+export interface RetryBudgetStore {
+  registerFailure(messageId: string, filePath: string): number; // post-increment count
+  isExhausted(messageId: string, filePath: string): boolean;    // count >= maxFailures
+  resetMessage(messageId: string): void;
+}
+export function createInMemoryRetryBudget(maxFailures = 2): RetryBudgetStore;
+```
+
+- Counter keyed on `(messageId, filePath)` — failures on different files in the same message have independent budgets.
+- New `messageId` → no entries → counter starts at 0.
+- A **success** does NOT decrement / reset the counter (one bad turn shouldn't be rescued by an unrelated success on the same file later in the message).
+
+**`tools.ts` — wrap `edit_file`:**
+- Extend `BuildToolsOptions`: `{ now, retryBudget, messageId }`.
+- In `edit_file.execute`: before delegating to `repo.edit`, check `retryBudget.isExhausted(messageId, filePath)`. If true, short-circuit:
+  ```ts
+  return {
+    ok: false,
+    error: { reason: "retry_budget_exhausted", currentContent: await repo.read(filePath) },
+  };
+  ```
+- After `repo.edit`: if `result.ok === false`, call `retryBudget.registerFailure(messageId, filePath)`. Successes do nothing.
+
+**CLI integration (`apps/cli/src/index.ts`):**
+- One `RetryBudgetStore` per CLI process (`createInMemoryRetryBudget()` once at startup).
+- Fresh `messageId = crypto.randomUUID()` per user input, passed into `buildTools` for that turn.
+- Optional: call `retryBudget.resetMessage(previousMessageId)` to free memory; not required for a single-user session.
+
+### Acceptance
+
+Vitest suite against `InMemoryFileRepository` + a spy `repo`:
+
+- **Single-file exhaustion:** seed `tasks/inbox.md`, three `edit_file` calls with the same `messageId` and a non-matching `search`. Calls 1 and 2 return `search_not_found`; call 3 returns `retry_budget_exhausted` with `currentContent` populated. File unchanged after all three. No history entry from call 3.
+- **Per-file scope:** with `failedAttempts = 2` on `tasks/inbox.md` under `msg-1`, a failing `edit_file` on `tasks/focus.md` under the same `msg-1` returns `search_not_found`, NOT `retry_budget_exhausted`.
+- **`messageId` reset:** after exhausting on `tasks/inbox.md` under `msg-1`, the same call under `msg-2` returns `search_not_found` (counter for `msg-2` = 1).
+- **Success on file B doesn't reset failures on file A:** with `failedAttempts = 1` for inbox under `msg-1`, a successful edit on focus does not change inbox's counter — the next inbox failure becomes `failedAttempts = 2`.
+- **Short-circuit doesn't call `repo.edit`:** assert via spy that `repo.edit` is not invoked when `isExhausted` returns true (and therefore no history entry is appended).
+
+### Key Locations
+
+- `packages/core/src/retry-budget.ts`
+- `packages/core/src/tools.ts` (+ wrap `edit_file`, extend `BuildToolsOptions`)
+- `packages/core/src/__tests__/retry-budget.test.ts`
+- `apps/cli/src/index.ts` (+ allocate budget once, fresh `messageId` per turn, pass to `buildTools`)
+- `docs/task-log/task-3.6-retry-budget.md`
+
+### Key Discoveries
+
+- **Per-message, not per-session.** What we cap is intra-turn looping after a structured-error feedback didn't help. A long session with many distinct asks is fine.
+- **Wrap, don't entangle.** Retry tracking is a tool-layer concern. The SEARCH/REPLACE engine stays pure — easier to test, easier to reuse.
+- **Re-include `currentContent` on the short-circuit.** The LLM may not have it in its working context anymore by the third attempt; one extra `repo.read` is cheap and gives the next user message a clean starting point.
+
+---
+
+## Task 3.7: Path-safety expansion (8 → 13 attack vectors)
+
+> **Post-created task.** Added 2026-05-09 from the same comparison review. The current `validateFilePath` in `packages/core/src/file-repository.ts:54-82` covers 8 distinct vectors; the autonomous-agent build covered 13. Of the missing five, **one has real teeth on this stack (symlink escape)** and four are cheap defense-in-depth. None are urgent for a single-user vault, but the cost is one helper + a parametrized test table.
+
+### Instructions
+
+Currently rejected (`file-repository.ts:54-82`):
+
+1. Empty / non-string path
+2. Null byte (`\0`)
+3. Backslash (`\`)
+4. Absolute path leading `/`
+5. Empty segment (leading/trailing/double slash)
+6. `..` segment
+7. `.` segment
+8. `.keppt` top-level prefix (reserved)
+
+**Add static checks #9–#12 to `validateFilePath` (shared by both repos via the contract):**
+
+9. **Windows drive-letter prefix** — reject `^[A-Za-z]:`. (`C:\…` is already caught by #3, but `C:foo/bar.md` slips past #3 + #4.)
+10. **Trailing whitespace or trailing dot in any segment** — Windows file aliasing: `foo.md`, `foo.md.`, `foo.md ` all map to the same NTFS file. Reject any segment that doesn't equal its own `.trim()` or that ends in `.`.
+11. **Path-length caps** — reject if total length > 4096 chars or any segment > 255 chars (matches POSIX filesystem limits; bounds path-bombs from a misbehaving LLM).
+12. **Reserved Windows device names** — reject any segment whose **base** (case-insensitive, before any extension) matches `CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]`. Matters if anyone runs the CLI from WSL pointing at a Windows-mounted vault.
+
+**Add runtime check #13 in `LocalFileRepository` (filesystem-aware, can't live in the sync string validator):**
+
+13. **Symlink escape** — after path validation, the resolved filesystem path's canonical form (`fs.realpath`) must stay inside the canonical `basePath`.
+
+Implementation: a `resolveSafe(filePath: string): Promise<string>` helper:
+
+1. `validateFilePath(filePath)` (sync, runs #1–#12).
+2. `path.resolve(basePath, filePath)`.
+3. `fs.realpath` on the result; if the file does not exist yet (write/edit creating new), `fs.realpath` the **parent directory** instead — covers symlinked subdirectories.
+4. Verify the canonical path starts with the canonical `basePath`. If not, throw `InvalidPathError { reason: "symlink escapes vault root" }`.
+
+All four I/O methods (`read`, `write`, `edit`, `list`) route through `resolveSafe`. Existing inline `path.resolve` usage is replaced by a single call site each. `InMemoryFileRepository` is unaffected — symlinks don't exist in a `Map<string, string>`.
+
+### Acceptance
+
+Extend `__tests__/file-repository.contract.ts` with a parametrized rejection table; add symlink-specific tests to `__tests__/local-file-repository.test.ts`.
+
+- **Static rejections (table-driven, runs against both repos):** ≥1 example per vector #1–#12 throws `InvalidPathError` with the documented `reason`. Examples for the new five:
+  - `"C:foo.md"` → drive letter
+  - `"tasks/foo.md "` → trailing whitespace
+  - `"tasks/foo.md."` → trailing dot
+  - `"a".repeat(5000) + ".md"` → length cap (total)
+  - `"tasks/" + "a".repeat(300) + ".md"` → length cap (per-segment)
+  - `"tasks/CON.md"`, `"daily/nul.md"`, `"tasks/com1.md"` → reserved device name (case-insensitive)
+- **Symlink escape — file (LocalFileRepository, temp dir):**
+  - Setup: vault at `$tmp/vault`, secret at `$tmp/secret.md`, `fs.symlink($tmp/secret.md, $tmp/vault/tasks/escape.md)`.
+  - `repo.read("tasks/escape.md")` throws `InvalidPathError { reason: "symlink escapes vault root" }`.
+- **Symlink escape — directory:**
+  - `fs.symlink($tmp, $tmp/vault/tasks/escape-dir)`, then `repo.read("tasks/escape-dir/secret.md")` throws.
+- **Symlink escape — write to non-existent file under symlinked parent:**
+  - With the directory symlink above, `repo.write("tasks/escape-dir/new.md", "...", "x")` throws (parent realpath check fires before the write).
+- **In-vault symlinks stay legal** (smoke test, drop if it overcomplicates the contract): a symlink whose target stays inside the vault resolves cleanly. Not a current use case — included only to prove the check isn't over-eager.
+
+### Key Locations
+
+- `packages/core/src/file-repository.ts` (+ static checks #9–#12 in `validateFilePath`)
+- `packages/core/src/local-file-repository.ts` (+ `resolveSafe`, route I/O through it)
+- `packages/core/src/__tests__/file-repository.contract.ts` (+ parametrized rejection table for #1–#12)
+- `packages/core/src/__tests__/local-file-repository.test.ts` (+ symlink-escape scenarios)
+- `docs/task-log/task-3.7-path-safety.md`
+
+### Key Discoveries
+
+- **Symlink escape is the one vector with real teeth on a personal-vault CLI.** The others are defense-in-depth. Without #13, the LLM could write through a symlink it doesn't know exists — write-amplification through an attacker-controlled link is low probability but high blast radius on a system that holds the user's `~/.ssh/`.
+- **Static + runtime split.** #9–#12 are syntactic and live in the shared validator (`InMemoryFileRepository` inherits them via the contract test for free). #13 needs filesystem state and lives in `LocalFileRepository` only.
+- **No URL-decoding anywhere.** We never `decodeURIComponent` paths, so `%2e%2e/etc` is opaque text and treated as an unknown filename, not traversal. Worth documenting as an explicit non-vector to prevent future "should we add this?" reopening.
+- **Trailing-dot rejection > trailing-dot normalization.** Stripping trailing dots silently would let two LLM messages addressing `foo.md` and `foo.md.` accidentally collide. Rejection makes the LLM see the structured error and adjust the next message.
 
 ---
 
