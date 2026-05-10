@@ -312,27 +312,117 @@ export function runFileRepositoryContract(
     });
 
     describe("path validation", () => {
-      const bad: Array<[string, string]> = [
-        ["absolute path", "/etc/passwd"],
-        ["parent traversal", "../outside.md"],
-        ["nested parent traversal", "tasks/../../outside.md"],
-        ["current-dir segment", "./tasks/inbox.md"],
-        ["backslash separator", "tasks\\inbox.md"],
-        ["empty string", ""],
-        ["leading slash segment", "//tasks/inbox.md"],
-        ["reserved history dir", ".keppt/file-history.jsonl"],
-        ["null byte", "tasks/\0bad.md"],
+      // Each row: [label, input, expected reason from InvalidPathError].
+      // Reasons are asserted so a refactor of the validator's strings
+      // surfaces here instead of silently shifting the LLM-visible
+      // tool-error shape.
+      const bad: Array<[string, string, string]> = [
+        // #1 empty / non-string
+        ["empty string", "", "path must be a non-empty string"],
+        // #2 null byte
+        ["null byte", "tasks/\0bad.md", "path may not contain null bytes"],
+        // #3 backslash
+        [
+          "backslash separator",
+          "tasks\\inbox.md",
+          "backslash is not allowed; use POSIX '/' separators",
+        ],
+        // #4 absolute path
+        ["absolute path", "/etc/passwd", "absolute paths are not allowed"],
+        // #5 empty segment
+        [
+          "double slash inside path",
+          "tasks//inbox.md",
+          "empty path segment (leading/trailing/double slash)",
+        ],
+        [
+          "trailing slash",
+          "tasks/inbox.md/",
+          "empty path segment (leading/trailing/double slash)",
+        ],
+        // #6 .. segment
+        [
+          "parent traversal",
+          "../outside.md",
+          "parent-directory traversal is not allowed",
+        ],
+        [
+          "nested parent traversal",
+          "tasks/../../outside.md",
+          "parent-directory traversal is not allowed",
+        ],
+        // #7 . segment
+        [
+          "current-dir segment",
+          "./tasks/inbox.md",
+          "current-directory segment is not allowed",
+        ],
+        // #8 reserved .keppt prefix
+        [
+          "reserved history dir",
+          ".keppt/file-history.jsonl",
+          "'.keppt/' is reserved for internal state",
+        ],
+        // #9 windows drive letter
+        ["windows drive letter (slash)", "C:foo.md", "windows drive letter is not allowed"],
+        ["windows drive letter (lower)", "c:foo/bar.md", "windows drive letter is not allowed"],
+        // #10 trailing whitespace / trailing dot
+        [
+          "trailing whitespace in segment",
+          "tasks/foo.md ",
+          "segment has leading or trailing whitespace",
+        ],
+        [
+          "leading whitespace in segment",
+          " tasks/foo.md",
+          "segment has leading or trailing whitespace",
+        ],
+        ["trailing dot in segment", "tasks/foo.md.", "segment has a trailing dot"],
+        // #11 length caps
+        [
+          "path exceeds total length cap",
+          "a".repeat(5000) + ".md",
+          "path exceeds maximum length",
+        ],
+        [
+          "segment exceeds per-segment length cap",
+          "tasks/" + "a".repeat(300) + ".md",
+          "segment exceeds maximum length",
+        ],
+        // #12 reserved Windows device names (case-insensitive, base before extension)
+        [
+          "reserved device name CON",
+          "tasks/CON.md",
+          "segment is a reserved Windows device name",
+        ],
+        [
+          "reserved device name nul (lowercase)",
+          "daily/nul.md",
+          "segment is a reserved Windows device name",
+        ],
+        [
+          "reserved device name com1",
+          "tasks/com1.md",
+          "segment is a reserved Windows device name",
+        ],
+        [
+          "reserved device name LPT9",
+          "tasks/LPT9",
+          "segment is a reserved Windows device name",
+        ],
       ];
 
-      for (const [name, input] of bad) {
-        it(`write rejects ${name}`, async () => {
+      for (const [name, input, reason] of bad) {
+        it(`write rejects ${name} with reason "${reason}"`, async () => {
           const { repo } = await makeHarness();
           await expect(repo.write(input, "x", "")).rejects.toBeInstanceOf(InvalidPathError);
+          await expect(repo.write(input, "x", "")).rejects.toMatchObject({ reason });
         });
 
-        it(`read rejects ${name}`, async () => {
+        it(`read rejects ${name} with reason "${reason}"`, async () => {
           const { repo } = await makeHarness();
           await expect(repo.read(input)).rejects.toBeInstanceOf(InvalidPathError);
+          await expect(repo.read(input)).rejects.toMatchObject({ reason });
         });
       }
 

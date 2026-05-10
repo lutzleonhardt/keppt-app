@@ -1,11 +1,25 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { InvalidPathError } from "../file-repository.js";
 import { historyFilePath } from "../history-log.js";
 import { LocalFileRepository } from "../local-file-repository.js";
 import { runFileRepositoryContract } from "./file-repository.contract.js";
+
+// Symlink tests need POSIX symlink semantics. Windows can do it but only
+// with elevated privileges or developer mode — not the surface this AC
+// targets, so skip there.
+const symlinkable = process.platform !== "win32";
 
 const FIXED_NOW = new Date("2026-04-24T10:00:00Z");
 
@@ -149,6 +163,102 @@ describe("LocalFileRepository — edit concurrency", () => {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     }
     expect(historyLines).toHaveLength(0);
+  });
+});
+
+describe.skipIf(!symlinkable)("LocalFileRepository — symlink safety", () => {
+  it("rejects reading a file symlink that points outside the vault", async () => {
+    // $tmp/outside hosts the vault; $tmp/secret is the exfiltration target.
+    // We use a *separate* outside dir to verify the realpath check
+    // genuinely catches escape rather than tolerating in-vault links.
+    const outside = await makeTempBase();
+    const vault = path.join(outside, "vault");
+    await mkdir(path.join(vault, "tasks"), { recursive: true });
+    const secret = path.join(outside, "secret.md");
+    await writeFile(secret, "TOP-SECRET", "utf8");
+    await symlink(secret, path.join(vault, "tasks", "escape.md"));
+
+    const repo = new LocalFileRepository(vault, { now: () => FIXED_NOW });
+    await expect(repo.read("tasks/escape.md")).rejects.toBeInstanceOf(InvalidPathError);
+    await expect(repo.read("tasks/escape.md")).rejects.toMatchObject({
+      reason: "symlink escapes vault root",
+    });
+  });
+
+  it("rejects reading through a directory symlink that escapes the vault", async () => {
+    const outside = await makeTempBase();
+    const vault = path.join(outside, "vault");
+    await mkdir(path.join(vault, "tasks"), { recursive: true });
+    const elsewhere = path.join(outside, "elsewhere");
+    await mkdir(elsewhere, { recursive: true });
+    await writeFile(path.join(elsewhere, "secret.md"), "TOP-SECRET", "utf8");
+    await symlink(elsewhere, path.join(vault, "tasks", "escape-dir"));
+
+    const repo = new LocalFileRepository(vault, { now: () => FIXED_NOW });
+    await expect(repo.read("tasks/escape-dir/secret.md")).rejects.toBeInstanceOf(
+      InvalidPathError,
+    );
+    await expect(repo.read("tasks/escape-dir/secret.md")).rejects.toMatchObject({
+      reason: "symlink escapes vault root",
+    });
+  });
+
+  it("rejects writing a non-existent file under an escaping directory symlink", async () => {
+    // The target file does not exist yet; resolveSafe must walk up to the
+    // existing ancestor (the symlink), realpath it, and reject before
+    // any file is created on disk.
+    const outside = await makeTempBase();
+    const vault = path.join(outside, "vault");
+    await mkdir(path.join(vault, "tasks"), { recursive: true });
+    const elsewhere = path.join(outside, "elsewhere");
+    await mkdir(elsewhere, { recursive: true });
+    await symlink(elsewhere, path.join(vault, "tasks", "escape-dir"));
+
+    const repo = new LocalFileRepository(vault, { now: () => FIXED_NOW });
+    await expect(
+      repo.write("tasks/escape-dir/new.md", "should not land", "x"),
+    ).rejects.toBeInstanceOf(InvalidPathError);
+    // No file should have been created at the escape target.
+    await expect(readFile(path.join(elsewhere, "new.md"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("rejects an in-vault symlink whose canonical target lands under .keppt/", async () => {
+    // Defense in depth against the .keppt boundary: validateFilePath rejects
+    // `.keppt/...` syntactically, but a user-placed symlink at an LLM-allowed
+    // path could canonicalize into the audit log. Reading it would leak
+    // contentBefore snapshots from history — including bytes of files no
+    // longer in the LLM's view. resolveSafe must reject this even though
+    // both endpoints are inside the vault root.
+    const vault = await makeTempBase();
+    await mkdir(path.join(vault, "tasks"), { recursive: true });
+    await mkdir(path.dirname(historyFilePath(vault)), { recursive: true });
+    await writeFile(historyFilePath(vault), '{"old":"secret"}\n', "utf8");
+    await symlink(historyFilePath(vault), path.join(vault, "tasks", "leak.md"));
+
+    const repo = new LocalFileRepository(vault, { now: () => FIXED_NOW });
+    await expect(repo.read("tasks/leak.md")).rejects.toBeInstanceOf(InvalidPathError);
+    await expect(repo.read("tasks/leak.md")).rejects.toMatchObject({
+      reason: "symlink resolves into reserved internal namespace",
+    });
+  });
+
+  it("allows in-vault symlinks (target stays inside the vault root)", async () => {
+    // Smoke test that the realpath check is not over-eager: a symlink that
+    // stays inside the vault must continue to read cleanly. Not a current
+    // use case, but proves the gate doesn't false-block legitimate ones.
+    const vault = await makeTempBase();
+    await mkdir(path.join(vault, "tasks"), { recursive: true });
+    await mkdir(path.join(vault, "links"), { recursive: true });
+    await writeFile(path.join(vault, "tasks", "inbox.md"), "hello", "utf8");
+    await symlink(
+      path.join(vault, "tasks", "inbox.md"),
+      path.join(vault, "links", "alias.md"),
+    );
+
+    const repo = new LocalFileRepository(vault, { now: () => FIXED_NOW });
+    expect(await repo.read("links/alias.md")).toBe("hello");
   });
 });
 

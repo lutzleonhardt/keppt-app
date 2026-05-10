@@ -49,7 +49,13 @@ export class InvalidPathError extends Error {
   }
 }
 
-const RESERVED_PREFIX = ".keppt";
+export const RESERVED_PREFIX = ".keppt";
+
+const MAX_PATH_LENGTH = 4096;
+const MAX_SEGMENT_LENGTH = 255;
+
+const WINDOWS_DRIVE_LETTER = /^[A-Za-z]:/;
+const RESERVED_DEVICE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
 export function validateFilePath(filePath: string): void {
   if (typeof filePath !== "string" || filePath.length === 0) {
@@ -64,6 +70,12 @@ export function validateFilePath(filePath: string): void {
   if (filePath.startsWith("/")) {
     throw new InvalidPathError(filePath, "absolute paths are not allowed");
   }
+  if (WINDOWS_DRIVE_LETTER.test(filePath)) {
+    throw new InvalidPathError(filePath, "windows drive letter is not allowed");
+  }
+  if (filePath.length > MAX_PATH_LENGTH) {
+    throw new InvalidPathError(filePath, "path exceeds maximum length");
+  }
   const segments = filePath.split("/");
   for (const seg of segments) {
     if (seg === "") {
@@ -74,6 +86,19 @@ export function validateFilePath(filePath: string): void {
     }
     if (seg === ".") {
       throw new InvalidPathError(filePath, "current-directory segment is not allowed");
+    }
+    if (seg.length > MAX_SEGMENT_LENGTH) {
+      throw new InvalidPathError(filePath, "segment exceeds maximum length");
+    }
+    if (seg !== seg.trim()) {
+      throw new InvalidPathError(filePath, "segment has leading or trailing whitespace");
+    }
+    if (seg.endsWith(".")) {
+      throw new InvalidPathError(filePath, "segment has a trailing dot");
+    }
+    const base = seg.split(".")[0]!;
+    if (RESERVED_DEVICE_NAME.test(base)) {
+      throw new InvalidPathError(filePath, "segment is a reserved Windows device name");
     }
   }
   if (segments[0] === RESERVED_PREFIX) {

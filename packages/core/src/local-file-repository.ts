@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { EditResult, SearchReplaceEdit } from "./edit.js";
 import { planAndApplyEdits } from "./edit.js";
 import type { FileRepository, SearchResult, SearchScope } from "./file-repository.js";
-import { FileNotFoundError, InvalidPathError, validateFilePath } from "./file-repository.js";
+import {
+  FileNotFoundError,
+  InvalidPathError,
+  RESERVED_PREFIX,
+  validateFilePath,
+} from "./file-repository.js";
 import { appendHistoryEntry, type ChangeActor } from "./history-log.js";
 import { findMatches, formatToday, isInScope } from "./search.js";
 
@@ -18,6 +23,7 @@ export class LocalFileRepository implements FileRepository {
   private readonly basePath: string;
   private readonly now: () => Date;
   private readonly changedBy: ChangeActor;
+  private canonicalBasePromise?: Promise<string>;
 
   constructor(basePath: string, options: LocalFileRepositoryOptions = {}) {
     this.basePath = basePath;
@@ -25,19 +31,65 @@ export class LocalFileRepository implements FileRepository {
     this.changedBy = options.changedBy ?? "llm";
   }
 
-  private resolve(filePath: string): string {
+  // Static checks #1–#12 (sync, shared with InMemoryFileRepository) plus the
+  // runtime symlink-escape check #13. `validateFilePath` rejects every
+  // syntactic vector; the realpath comparison below catches the one shape
+  // a sync string check cannot see — a path that lexically stays inside
+  // basePath but resolves through a symlink to somewhere outside the vault.
+  // For non-existent targets (first write/edit creating a new file) we walk
+  // up to the deepest existing ancestor and realpath that, then re-attach
+  // the validated leaf segments. Those tail segments are syntactic and
+  // cannot themselves be symlinks since the filesystem hasn't created them.
+  private async resolveSafe(filePath: string): Promise<string> {
     validateFilePath(filePath);
     const normalized = filePath.split("/").join(path.sep);
     const abs = path.resolve(this.basePath, normalized);
-    const rel = path.relative(this.basePath, abs);
-    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
-      throw new InvalidPathError(filePath, "resolves outside the repository base path");
+    const canonicalBase = await this.canonicalBase();
+    const canonicalTarget = await canonicalizeDeepest(abs);
+    if (!isWithin(canonicalBase, canonicalTarget)) {
+      throw new InvalidPathError(filePath, "symlink escapes vault root");
     }
+    // validateFilePath rejects `.keppt/...` syntactically, but a user-placed
+    // symlink at an LLM-allowed path (e.g. `tasks/inbox.md → .keppt/file-history.jsonl`)
+    // canonicalizes into the vault and would otherwise leak internal audit
+    // state — including contentBefore snapshots of files already deleted or
+    // archived from the LLM's view. Re-apply the reserved-prefix check
+    // against the canonical-relative path to close that gap.
+    const relative = path.relative(canonicalBase, canonicalTarget);
+    if (relative.split(path.sep)[0] === RESERVED_PREFIX) {
+      throw new InvalidPathError(filePath, "symlink resolves into reserved internal namespace");
+    }
+    // KNOWN LIMITATIONS — accepted for Phase 1, do not re-flag.
+    //   (a) TOCTOU between this check and the syscall: we realpath once
+    //       and then hand back the lexical `abs`, which the caller uses
+    //       for read/write/rename later. A concurrent local writer with
+    //       access to a vault ancestor could swap a directory for an
+    //       escaping symlink inside that window.
+    //   (b) Other filesystem aliases (hard links, bind mounts, reflinks)
+    //       are not detected. A vault path that is hard-linked to an
+    //       inode also reachable outside the vault would pass realpath
+    //       containment because both names resolve to the same canonical
+    //       location inside the vault.
+    // Both are out of scope for Phase 1: the CLI runs single-user against
+    // a vault the user already owns. Anyone with write access to the
+    // vault directory has already won — and creating a hard link requires
+    // read access to the source file, so it grants no privilege the user
+    // doesn't already hold. An `nlink > 1` reject would also false-block
+    // legitimate tooling (dedup utilities, snapshot backups, Obsidian
+    // plugins). Production persistence moves to Supabase (see commit()),
+    // where row transactions replace this whole boundary anyway.
     return abs;
   }
 
+  private canonicalBase(): Promise<string> {
+    if (!this.canonicalBasePromise) {
+      this.canonicalBasePromise = realpath(this.basePath);
+    }
+    return this.canonicalBasePromise;
+  }
+
   async read(filePath: string): Promise<string> {
-    const abs = this.resolve(filePath);
+    const abs = await this.resolveSafe(filePath);
     try {
       return await readFile(abs, "utf8");
     } catch (err) {
@@ -47,7 +99,7 @@ export class LocalFileRepository implements FileRepository {
   }
 
   async write(filePath: string, content: string, changeSummary: string): Promise<void> {
-    const abs = this.resolve(filePath);
+    const abs = await this.resolveSafe(filePath);
     const before = await readIfExists(abs);
     await this.commit(filePath, abs, before, content, changeSummary);
   }
@@ -59,7 +111,7 @@ export class LocalFileRepository implements FileRepository {
   ): Promise<EditResult> {
     let abs: string;
     try {
-      abs = this.resolve(filePath);
+      abs = await this.resolveSafe(filePath);
     } catch (err) {
       if (err instanceof InvalidPathError) return missingFileError(edits);
       throw err;
@@ -175,11 +227,48 @@ export class LocalFileRepository implements FileRepository {
     const results: SearchResult[] = [];
     for (const filePath of all) {
       if (!isInScope(filePath, scope, t)) continue;
-      const content = await readFile(this.resolve(filePath), "utf8");
+      let abs: string;
+      try {
+        abs = await this.resolveSafe(filePath);
+      } catch (err) {
+        // A pre-existing file whose name violates a static rule (e.g. a
+        // legitimate `CON.md` on a non-Windows host) or that resolves
+        // through a symlink outside the vault is silently skipped rather
+        // than aborting the whole search. The same path will reject if
+        // read/write/edit is called on it directly — that's where the
+        // user-visible error belongs.
+        if (err instanceof InvalidPathError) continue;
+        throw err;
+      }
+      const content = await readFile(abs, "utf8");
       results.push(...findMatches(filePath, content, query));
     }
     return results;
   }
+}
+
+function canonicalizeDeepest(abs: string): Promise<string> {
+  return walkUpForRealpath(abs, []);
+}
+
+async function walkUpForRealpath(current: string, tail: string[]): Promise<string> {
+  try {
+    const real = await realpath(current);
+    if (tail.length === 0) return real;
+    const reattach = tail.slice().reverse();
+    return path.join(real, ...reattach);
+  } catch (err) {
+    if (!isNodeEnoent(err)) throw err;
+    const parent = path.dirname(current);
+    if (parent === current) throw err;
+    return walkUpForRealpath(parent, [...tail, path.basename(current)]);
+  }
+}
+
+function isWithin(base: string, target: string): boolean {
+  if (target === base) return true;
+  const prefix = base.endsWith(path.sep) ? base : base + path.sep;
+  return target.startsWith(prefix);
 }
 
 async function walk(root: string, dir: string, out: string[]): Promise<void> {
