@@ -38,6 +38,7 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 4. System prompt R1-R13 + request builder + tool-result pruning + model router + session persistence + input heuristic + prompt caching
 5. Daily-note lifecycle (R5) + clock injection
 5.5. Vault readiness on turn start (`ensureVaultReady`: first-run task-file init + day rollover) — Task-5 follow-up, post-created after planning. Closes the gap that the original Task 5 left first-run task files non-existent and pre-created empty daily notes the user may never use, **and** closes the Task-3.5 follow-up Codex finding (medium): without rollover, the new `canRead` gate makes a stale `daily/<yesterday>.md` unreachable to `list_files`/`search_files`/`read_file` until rollover runs. See `docs/task-log/task-5.5-vault-readiness.md`.
+5.6. Future daily notes (today + future drafts) — Task-5.5 follow-up, post-created 2026-05-10 after a manual smoke-test surfaced that the LLM cannot read/write/list/search a user-pre-created `daily/<future>.md`. Relaxes the GTD layout gate from "exactly today" to "any `daily/YYYY-MM-DD.md` with `date >= today`", changes the rollover criterion to `date < today`, and patches a `search_files(scope: "all")` hole where future dailies fell through both active and archive scopes. Driven by the GTD ruleset (Active-Sync covers "today's/tomorrow's Daily Note plan", Weekly-Review step 8 prepares the next workday's note). See `docs/task-log/task-5.6-future-dailies.md`.
 6. End-to-end acceptance against real Claude API + vault
 
 ---
@@ -530,11 +531,13 @@ Extend `__tests__/file-repository.contract.ts` with a parametrized rejection tab
 
 > **Post-created task.** Added 2026-05-09 from the operational logging architecture decision. Task 3.6 solved the immediate CLI provider-error leak. This task creates the runtime-neutral boundary needed before the same shared core is reused by the Express backend and Angular/Capacitor app.
 >
-> This is not a Sentry task and not a backend Pino task. It only makes the shared layer logging-safe and keeps CLI user output separate from operational diagnostics.
+> **Amended 2026-05-10 during /start-task 3.9 briefing.** The CLI is a throwaway test balloon; `packages/core` is what the web app reuses. The original draft minimized core wiring ("do not thread a logger through just for symmetry"). That guidance is replaced here with a small set of *named observability seams* in the core — places where future backend operators will need diagnostic visibility — wired through injected `Logger` arguments with `NoopLogger` defaults so existing callers are untouched. The amendment also pulls the CLI's `console.*` count to zero and routes all four logger levels (not only `error`) through the same vault-local JSONL.
+>
+> This is not a Sentry task and not a backend Pino task. It only makes the shared layer logging-safe, defines stable observability seams in the core, and keeps CLI user output separate from operational diagnostics.
 
 ### Instructions
 
-**Shared logger contract (`packages/core/src/logging.ts` or equivalent):**
+**Shared logger contract (`packages/core/src/logging.ts`):**
 - Add a minimal `Logger` interface with `debug`, `info`, `warn`, and `error`.
 - Add a `LogEvent` type with:
   - `message`
@@ -546,33 +549,88 @@ Extend `__tests__/file-repository.contract.ts` with a parametrized rejection tab
   - optional `err`
   - optional `meta`
 - Add `NoopLogger` for production defaults/tests that do not care.
-- Add `MemoryLogger` for tests that need assertions.
+- Add `MemoryLogger` for tests that need assertions. Records insertion order
+  and per-event level so assertions can read both `events[i].level` and the
+  `LogEvent` payload.
 - Keep the contract independent of Pino, Sentry, OpenTelemetry, browser APIs,
   and Capacitor APIs.
 
+**Core observability seams (injected `Logger`, default `NoopLogger`):**
+
+The following *named* seams emit events with **stable codes**. Codes are part
+of the contract surface — renaming one is a breaking change and must update
+both the emitter and any caller assertion in the same commit (analogous to
+`InvalidPathError.reason` strings in Task 3.8).
+
+- `LocalFileRepositoryOptions.logger` (new optional field; default
+  `NoopLogger`). Emits at the existing per-file `InvalidPathError` swallow
+  site inside `search()` introduced by Task 3.8 (3.8 Open Issue 1):
+  - `debug` — `code: "repo.search.path_skipped"`,
+    `meta: { filePath, reason }`
+- `BuildToolsOptions.logger` (new optional field; default `NoopLogger`). Emits
+  at three points inside `editFileTool` and the path-validation catch shared
+  across tools:
+  - `warn` — `code: "tool.edit_file.retry_budget_exhausted"`,
+    `meta: { filePath, attempts }` (3.7 short-circuit)
+  - `info` — `code: "tool.edit_file.failed"`,
+    `meta: { filePath, error }` (LLM-visible structured edit failure —
+    `searchNotFound` / `searchNotUnique` / `missingFile`)
+  - `warn` — `code: "tool.<name>.invalid_path"`,
+    `meta: { filePath, reason }` at the tool-layer `InvalidPathError` catch
+    (adversarial-path signal; one entry per offending tool call)
+
+**Out of scope for 3.9** (documented as non-seams in the wrap-up): successful
+`read`/`write`/`list`/`search` tool calls (would be tracing, no caller yet);
+successful `edit_file` calls (already audited via `file_history`);
+`validateFilePath` itself (logs at the caller, not inside the validator);
+`gtd-layout.ts` and `history-log.ts` (no diagnostic surface). `NoopLogger`
+remains the default at every boundary.
+
 **CLI logger/output split:**
-- Introduce a CLI logger adapter that preserves the existing Task 3.6 behavior:
-  short terminal error summary + verbose vault-local `.keppt/logs/cli-errors.jsonl`
-  diagnostics for provider errors.
-- Introduce a terminal output sink for user-facing terminal output:
-  streamed assistant text, tool status lines, abort messages, and concise
-  user-facing errors.
-- Do not treat normal streamed assistant text as an operational log event.
+- Introduce a typed terminal output sink (`apps/cli/src/terminal-output.ts`)
+  for user-facing terminal output: streamed assistant text, tool-call status
+  lines, tool-error summary lines, abort messages, concise user-facing
+  errors, and bootstrap errors before `vaultPath` is known.
+- Introduce a CLI logger adapter (`apps/cli/src/cli-logger.ts`) that
+  implements the shared `Logger` and writes **all four levels** to the
+  vault-local `.keppt/logs/cli-errors.jsonl`. Each entry carries an explicit
+  `level: "debug" | "info" | "warn" | "error"` field. Only `error` additionally
+  invokes `terminal.errorSummary(formatCliError(err) + logSuffix)` so the
+  REPL stays quiet for non-fatal events.
+- Wire `cliLogger` into both `new LocalFileRepository(...)` and
+  `buildTools(repo, ...)` so core observability seams flow into the same
+  JSONL automatically.
+- Pass `onError: () => {}` to `streamText` (preserved from Task 3.6) so the
+  CLI owns the single error path.
+- Route the CLI's `tool-error` stream part through both sinks: a short
+  `terminal.toolError(name, err)` line so the user sees why the assistant
+  stalled, **and** `cliLogger.warn({ code: "stream.tool_error",
+  meta: { toolName }, err })` for diagnostic correlation.
+- Do not treat normal streamed assistant text or tool-call status lines as
+  operational log events.
 
 **Core cleanup:**
-- Audit `packages/core` for direct `console.*`.
-- Replace shared-core diagnostic calls with injected `Logger` usage.
-- If a core function does not naturally need logging, do not thread a logger
-  through just for symmetry. Prefer `NoopLogger` only at actual boundaries.
+- Audit `packages/core` for direct `console.*` (current count: zero — keep it
+  zero by adding a regression assertion in the wrap-up).
 - Tool errors returned to the LLM remain structured tool results; logging is
   for diagnostics, not for changing tool semantics.
 
+**CLI cleanup:**
+- Eliminate **all** direct `console.*` calls from `apps/cli/src/**`. The two
+  pre-`vaultPath` sites (`requireEnv` failure, top-level `main().catch`)
+  route through `terminal.errorSummary` rather than `console.error`. The
+  three post-`vaultPath` sites (input-length cap, `tool-error` stream part,
+  stream-error catch) route through the appropriate sink as described above.
+
 **Redaction helper foundation:**
-- Add a small shared redaction helper for operational metadata:
+- Add a small shared redaction helper `redactSensitiveHeaders` in
+  `packages/core/src/logging.ts`:
   - redact header keys matching `set-cookie`, `cookie`, `authorization`,
-    `x-api-key`, `api-key`
+    `x-api-key`, `api-key` case-insensitively
   - leave room for backend-only redaction of prompt/file/provider payloads in
     Phase 2a.0
+- `apps/cli/src/cli-error-log.ts` swaps its inline `redactHeaders` for the
+  shared helper — single source of truth.
 - Do not move the CLI's intentionally verbose local-only request-body logging
   into cloud-safe helpers. CLI JSONL diagnostics are explicitly vault-local.
 
@@ -586,21 +644,62 @@ Extend `__tests__/file-repository.contract.ts` with a parametrized rejection tab
   errors print one concise terminal message and write verbose diagnostics to
   `.keppt/logs/cli-errors.jsonl`.
 - **T3.9-AC-04:** Normal assistant streaming and tool-status terminal lines go
-  through the terminal output sink, not the operational logger.
+  through the terminal output sink, not the operational logger. (Substituting
+  a `MemoryLogger` for the CLI logger and exercising the streaming path
+  produces zero `LogEvent`s for assistant text and tool-call status; the
+  `tool-error` stream part is the one stream-side event that *does* produce a
+  `warn` event by design.)
 - **T3.9-AC-05:** Tests can use `NoopLogger` without output and `MemoryLogger`
-  to assert emitted events.
-- **T3.9-AC-06:** Redaction tests cover sensitive header keys case-insensitively.
+  to assert emitted events. `MemoryLogger` is exercised in real core tests
+  (not only logger-internal tests) — at minimum one test in
+  `tools.test.ts` and one in `local-file-repository.test.ts`.
+- **T3.9-AC-06:** Redaction tests cover sensitive header keys case-insensitively
+  (`Set-Cookie`, `cookie`, `Authorization`, `X-API-KEY`, `api-key`) and leave
+  non-sensitive keys (`content-type`, `request-id`) untouched.
+- **T3.9-AC-07:** `apps/cli/src/**` has no direct `console.*` usage. All
+  user-facing output flows through the terminal sink; all operational events
+  flow through the CLI logger.
+- **T3.9-AC-08:** `LocalFileRepositoryOptions` and `BuildToolsOptions` accept
+  an optional `logger?: Logger` field. Defaulting to `NoopLogger` is
+  behaviorally transparent: the existing core test suite passes unchanged
+  without supplying a logger.
+- **T3.9-AC-09:** Core observability seams emit the documented events with
+  stable codes:
+  - `repo.search.path_skipped` (debug) — asserted via `MemoryLogger` in a
+    `LocalFileRepository.search` test using an in-vault path that the static
+    validator rejects (e.g. `tasks/CON.md` on a non-Windows host).
+  - `tool.edit_file.retry_budget_exhausted` (warn) — asserted via
+    `MemoryLogger` on the third failed `edit_file` call against the same
+    file within one turn.
+  - `tool.edit_file.failed` (info) — asserted via `MemoryLogger` for one
+    structured failure mode (`searchNotFound` is sufficient; the other
+    modes share the same emission site).
+  - `tool.<name>.invalid_path` (warn) — asserted via `MemoryLogger` for at
+    least one tool path with an `InvalidPathError`-triggering input.
+- **T3.9-AC-10:** CLI JSONL entries include a `level` field whose value is one
+  of `debug`, `info`, `warn`, `error`. All four levels round-trip through
+  `appendCliErrorLog` (or its successor) without losing the level field.
 
 ### Key Locations
 
 - `packages/core/src/logging.ts`
 - `packages/core/src/__tests__/logging.test.ts`
+- `packages/core/src/local-file-repository.ts` — `search()` debug emission
+- `packages/core/src/__tests__/local-file-repository.test.ts` — search-skip
+  assertion
+- `packages/core/src/tools.ts` — three seams in `editFileTool` and the
+  shared path-error catch
+- `packages/core/src/__tests__/tools.test.ts` — retry-budget, edit-failed,
+  invalid-path assertions
+- `packages/core/src/index.ts` — re-exports the new types/classes
 - `apps/cli/src/cli-logger.ts`
 - `apps/cli/src/terminal-output.ts`
-- `apps/cli/src/index.ts`
-- `apps/cli/src/cli-error-log.ts`
+- `apps/cli/src/index.ts` — eliminate `console.*`, wire `cliLogger` into
+  `LocalFileRepository` and `buildTools`
+- `apps/cli/src/cli-error-log.ts` — swap to shared `redactSensitiveHeaders`
 - `apps/cli/test/cli-errors.test.ts`
 - `apps/cli/test/cli-error-log.test.ts`
+- `apps/cli/test/cli-logger.test.ts`
 - `docs/task-log/task-3.9-shared-logging-abstraction.md`
 
 ### Key Discoveries
@@ -614,6 +713,15 @@ Extend `__tests__/file-repository.contract.ts` with a parametrized rejection tab
 - **Verbose local CLI logs are allowed; cloud logs are metadata-only.** Task
   3.6 intentionally stores provider request diagnostics in a developer-owned
   vault. Phase 2a must not reuse that payload shape for cloud observability.
+- **Core observability seams have stable codes.** The four codes
+  (`repo.search.path_skipped`, `tool.edit_file.retry_budget_exhausted`,
+  `tool.edit_file.failed`, `tool.<name>.invalid_path`) are the contract any
+  future Pino/Sentry sink consumes. They are asserted in core tests so a
+  rename is detected at PR time, not at production-alert time.
+- **`cli-errors.jsonl` becomes a multi-level event log.** The filename is kept
+  for backwards compatibility with Task 3.6 entries on existing vaults; a
+  later rename (e.g. `cli-events.jsonl`) is a separate decision because it
+  changes vault layout. Tracked in the Task 3.9 wrap-up's open issues.
 
 ---
 
@@ -905,6 +1013,73 @@ Vitest suite against `InMemoryFileRepository` + a stub clock:
 - **Lazy daily-note creation matters more than it sounds.** The "user logs in once a month" case is not a corner case for a personal GTD tool — pre-creating empty notes for unused days produces persistent noise in `archive/daily/` that the user has no way to clean up except manually.
 - **Empty task files vs. files with headings.** The decision is "empty" because the LLM will add structure on first write anyway, and an Obsidian sidebar shows the file either way. A pre-baked `# Inbox` heading would also force a content-aware migration if we ever change the heading style.
 - **Why this is a Task-5 follow-up, not a Task-5 amendment.** Keeping it as a separate dated task makes the design evolution legible: Task 5 captured what we knew at planning time; Task 5.5 captures what the per-turn clock fix surfaced. Future readers can see why the design changed.
+
+---
+
+## Task 5.6: Future daily notes (today + future drafts)
+
+> **Post-created task.** Added 2026-05-10 after a CLI smoke-test surfaced that the LLM cannot read, write, list, or search a user-pre-created future daily note (`daily/2026-05-11.md` while today=2026-05-10). The current GTD layout gate (`canRead` / `canWrite` / `isInActiveScope` in `gtd-layout.ts`) is hard-locked to today's daily, which contradicts three established commitments:
+>
+> 1. **Spec ↔ code drift on `read_file`.** `architecture.md` line 1027 (pre-amendment) said `read_file` accepts `daily/YYYY-MM-DD.md` *(any date)*; the implementation only accepts today's. The architecture amendment in this CR aligns spec and code on the new "today + future drafts" rule.
+> 2. **GTD ruleset, Active-Sync section.** *"If an urgent task lands in Focus, it also belongs in **today's/tomorrow's** Daily Note plan — and vice versa."* The "tomorrow's" verb is currently a dead path because `canWrite` rejects any future daily.
+> 3. **GTD ruleset, Weekly-Review step 8.** *"Prepare the **next workday's Daily Note** — plan slot with top Focus items + day-specific appointments."* The closing action of every weekly review currently fails on the gate.
+>
+> Also closes a latent `search_files` exfiltration-shaped hole: future dailies fall through both `isInActiveScope` and `isInArchiveScope`, so even `scope: "all"` cannot surface them, breaking the "active ∪ archive covers everything `read_file` accepts" invariant.
+
+### Instructions
+
+A focused gate relaxation + system-prompt update + readiness-criterion adjustment. No new files, no new abstractions — the per-turn `today` string already in flight is sufficient because zero-padded `YYYY-MM-DD` makes lexical and chronological order identical, so a future check is a string compare.
+
+**`packages/core/src/gtd-layout.ts`:**
+- `canRead`: in addition to today's daily, accept any `daily/YYYY-MM-DD.md` whose date `>= today`. Past dailies in `daily/` (date `< today`) still return `false` — they belong in `archive/daily/` and the readiness step archives them.
+- `canWrite`: same relaxation. The LLM may create or edit future drafts in `daily/`, but `archive/daily/` stays read-only.
+- `isInActiveScope`: same relaxation. Required for security parity with `canRead` — if search surfaces a path read_file would deny, the gate becomes an exfiltration channel (the existing comment at the top of the function already states this invariant; the change preserves it for the new range).
+- `isInArchiveScope`: unchanged (`archive/daily/*.md` only).
+- The check uses **string comparison** on the captured date segment (`m[1] >= today`), not Date math — keeps the gate timezone-free and consistent with the single-clock invariant.
+
+**`apps/cli/src/minimal-prompt.ts`:**
+- Update the layout description so the LLM knows future drafts are in scope: `daily/YYYY-MM-DD.md` covers today and any pre-planned future dates.
+- Mention the three Daily-Note sections (Plan / Log / Notes) so the LLM ergänzt the structure when its first `write_file` lands in a future draft that the user pre-created with only a calendar entry.
+
+**`packages/core/src/vault-readiness.ts` (Task 5.5):**
+- Change the rollover criterion in step 2 from `date ≠ today` to `date < today`. Future drafts (`date > today`) survive every readiness call. Once a future date *becomes* today (clock crosses midnight + next turn), the same `< today` comparison archives the previous day's note via the existing pipeline — no special "future becomes today" code path.
+- If Task 5.5 ships first with the original `date ≠ today` wording, this task includes the criterion change in its diff. If Task 5.6 ships first, Task 5.5 is implemented directly with `date < today`.
+
+### Acceptance
+
+Vitest suite extending `gtd-layout.test.ts` and `vault-readiness.test.ts`:
+
+- **T5.6-AC-01:** `canRead("daily/2026-05-11.md", "2026-05-10")` → `true`. `canRead("daily/2026-05-10.md", "2026-05-10")` → `true` (regression). `canRead("daily/2026-05-09.md", "2026-05-10")` → `false` (past stays out of `daily/`).
+- **T5.6-AC-02:** `canWrite("daily/2026-05-11.md", "2026-05-10")` → `true`. `canWrite("archive/daily/2026-05-09.md", "2026-05-10")` → `false` (regression — archive remains read-only).
+- **T5.6-AC-03:** `isInActiveScope("daily/2026-05-11.md", "2026-05-10")` → `true`. `isInActiveScope("daily/2026-05-09.md", "2026-05-10")` → `false`.
+- **T5.6-AC-04:** Search-scope invariant: for any `daily/YYYY-MM-DD.md` path, `isInActiveScope(p, today) || isInArchiveScope(p)` is `true` after readiness has run (i.e. no path falls between active and archive). Property test over a small date range.
+- **T5.6-AC-05:** `search_files(query, "active", today="2026-05-10")` includes hits in `daily/2026-05-11.md` when seeded.
+- **T5.6-AC-06:** `list_files("daily/")` with today=2026-05-10 and seeded `daily/2026-05-10.md` + `daily/2026-05-11.md` returns both.
+- **T5.6-AC-07:** `ensureVaultReady` with seeded `daily/2026-05-11.md` and today=`2026-05-10` leaves the future file untouched (no archive move, no `file_history` entry).
+- **T5.6-AC-08:** Future-becomes-today self-heal: same seeded `daily/2026-05-11.md`, run readiness with today=`2026-05-12` → file moves to `archive/daily/2026-05-11.md` via the standard `< today` path.
+- **T5.6-AC-09:** Today's daily that was originally pre-planned as a future draft (file already exists when its date becomes `today`): readiness leaves it alone; the LLM's `edit_file` succeeds (regression against AC-05 of Task 5.5).
+- **T5.6-AC-10:** End-to-end CLI smoke (manual, recorded in the task log): user prompt "Trag den Tierarzttermin morgen ein" → LLM writes/edits `daily/<tomorrow>.md` without `out_of_scope` errors, and the file ends up with a `Plan` section containing the appointment.
+
+### Key Locations
+
+- `packages/core/src/gtd-layout.ts` (the three predicate functions)
+- `packages/core/src/__tests__/gtd-layout.test.ts` (extend existing future/past blocks)
+- `apps/cli/src/minimal-prompt.ts` (system-prompt wording)
+- `packages/core/src/vault-readiness.ts` (rollover criterion `< today`)
+- `packages/core/src/__tests__/vault-readiness.test.ts` (T5.6-AC-07/08/09)
+- `docs/specs/architecture.md` (already amended in this CR — "Archive Layout & Lifecycle" callout, scope table, `search_files` behavior, tool-layer enforcement list)
+- `docs/task-log/task-5.6-future-dailies.md` (to be created during implementation)
+
+### Key Discoveries
+
+- **Single-clock invariant + zero-padded `YYYY-MM-DD` makes future detection a pure string compare.** No Date math, no timezone surprises mid-turn. The same `today` string already shared between system prompt, tool gate, repository, and readiness step is sufficient for the new check — no new plumbing.
+- **`isInActiveScope` covering future dailies is required for security, not convenience.** If search surfaces a path `read_file` would deny, the gate becomes an exfiltration channel (the comment at `gtd-layout.ts:36-40` is the existing in-tree justification of this invariant). Skipping the active-scope update would re-open exactly that hole in the opposite direction (`read_file` accepts but search drops).
+- **Future → today → past is fully self-healing through the existing rollover pipeline.** No special-case code is needed for "future becomes today": the `< today` criterion does the right thing at every clock state.
+- **The `scope: "all"` hole was a hidden dead zone, not just a missing feature.** Future dailies satisfied neither `isInActiveScope` nor `isInArchiveScope`, so they leaked out the bottom of the search filter. The new wording restores the `active ∪ archive = everything `read_file` accepts` invariant explicitly in the spec.
+
+### Supersedes
+
+- **Task 5.5 step 2** — rollover criterion `date ≠ today` → `date < today`. Existing acceptance test `T5.5-AC-04` stays valid (all seeded dates `2026-05-05`/`06`/`07` are `< today=2026-05-08`); T5.6-AC-07/08/09 add coverage for the new range.
 
 ---
 
