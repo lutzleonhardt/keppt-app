@@ -33,7 +33,6 @@ async function main(): Promise<void> {
   // hide the file the prompt just told the model to use.
   let turnNow = new Date();
   const repo = new LocalFileRepository(vaultPath, { now: () => turnNow });
-  const tools = buildTools(repo, { now: () => turnNow });
   const messages: ModelMessage[] = [];
 
   const rl = createInterface({ input: stdin, output: stdout, prompt: "> " });
@@ -77,8 +76,12 @@ async function main(): Promise<void> {
     const pendingUser: ModelMessage = { role: "user", content: line };
 
     // Snapshot the turn clock so the system prompt and every tool call this
-    // turn agree on "today" — see the tools' { now } closure above.
+    // turn agree on "today" — see the tools' { now } closure below. Rebuild
+    // tools per turn so the edit_file retry budget (held in the buildTools
+    // closure) is scoped to the current turn: a failed third attempt in
+    // this turn must not block edits in the next turn.
     turnNow = new Date();
+    const tools = buildTools(repo, { now: () => turnNow });
     const system = buildMinimalSystemPrompt(turnNow);
 
     try {
@@ -89,6 +92,15 @@ async function main(): Promise<void> {
         tools,
         stopWhen: isStepCount(MAX_STEPS),
         abortSignal: controller.signal,
+        // Force the model to emit at most one tool call per step. The
+        // edit_file retry budget is a plain per-turn Map keyed by
+        // filePath, and the simplest correct counter assumes calls
+        // within a turn are sequential. With parallel tool use disabled
+        // the counter race goes away by construction (no in-flight
+        // queue, no abort-after-queue cancellation hazard, no
+        // false-block on concurrent successes). Multi-edit batches use
+        // edit_file's own edits[] array — atomic, single-call.
+        providerOptions: { anthropic: { disableParallelToolUse: true } },
         // The SDK default logs raw stream errors to stderr. The CLI logs the
         // raw diagnostic record to .keppt/logs and prints a stable summary.
         onError: () => {},

@@ -392,59 +392,63 @@ Today is {TODAY_ISO} ({TODAY_WEEKDAY}).
 
 ### Instructions
 
-**`packages/core/src/retry-budget.ts`:**
-```ts
-export interface RetryBudgetStore {
-  registerFailure(messageId: string, filePath: string): number; // post-increment count
-  isExhausted(messageId: string, filePath: string): boolean;    // count >= maxFailures
-  resetMessage(messageId: string): void;
-}
-export function createInMemoryRetryBudget(maxFailures = 2): RetryBudgetStore;
-```
-
-- Counter keyed on `(messageId, filePath)` — failures on different files in the same message have independent budgets.
-- New `messageId` → no entries → counter starts at 0.
-- A **success** does NOT decrement / reset the counter (one bad turn shouldn't be rescued by an unrelated success on the same file later in the message).
+**Design choice — minimal plumbing.** No standalone `retry-budget.ts` module, no `RetryBudgetStore` interface, no factory, no turn-id keying. The counter is a single `Map<filePath, count>` held in `buildTools`'s closure (named type `EditFailuresByFilePath` for readability), and the CLI rebuilds tools per turn — that closure boundary **is** the turn boundary. Reasoning: the only consumer is the CLI, the budget never crosses processes, and the legacy interface/factory was only useful for hypothetical multi-consumer reuse the project doesn't have. If a server entrypoint later needs the same budget across requests, lift the closure into a shared module then.
 
 **`tools.ts` — wrap `edit_file`:**
-- Extend `BuildToolsOptions`: `{ now, retryBudget, messageId }`.
-- In `edit_file.execute`: before delegating to `repo.edit`, check `retryBudget.isExhausted(messageId, filePath)`. If true, short-circuit:
-  ```ts
-  return {
-    ok: false,
-    error: { reason: "retry_budget_exhausted", currentContent: await repo.read(filePath) },
-  };
-  ```
-- After `repo.edit`: if `result.ok === false`, call `retryBudget.registerFailure(messageId, filePath)`. Successes do nothing.
+- Define `type EditFailuresByFilePath = Map<string, number>` (file path → consecutive `match`-failure count) with a JSDoc that explains the per-turn-via-closure semantics. No outer turn-id map — each `buildTools` call already produces exactly one counter for one turn.
+- `BuildToolsOptions` stays `{ now? }`. No `turnId` field: it would be captured but unused (the per-turn scoping is enforced by per-turn rebuild, not by an id value), and a required-but-unused field is API noise.
+- Allocate `const failures: EditFailuresByFilePath = new Map();` once in the `buildTools` body.
+- In `edit_file.execute`, after the `canWrite` gate, before `repo.edit`:
+  - Read `count = failures.get(filePath) ?? 0`.
+  - If `count >= 2`, short-circuit with `currentContent` from `repo.read(filePath)`, catching `FileNotFoundError` and substituting `""` so the missing-but-writable case mirrors the structured `repo.edit` failure (`missingFileError`) instead of throwing.
+  - Otherwise call `repo.edit`.
+- After `repo.edit`: if `result.ok === false` with `reason: "match"`, set `failures.set(filePath, count + 1)`. Successes and other failure reasons (`out_of_scope`, `invalid_path`) do **not** count — the budget remains a true failure budget.
+- The whole tool body sits inside a single `try/catch` that turns `InvalidPathError` (thrown by `canWrite → validateFilePath` on traversal / `.keppt/` / absolute / backslash / null-byte paths) into a structured `{ ok: false, error: { reason: "invalid_path" } }`. Without that catch, a malformed model-supplied path escapes as a stream error and aborts the turn instead of giving the model a recoverable shape.
+
+**Sequential tool use at the provider boundary.** A plain `Map` mutation as the failure counter is only race-free under the assumption that `edit_file` calls within one user turn are sequential. The CLI enforces that at the Anthropic boundary by setting `providerOptions.anthropic.disableParallelToolUse: true` on the `streamText` call (see `apps/cli/src/index.ts`). Anthropic guarantees the model emits at most one tool call per step under that flag, so:
+- No in-tool locking, in-flight reservation, or per-(turnId, filePath) queue is needed.
+- No abort-mid-queue cancellation hazard for queued same-file edits.
+- Multi-edit batches use `edit_file`'s own `edits[]` array — atomic, single call, single counter touch.
+
+If a future entry point adds a second provider (or a future Anthropic API change relaxes the flag), the counter assumption breaks and a serialization layer becomes necessary again — re-evaluate at that point. Phase 1 is single-provider (Anthropic-only) and the CLI smoke tests verify the flag is in place.
+
+**`EditFileError` extension:**
+- Add variant `{ reason: "retry_budget_exhausted"; currentContent: string }` alongside the existing `match | invalid_path | out_of_scope`.
 
 **CLI integration (`apps/cli/src/index.ts`):**
-- One `RetryBudgetStore` per CLI process (`createInMemoryRetryBudget()` once at startup).
-- Fresh `messageId = crypto.randomUUID()` per user input, passed into `buildTools` for that turn.
-- Optional: call `retryBudget.resetMessage(previousMessageId)` to free memory; not required for a single-user session.
+- Rebuild tools per turn: `tools = buildTools(repo, { now: () => turnNow })`, alongside the existing per-turn `turnNow = new Date()`. (Today they're built once at startup; the per-turn rebuild is one extra line and is what scopes the budget to the turn — the closure boundary is the turn boundary.)
+- Pass `providerOptions: { anthropic: { disableParallelToolUse: true } }` to `streamText` so the budget's plain-`Map` counter cannot race.
 
 ### Acceptance
 
-Vitest suite against `InMemoryFileRepository` + a spy `repo`:
+Vitest suite against `InMemoryFileRepository` + a spy wrapper that counts `repo.edit` calls:
 
-- **T3.7-AC-01:** **Single-file exhaustion:** seed `tasks/inbox.md`, three `edit_file` calls with the same `messageId` and a non-matching `search`. Calls 1 and 2 return `search_not_found`; call 3 returns `retry_budget_exhausted` with `currentContent` populated. File unchanged after all three. No history entry from call 3.
-- **T3.7-AC-02:** **Per-file scope:** with `failedAttempts = 2` on `tasks/inbox.md` under `msg-1`, a failing `edit_file` on `tasks/focus.md` under the same `msg-1` returns `search_not_found`, NOT `retry_budget_exhausted`.
-- **T3.7-AC-03:** **`messageId` reset:** after exhausting on `tasks/inbox.md` under `msg-1`, the same call under `msg-2` returns `search_not_found` (counter for `msg-2` = 1).
-- **T3.7-AC-04:** **Success on file B doesn't reset failures on file A:** with `failedAttempts = 1` for inbox under `msg-1`, a successful edit on focus does not change inbox's counter — the next inbox failure becomes `failedAttempts = 2`.
-- **T3.7-AC-05:** **Short-circuit doesn't call `repo.edit`:** assert via spy that `repo.edit` is not invoked when `isExhausted` returns true (and therefore no history entry is appended).
+- **T3.7-AC-01:** **Single-file exhaustion:** seed `tasks/inbox.md`, three `edit_file` calls in the same turn with a non-matching `search`. Calls 1 and 2 return `reason: "match"`; call 3 returns `reason: "retry_budget_exhausted"` with `currentContent` populated. File unchanged after all three. `repo.edit` invoked exactly twice.
+- **T3.7-AC-02:** **Per-file scope:** prime `tasks/inbox.md` with two failures, then a failing `edit_file` on `tasks/focus.md` in the same turn returns `reason: "match"`, NOT `retry_budget_exhausted`.
+- **T3.7-AC-03:** **Per-turn reset:** after exhausting on `tasks/inbox.md` from one `buildTools` call, a fresh `buildTools(repo, { now })` call gets a fresh counter — the same failing edit returns `reason: "match"` (counter = 1, not exhausted). The closure boundary is the turn boundary; no `turnId` field needed.
+- **T3.7-AC-04:** **Success on file B doesn't reset failures on file A:** one failure for inbox, a successful edit on focus, then a second inbox failure → still `reason: "match"` (count = 2, exhausted only on the third attempt).
+- **T3.7-AC-05:** **Short-circuit doesn't call `repo.edit`:** asserted via the spy in AC-01 — `repo.edit` invocation count stays at 2 after the third call.
+- **T3.7-AC-06:** **`out_of_scope` failures do not count:** two `edit_file` calls in one turn on a path outside the GTD layout (e.g. `random/foo.md`) both return `reason: "out_of_scope"` and do not consume budget; a subsequent `match`-failure on a valid path is still attempt 1.
+- **T3.7-AC-08:** **Exhaustion on a missing writable file:** three failing `edit_file` calls in one turn against a writable path that doesn't exist yet (e.g. today's `daily/<YYYY-MM-DD>.md` in an unseeded vault) yield two `match` results followed by `retry_budget_exhausted` with `currentContent: ""` — never an SDK tool-error from a thrown `FileNotFoundError`.
+- **T3.7-AC-10:** **Invalid paths surface as structured `invalid_path`, never as stream errors:** `edit_file` calls with traversal (`../etc/passwd`), reserved-prefix (`.keppt/logs/x.md`), and backslash (`tasks\\inbox.md`) paths all return `ok: false, error.reason: "invalid_path"`; `repo.edit` is never called; a subsequent legitimate `match`-failure on `tasks/inbox.md` is still attempt 1 (invalid paths don't consume budget). Catches `InvalidPathError` thrown by `canWrite → validateFilePath`.
+- **T3.7-AC-11 (CLI architecture anchor):** A static source check in `apps/cli/test/workspace-wiring.test.ts` asserts that `apps/cli/src/index.ts` contains `providerOptions: { anthropic: { disableParallelToolUse: true ... }`. The plain-`Map` retry counter is race-free only under sequential tool dispatch; if this flag is ever removed, this test fails before the change can ship.
+
+> **Concurrency note.** Earlier draft ACs T3.7-AC-07 (parallel failing calls) and T3.7-AC-09 (parallel successful calls) were dropped after the design switched from in-tool locking to provider-level sequential dispatch. Those shapes are not reachable when `disableParallelToolUse: true` is in effect; the architecture-anchor test (AC-11) is the regression guard.
 
 ### Key Locations
 
-- `packages/core/src/retry-budget.ts`
-- `packages/core/src/tools.ts` (+ wrap `edit_file`, extend `BuildToolsOptions`)
+- `packages/core/src/tools.ts` (+ wrap `edit_file`, extend `BuildToolsOptions` with `turnId`, add `retry_budget_exhausted` variant to `EditFileError`)
 - `packages/core/src/__tests__/retry-budget.test.ts`
-- `apps/cli/src/index.ts` (+ allocate budget once, fresh `messageId` per turn, pass to `buildTools`)
+- `apps/cli/src/index.ts` (+ fresh `turnId` per turn, rebuild tools per turn)
 - `docs/task-log/task-3.7-retry-budget.md`
 
 ### Key Discoveries
 
 - **Per-message, not per-session.** What we cap is intra-turn looping after a structured-error feedback didn't help. A long session with many distinct asks is fine.
 - **Wrap, don't entangle.** Retry tracking is a tool-layer concern. The SEARCH/REPLACE engine stays pure — easier to test, easier to reuse.
+- **Only `match` failures count.** `out_of_scope` / `invalid_path` failures aren't the looping pattern this guards against — burning budget on a path that can never be edited just makes the budget less useful on the next legitimate retry.
 - **Re-include `currentContent` on the short-circuit.** The LLM may not have it in its working context anymore by the third attempt; one extra `repo.read` is cheap and gives the next user message a clean starting point.
+- **Closure over module.** Keeping the counter inside `buildTools` avoids a public `RetryBudgetStore` interface the rest of the system would have to depend on. The CLI is the only consumer.
 
 ---
 
@@ -635,6 +639,12 @@ The "productization pass" over Task 3. The inline code from Task 3 gets refactor
   - **R11:** Proactive hints (situational, no schedule)
   - **R12:** Context-aware session start (since Phase 1 has no generative UI: render as text response)
   - **R13:** Inject date at runtime: `Today is {weekday}, {dd. month yyyy}.`
+- After R1–R13, append a separate **`## Tool conventions`** section (NOT an R-rule — these are tool-protocol affordances, not GTD rules). Five short bullets, reinforcing what's already in each tool's description so the LLM has both signals. Phase-1 set:
+  - **T-C1** `edit_file` returning `error.reason: "match"` with `currentContent: ""` means the file does not exist — call `write_file` to create it; do not retry `edit_file`.
+  - **T-C2** `edit_file` returning `retry_budget_exhausted` is final for this turn on this file — stop retrying that path; ask the user or try a different file.
+  - **T-C3** `out_of_scope` is by design — the path is permanently unwritable/unreadable under the GTD layout. Do not rewrite/rename the path; ask the user or pick an allowed path.
+  - **T-C4** `write_file` is for create or full rewrite only. For changes to existing files, always `edit_file`.
+  - **T-C5** `search_files` defaults to `scope: "active"`. Use `archive` only when the user explicitly asks about old material; `all` is rarely the right choice.
 - Keep prompt length in mind (~1K tokens target, hard <2K)
 
 **`packages/core/src/request-builder.ts`:**
@@ -691,6 +701,7 @@ The "productization pass" over Task 3. The inline code from Task 3 gets refactor
 
 Vitest suite green:
 - **T4-AC-01:** `buildSystemPrompt({ today: new Date('2026-04-24') })` contains `"Today is Friday, 24. April 2026"` and all R1-R13 marker strings (each rule gets a unique anchor in the prompt — the test checks all 13 anchors).
+- **T4-AC-01b:** `buildSystemPrompt(...)` contains a `## Tool conventions` section with the five T-C1..T-C5 anchors (each conventions bullet has a unique marker the test asserts). Reinforces the tool-description-level rules and keeps GTD rules (R1–R13) free of tool-protocol guidance.
 - **T4-AC-02:** `pruneToolResults` with K=5, 10 tool messages, and `fileVersionAt` returning a stable version (no drift) transforms the oldest 5 into stubs and leaves the newest 5 identical.
 - **T4-AC-03:** `pruneToolResults` leaves user/assistant messages untouched, including assistant messages that contain `tool-call` parts.
 - **T4-AC-04:** `pruneToolResults` leaves a message with mixed parts (text + tool-call in assistant) unchanged.
