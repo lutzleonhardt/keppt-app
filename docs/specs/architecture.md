@@ -1479,6 +1479,28 @@ class NativeSpeechService implements SpeechService { ... }  // MVP: Capacitor pl
 class WhisperSpeechService implements SpeechService { ... } // v2: Whisper API
 ```
 
+## Voice Output (deferred — Phase 3)
+
+Voice **output** (TTS — the app speaks back) is **not in MVP** and not in Phase 2. It is captured here so the architecture leaves a clean slot rather than getting retrofitted later.
+
+**Why deferred:**
+
+- **Output is not yet TTS-shaped.** Current LLM responses are list-heavy with markdown, tool-call markers, and emoji ticks (see "History View" example below). Reading those aloud is unusable. A voice-output mode requires either a separate "speech-friendly answer mode" in the system prompt or a post-processor that flattens lists into prose. That's its own design effort, not a side-feature of TTS wiring.
+- **Provider choice is non-trivial.** Native iOS/Android TTS (Capacitor TextToSpeech plugin) is free and on-device but robotic. OpenAI TTS / ElevenLabs sound natural but cost per character and add latency. Picking before there's user-feedback signal is a coin flip with real budget consequences.
+- **Primary audience doesn't need it.** Knowledge workers don't ask for "read me my list" — they look at it. Voice output is a strong lever for adjacent audiences (ADHS, hands-busy contexts like commute/cooking), not for the MVP audience (see "Future Scaling" below).
+
+**Architecture slot:** symmetric to `SpeechService` — a `TTSService` interface added when Phase 3 picks this up. Same Open-Closed pattern: a `NativeTTSService` (Capacitor) for free baseline, optionally `ElevenLabsTTSService` or `OpenAITTSService` for premium-tier quality.
+
+```typescript
+// Phase 3 — sketch only, do not implement before product signal
+interface TTSService {
+  speak(text: string): Promise<void>;
+  stop(): void;
+}
+```
+
+**Trigger to revisit:** explicit user demand from Phase 2c onwards, or when the ADHS sister-product (see "Future Scaling") is on the table — whichever comes first. Voice output is effectively a *prerequisite* for ADHS positioning, not optional there.
+
 ## History View: Changelog
 
 A simple, read-only chronological view of all file changes. Not a diff viewer (that's v2), just a timeline.
@@ -1622,9 +1644,19 @@ A deliberately time-bounded step to validate the Supabase integration before it 
 - Tap-to-speak, release-to-send
 - Transcription → normal chat input
 
+**2a.5: Image input (ephemeral)**
+
+Multi-modal chat input via the existing chat channel — strictly an input modality, not a system object.
+
+- `<input type="file" accept="image/*">` plus drag-and-drop in the chat composer; mobile capture via Capacitor Camera in the same component
+- Image bytes are attached as a Vision content block to the next user message (Vercel AI SDK multi-modal message), not stored
+- **No persistence:** no `assets` table, no Supabase Storage bucket, no extension of the `files` repository. The image exists only in the LLM request; only the extracted text lands in the vault. Consistent with the "Read + Write. That's it." principle
+- System prompt rule: on image input, mirror back what was recognized before filing ("I think I see 8 tasks — please confirm before I sort them"). The conservative-bookkeeper pattern applied to OCR uncertainty
+- **Not in CLI (Phase 1):** image input is a Phase 2a feature. Pipeline test happens here, not in the readline loop — the CLI gains nothing from a path-detection hack that gets thrown away
+
 **Deliverable:** An app you can chat in, that persists data in Supabase, and that lets you sign in with Supabase Auth. You can test it locally on the device (Capacitor Live Reload). No App Store, no payment.
 
-**Validation Checkpoint:** Does the chat flow work end-to-end? Is the latency acceptable? Does voice input feel usable?
+**Validation Checkpoint:** Does the chat flow work end-to-end? Is the latency acceptable? Does voice input feel usable? Does image input reliably extract tasks from a handwritten note photo?
 
 ---
 
@@ -1727,6 +1759,7 @@ Only when the app is feature-complete and beta-tested does payment and the App S
 - "Bring your own API key" for power users
 - MCPs, calendar integration, email sync
 - Team features (v3+, requires permission model)
+- **Voice output (TTS):** see "Voice Output (deferred — Phase 3)" above. `TTSService` interface, native Capacitor TTS as baseline, ElevenLabs/OpenAI TTS as premium tier. Requires a speech-friendly output mode (prompt-side or post-processor) before it ships.
 - **Self-hosted deployment with filesystem backend:** Since the server already runs against `LocalFileRepository` in Phase 2a, this is not new architecture, but an officially supported deployment mode. Whoever self-hosts the server and doesn't want a Supabase account configures `REPOSITORY=local` + a vault path; the server stores files there and keeps its own local history file instead of `file_history` table. No auth provider needed (or optional local auth). This fits the AGPL community and the open-source narrative — and costs almost nothing, because the path is used in dev anyway.
 
 **Explicitly never: native desktop app**
@@ -1734,9 +1767,35 @@ Only when the app is feature-complete and beta-tested does payment and the App S
 - No Electron, no Tauri. The web app is the desktop client.
 - The web app IS the desktop client
 
+## Future Scaling: ADHS-positioned sister product
+
+A noted strategic option, **not** an active workstream. Captured here so the architecture decisions in MVP and Phase 2 don't accidentally close the door.
+
+**The thesis:** the same backend, agent loop, markdown pattern, cross-check protocol, and import flow could power a sister app positioned for adults with ADHD (executive-function support: task-initiation, time-blindness, working-memory offloading). The mechanism — outsourcing the mental load of system maintenance — fits the ADHS coping pattern even more tightly than it fits the knowledge-worker audience. Existing market reference points: Goblin Tools, Tiimo, Llama Life, Saner.ai, Inflow.
+
+**Why this is a sister product, not a re-positioning:**
+
+- Tone-of-voice for ADHS audiences is incompatible with knowledge-worker tone (no "discipline", "willpower", "productivity hack" — the right vocabulary is "task paralysis", "body double", "low-stim", "dopamine-friendly"). One landing page cannot address both without diluting both.
+- Feature priorities differ: voice **output**, low-stim UI, no streak/gamification penalties for skipped days, body-double-style proactive nudges. These are not features the primary keppt audience asks for.
+- Decision point: **post-traction on keppt** (≈Month 6+ from MVP launch), not parallel from day 1. Solo-founder parallel-product attempts before primary-product retention is validated are classic overreach.
+
+**What the architecture must keep open (decisions to *not* make against this option):**
+
+- **Branding-light core.** The shared core (`packages/core`) must not hardcode "keppt"-specific copy, tone, or terminology. System prompts and UI strings live in app-level packages, not in core.
+- **Multi-tenancy of marketing surfaces, not data.** Two apps = two Supabase projects, two App Store listings, two landing pages. Same monorepo, same core, separate `apps/`-folder per product. The architecture already supports this (`apps/cli`, `apps/server`, `apps/web` pattern from "Project Structure").
+- **TTS slot stays open.** As noted in "Voice Output (deferred — Phase 3)" — voice output is effectively a prerequisite for ADHS positioning, so the `TTSService` interface gets added when this scaling step becomes active.
+- **No streak/gamification mechanics in MVP.** Avoid building features in keppt that would need to be ripped out in the sister product.
+
+**What this section is not:**
+
+- A roadmap commitment.
+- A reason to slow down the MVP. If anything, it tightens MVP focus on the primary audience.
+- A justification for early-stage feature creep ("but it would also help ADHS users…"). Drive MVP decisions purely from primary audience feedback.
+
 ## MVP Scope (Deliberately Minimal)
 
 - Chat UI with voice input (tap to speak, release to send)
+- Image input as ephemeral chat modality — Vision-based task extraction, text-only persistence (no asset storage)
 - Streaming LLM responses
 - Markdown file read/write per user account (read + write only, no other tools)
 - Session persistence (one session per day, continue throughout the day)
