@@ -5,7 +5,7 @@
 
 ## Scope
 
-Local CLI that runs end-to-end against the user's own Obsidian vault as a `LocalFileRepository`. Vercel AI SDK with Claude (Haiku + Sonnet), 5 tools, system prompt R1-R13, one session per day, daily-note lifecycle. **No server, no Supabase, no auth, no tier check.** Goal: validate the GTD prompts and the tool loop under realistic conditions.
+Local CLI that runs end-to-end against the user's own Obsidian vault as a `LocalFileRepository`. Vercel AI SDK with Claude Haiku (single model — model routing is an unresolved architectural question and explicitly deferred, see `docs/specs/architecture.md` → "LLM Provider Architecture"), 5 tools, system prompt R1-R13, one session per day, daily-note lifecycle. **No server, no Supabase, no auth, no tier check.** Goal: validate the GTD prompts and the tool loop under realistic conditions.
 
 ## SDK fixed points (from research)
 
@@ -35,7 +35,7 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 3.7. Per-message retry budget for `edit_file` (`retry-budget.ts` + tool-layer wrapper) — Task-3 follow-up, post-created 2026-05-09 from a comparison review against an autonomous-agent build. Caps repeated `edit_file` failures on the same file within one user message at 2; 3rd attempt short-circuits to `retry_budget_exhausted`. See `docs/task-log/task-3.7-retry-budget.md`.
 3.8. Path-safety expansion (8 → 13 attack vectors): drive letters, segment trailing dots/whitespace, length caps, reserved Windows names, runtime symlink-escape check in `LocalFileRepository` — Task-3 follow-up, post-created 2026-05-09 from the same comparison review. See `docs/task-log/task-3.8-path-safety.md`.
 3.9. Shared logging abstraction — Task-3 follow-up, post-created 2026-05-09 from the operational logging architecture decision. Introduces a runtime-neutral `Logger`/`LogEvent` contract, keeps `packages/core` free of `console.*`, and moves CLI terminal output vs. diagnostics behind explicit adapters.
-4. System prompt R1-R13 + request builder + model router + input heuristic + prompt caching
+4. System prompt R1-R13 + request builder + input heuristic + prompt caching (model routing deferred — see Task 4 block)
 4.1. Tool-result pruning + session persistence — Task-4 follow-up, split out 2026-05-18 during `/start-task 4` because the original Task 4 exceeded the `/plan` "diff + tests fit one commit" sizing rule. Task 4 ships the prompt/router/input/caching pipeline with the existing in-memory message array; Task 4.1 swaps that array for on-disk sessions and adds `pruneToolResults` to the request-builder. Reverse dependency forced: Task 4.1 edits `request-builder.ts` and `apps/cli/src/index.ts`, which Task 4 creates/rewrites.
 5. Daily-note lifecycle (R5) + clock injection
 5.5. Vault readiness on turn start (`ensureVaultReady`: first-run task-file init + day rollover) — Task-5 follow-up, post-created after planning. Closes the gap that the original Task 5 left first-run task files non-existent and pre-created empty daily notes the user may never use, **and** closes the Task-3.5 follow-up Codex finding (medium): without rollover, the new `canRead` gate makes a stale `daily/<yesterday>.md` unreachable to `list_files`/`search_files`/`read_file` until rollover runs. See `docs/task-log/task-5.5-vault-readiness.md`.
@@ -726,9 +726,11 @@ remains the default at every boundary.
 
 ---
 
-## Task 4: System prompt R1-R13 + request builder + model router + input heuristic + prompt caching
+## Task 4: System prompt R1-R13 + request builder + input heuristic + prompt caching
 
-> **Split note (2026-05-18).** Originally bundled tool-result pruning + session persistence too. Those moved to Task 4.1 because the combined diff exceeded the `/plan` "single commit" sizing rule. Task 4 keeps the in-memory `messages: ModelMessage[]` array from Task 3 unchanged; Task 4.1 swaps it for disk-backed sessions and adds the pruning step to `request-builder.ts`. The split point is clean because `buildRequest` already sees `messages` as an opaque input: Task 4 passes the array through verbatim; Task 4.1 inserts the pruning transform without further touching the prompt/router/caching surface.
+> **Split note (2026-05-18).** Originally bundled tool-result pruning + session persistence too. Those moved to Task 4.1 because the combined diff exceeded the `/plan` "single commit" sizing rule. Task 4 keeps the in-memory `messages: ModelMessage[]` array from Task 3 unchanged; Task 4.1 swaps it for disk-backed sessions and adds the pruning step to `request-builder.ts`. The split point is clean because `buildRequest` already sees `messages` as an opaque input: Task 4 passes the array through verbatim; Task 4.1 inserts the pruning transform without further touching the prompt/caching surface.
+
+> **Router-removal note (2026-05-18).** The original draft also included `packages/core/src/model-router.ts` — a regex/keyword classifier choosing between `'haiku' | 'sonnet'`. Removed before starting Task 4: (1) `haiku | sonnet` bakes Anthropic-specific names into provider-agnostic call sites, contradicting the Vercel-AI-SDK-as-abstraction stance Task 3.9 just reinforced; (2) keyword matching gives false confidence — a green test on four phrases produces a router that mis-fires on the first real workload. The architectural question — provider-agnostic tiers + discriminator (content classifier vs. user tier vs. explicit opt-in) — is captured in `docs/specs/architecture.md` → "LLM Provider Architecture: Vercel AI SDK" → "Smart routing — open question". Phase 1 runs single-model (Haiku, hardcoded in the CLI). Revisit when Phase 2a backend lands a user-tier model, or when Phase-1 smoke surfaces a request class where one model is materially worse than two.
 
 ### Instructions
 
@@ -766,13 +768,7 @@ The "productization pass" over Task 3 (part 1). The inline code from Task 3 gets
 - Passes `messages` through verbatim — Task 4.1 inserts the `pruneToolResults` call here. Reserve the seam: comment in code that this is the pruning insertion point and the function-signature contract (`messages: ModelMessage[]`) is stable across the 4 → 4.1 boundary.
 - Appends the new user message
 
-**`packages/core/src/model-router.ts`:**
-- Export `routeModel(userMessage: string): 'haiku' | 'sonnet'`
-- Keyword/regex-based for MVP:
-  - Sonnet keywords: "plan", "clean up", "review", "prioritize", "important", "plan tomorrow"
-  - Everything else → Haiku
-- No throw on uncertainty — default is Haiku
-- Tests cover edge cases
+**Model selection:** *(deferred.)* The CLI keeps Task 3's hardcoded `anthropic("claude-haiku-4-5")` call. No `packages/core/src/model-router.ts` is introduced. See the Router-removal note above for the architectural reasoning. If Phase-1 smoke (Task 6) surfaces request classes where Haiku is materially worse, that's the trigger to revisit — not a green vitest on four phrases.
 
 **Session persistence:** *(deferred to Task 4.1.)* Task 4's CLI keeps the in-memory `messages: ModelMessage[]` array from Task 3. Per-turn message state survives across REPL turns within one process but is lost on exit — acceptable for Task 4 smoke since the manual transcript (T4-AC-14) runs in one session.
 
@@ -789,7 +785,7 @@ The "productization pass" over Task 3 (part 1). The inline code from Task 3 gets
 - Log `totalUsage.inputTokenDetails.cacheReadTokens` and `cacheWriteTokens` (simple `console.debug` behind `DEBUG=1`)
 
 **CLI refactor:**
-- `apps/cli/src/index.ts` now uses `buildRequest` + `routeModel` + session persistence + input validation
+- `apps/cli/src/index.ts` now uses `buildRequest` + input validation. Model selection stays at Task 3's hardcoded `anthropic("claude-haiku-4-5")` (no router).
 - The minimal stub prompt from Task 3 is removed
 
 ### Acceptance
@@ -797,23 +793,23 @@ The "productization pass" over Task 3 (part 1). The inline code from Task 3 gets
 Vitest suite green:
 - **T4-AC-01:** `buildSystemPrompt({ today: new Date('2026-04-24') })` contains `"Today is Friday, 24. April 2026"` and all R1-R13 marker strings (each rule gets a unique anchor in the prompt — the test checks all 13 anchors).
 - **T4-AC-01b:** `buildSystemPrompt(...)` contains a `## Tool conventions` section with the five T-C1..T-C5 anchors (each conventions bullet has a unique marker the test asserts). Reinforces the tool-description-level rules and keeps GTD rules (R1–R13) free of tool-protocol guidance.
-- **T4-AC-06:** `routeModel` routes "Plan my day" → sonnet, "New task: milk" → haiku, "Clean up the inbox" → sonnet, and "Check off X" → haiku.
+- **T4-AC-06:** *Removed (2026-05-18).* The original AC pinned a regex-based `routeModel` against four example phrases. The router is deferred entirely — no test surface in Task 4. See Router-removal note above.
 - **T4-AC-10:** Input validation rejects 2001 chars.
 - **T4-AC-11:** Input validation accepts 2000 chars of normal language.
 - **T4-AC-12:** Input validation rejects a `function foo() { return 1; }` paste with 50 lines.
 - **T4-AC-13:** Input validation accepts normal task text such as "New task: write VW quote".
-- **T4-AC-14:** Manual smoke test transcript against the real vault: 3 turns produce cache writes on the first turn, cache reads on the second and third turns (observable in the debug log), and a "Plan my day" message routes to Sonnet (visible in the debug log).
+- **T4-AC-14:** Manual smoke test transcript against the real vault: 3 turns produce cache writes on the first turn and cache reads on the second and third turns (observable in the debug log). All three turns run against `claude-haiku-4-5`; no model-routing assertion (deferred — see Router-removal note).
 
-> AC numbering keeps gaps (`-02..-05d`, `-07..-09`) intentionally — those slots are reserved for the original pruning/session contracts, which migrated to Task 4.1 with a fresh `T4.1-AC-XX` namespace. The gap makes the split visible in code review.
+> AC numbering keeps gaps (`-02..-05d`, `-07..-09`) intentionally — those slots are reserved for the original pruning/session contracts, which migrated to Task 4.1 with a fresh `T4.1-AC-XX` namespace. `-06` is now also a deliberate gap (router deferred). The gaps make the split + deferral visible in code review.
 
 ### Key Locations
 
 - `packages/core/src/system-prompt.ts` (+ possibly `system-prompt.template.md` as a file imported at compile time)
 - `packages/core/src/request-builder.ts` (pruning seam reserved for Task 4.1)
-- `packages/core/src/model-router.ts`
 - `packages/core/src/input-validation.ts`
 - `packages/core/src/__tests__/` — one test file per module
-- `apps/cli/src/index.ts` (refactored; in-memory `messages` array retained — Task 4.1 swaps it for sessions)
+- `apps/cli/src/index.ts` (refactored; in-memory `messages` array retained — Task 4.1 swaps it for sessions; model stays hardcoded — router deferred)
+- **Intentionally absent:** `packages/core/src/model-router.ts` (deferred to a post-Phase-1 architectural pass; see Router-removal note)
 
 ### Key Discoveries
 
@@ -1178,7 +1174,7 @@ daily/{today}.md: (empty)
 
 **Test runtime and cost:**
 - Test runs only when `ANTHROPIC_API_KEY` is set (`describe.runIf`), otherwise skip
-- All turns use Haiku (hardcoded in CLI for this test mode, or because `routeModel` decides so)
+- All turns use Haiku — the CLI is single-model in Phase 1 (router deferred; see Task 4 Router-removal note)
 - Budget check: a full run should stay under 2 minutes and under ~$0.05
 - On failure: **no automatic cleanup** of the test vault — `console.log` prints the path so the developer can inspect manually. Cleanup in `afterEach` only on success.
 

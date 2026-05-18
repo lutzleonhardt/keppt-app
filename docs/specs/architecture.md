@@ -373,8 +373,10 @@ async function handleChat(req, res) {
     return res.status(429).json({ error: 'Daily limit reached' });
   }
 
-  // 2. Model routing based on tier
-  const model = routeModel(tier, classifyIntent(req.body.message));
+  // 2. Model selection (Phase 2a+; routing strategy is an open question —
+  //    see "LLM Provider Architecture: Vercel AI SDK" → "Smart routing".
+  //    The signature below is illustrative, not a contract.)
+  const model = selectModel({ tier, message: req.body.message });
 
   // 3. LLM call with Vercel AI SDK
   const result = streamText({ model, ... });
@@ -504,8 +506,8 @@ packages/
 │   ├── request-builder.ts   # System prompt + profile + files + history → LLM request
 │   ├── tool-handlers.ts     # read_file, edit_file, write_file, list_files, search_files implementation
 │   ├── file-repository.ts   # FileRepository interface + implementations
-│   ├── system-prompt.ts     # System prompt template (R1-R13)
-│   └── model-router.ts      # Haiku vs. Sonnet routing logic
+│   └── system-prompt.ts     # System prompt template (R1-R13)
+│   # (model routing deferred — see "LLM Provider Architecture" → "Smart routing")
 ├── server/                  # Express/Fastify entrypoint (Phase 2)
 │   ├── index.ts             # HTTP server + SSE endpoints
 │   ├── auth-middleware.ts   # Supabase Auth token validation
@@ -1421,15 +1423,22 @@ No custom `LLMService` interface needed — the Vercel AI SDK (`ai` npm package)
 
 No model picker in the UI. The user never chooses a provider — routing happens internally.
 
-**Smart routing (internal, invisible to user):**
+**Smart routing (internal, invisible to user) — open question:**
 
-- "Check off the LinkedIn post" → Haiku (simple CRUD operation)
-- "Plan my tomorrow" → Sonnet (needs reasoning about priorities)
-- "Tidy up my inbox" → Sonnet (needs judgment for categorization)
-- "New task: buy milk" → Haiku (trivial insert)
-- (Compaction summary call is dropped — see "Context Management: Tool-Result Pruning")
+The product intent is two-tier routing: a small/cheap model handles trivial CRUD (`"Check off the LinkedIn post"`, `"New task: buy milk"`), a larger/reasoning model handles planning and judgment (`"Plan my tomorrow"`, `"Tidy up my inbox"`). The user does not choose a model; routing happens internally.
 
-Routing decision is based on message classification, not user choice. A simple keyword/intent classifier (could even be rule-based for MVP) determines which model handles the request. The routing logic lives in the shared core (`packages/core/model-router.ts`).
+**What is deferred:** the *discriminator* and the *abstraction layer* are explicitly unresolved.
+
+- **Abstraction:** the routing target must be provider-agnostic. Names like `haiku | sonnet` bake `@ai-sdk/anthropic` into the call sites and lose meaning the moment a v2/v3 provider (`@ai-sdk/openai`, `@ai-sdk/google`, BYOK Ollama) lands. The codebase should route to a semantic tier (`cheap | expensive`, `small | large`, `default | reasoning` — name TBD) and let one config layer map that tier to the active provider's model id.
+- **Discriminator candidates (none chosen):**
+  1. *Message content classification* — a real classifier (LLM-as-router, embedding similarity to labeled examples, or a small fine-tuned model). Rejected for MVP: a keyword/regex stub gives false confidence — `"plan"` matches `"complaint"`, `"important"` matches `"unimportant"`, and complexity rarely correlates with surface-level vocabulary. A green test on four phrases does not produce a reliable router.
+  2. *User tier / budget* — Standard tier always cheap-model, Premium tier cheap-by-default with expensive-on-demand. Couples routing to billing state, which the backend already owns; trivial to implement; tracks the actual cost-attribution boundary from "Cost Model: Cross-Subsidization" above.
+  3. *Explicit user opt-in* — slash command, UI toggle, or natural-language signal (`"plan tomorrow"` as an explicit user-typed intent, not a regex match). Lowest implementation cost; preserves user agency; loses the "invisible to the user" property.
+  4. *Hybrid* — tier sets the default, opt-in escalates, classifier never enters the picture.
+
+**Phase 1 stance:** the CLI is single-model (Haiku) — no router, no model picker, no classification surface. Phase 1's goal is to validate the GTD prompts under realistic conditions, and a one-model run isolates prompt quality from routing quality. The Phase-1 plan (`docs/plans/phase-1-cli.md`, Task 4) records the deferral and the reasoning so a future "let's just keyword-match it" pass does not silently re-land the rejected design.
+
+**Revisit trigger:** once Phase 2a backend has a user-tier model wired (the obvious cheap discriminator) or Phase 1 smoke shows specific request classes where a single model is materially worse than two — whichever comes first. Until then, no `packages/core/model-router.ts` exists.
 
 ## Cost Model: Cross-Subsidization
 
@@ -1602,7 +1611,7 @@ Validate the core hypothesis: do the prompts work? Is the GTD system usable via 
 
 **1.2: LLM Integration + System Prompt**
 
-- Vercel AI SDK with `@ai-sdk/anthropic` (Haiku + Sonnet routing)
+- Vercel AI SDK with `@ai-sdk/anthropic` (single model — Haiku; routing deferred, see "LLM Provider Architecture: Vercel AI SDK")
 - System prompt with GTD rules R1-R13
 - Tool handlers: `read_file`, `edit_file` (primary, search/replace), `write_file` (fallback), `list_files`, `search_files` → delegate to FileRepository
 - `edit_file` server logic: search uniqueness check (exactly 1 match), retry loop on ambiguity with current file content back to the LLM, atomic multi-edits. Retry budget (max. 2 corrections per file per user message, then abort + user follow-up question) is enforced in Phase 1 purely via the system prompt — see `edit_file` tool definition, bullet "Retry budget".
