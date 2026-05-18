@@ -35,7 +35,8 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 3.7. Per-message retry budget for `edit_file` (`retry-budget.ts` + tool-layer wrapper) — Task-3 follow-up, post-created 2026-05-09 from a comparison review against an autonomous-agent build. Caps repeated `edit_file` failures on the same file within one user message at 2; 3rd attempt short-circuits to `retry_budget_exhausted`. See `docs/task-log/task-3.7-retry-budget.md`.
 3.8. Path-safety expansion (8 → 13 attack vectors): drive letters, segment trailing dots/whitespace, length caps, reserved Windows names, runtime symlink-escape check in `LocalFileRepository` — Task-3 follow-up, post-created 2026-05-09 from the same comparison review. See `docs/task-log/task-3.8-path-safety.md`.
 3.9. Shared logging abstraction — Task-3 follow-up, post-created 2026-05-09 from the operational logging architecture decision. Introduces a runtime-neutral `Logger`/`LogEvent` contract, keeps `packages/core` free of `console.*`, and moves CLI terminal output vs. diagnostics behind explicit adapters.
-4. System prompt R1-R13 + request builder + tool-result pruning + model router + session persistence + input heuristic + prompt caching
+4. System prompt R1-R13 + request builder + model router + input heuristic + prompt caching
+4.1. Tool-result pruning + session persistence — Task-4 follow-up, split out 2026-05-18 during `/start-task 4` because the original Task 4 exceeded the `/plan` "diff + tests fit one commit" sizing rule. Task 4 ships the prompt/router/input/caching pipeline with the existing in-memory message array; Task 4.1 swaps that array for on-disk sessions and adds `pruneToolResults` to the request-builder. Reverse dependency forced: Task 4.1 edits `request-builder.ts` and `apps/cli/src/index.ts`, which Task 4 creates/rewrites.
 5. Daily-note lifecycle (R5) + clock injection
 5.5. Vault readiness on turn start (`ensureVaultReady`: first-run task-file init + day rollover) — Task-5 follow-up, post-created after planning. Closes the gap that the original Task 5 left first-run task files non-existent and pre-created empty daily notes the user may never use, **and** closes the Task-3.5 follow-up Codex finding (medium): without rollover, the new `canRead` gate makes a stale `daily/<yesterday>.md` unreachable to `list_files`/`search_files`/`read_file` until rollover runs. See `docs/task-log/task-5.5-vault-readiness.md`.
 5.6. Future daily notes (today + future drafts) — Task-5.5 follow-up, post-created 2026-05-10 after a manual smoke-test surfaced that the LLM cannot read/write/list/search a user-pre-created `daily/<future>.md`. Relaxes the GTD layout gate from "exactly today" to "any `daily/YYYY-MM-DD.md` with `date >= today`", changes the rollover criterion to `date < today`, and patches a `search_files(scope: "all")` hole where future dailies fell through both active and archive scopes. Driven by the GTD ruleset (Active-Sync covers "today's/tomorrow's Daily Note plan", Weekly-Review step 8 prepares the next workday's note). See `docs/task-log/task-5.6-future-dailies.md`.
@@ -725,11 +726,13 @@ remains the default at every boundary.
 
 ---
 
-## Task 4: System prompt R1-R13 + request builder + tool-result pruning + model router + session persistence + input heuristic + prompt caching
+## Task 4: System prompt R1-R13 + request builder + model router + input heuristic + prompt caching
+
+> **Split note (2026-05-18).** Originally bundled tool-result pruning + session persistence too. Those moved to Task 4.1 because the combined diff exceeded the `/plan` "single commit" sizing rule. Task 4 keeps the in-memory `messages: ModelMessage[]` array from Task 3 unchanged; Task 4.1 swaps it for disk-backed sessions and adds the pruning step to `request-builder.ts`. The split point is clean because `buildRequest` already sees `messages` as an opaque input: Task 4 passes the array through verbatim; Task 4.1 inserts the pruning transform without further touching the prompt/router/caching surface.
 
 ### Instructions
 
-The "productization pass" over Task 3. The inline code from Task 3 gets refactored into clean core modules, and everything that's missing for MVP quality gets added.
+The "productization pass" over Task 3 (part 1). The inline code from Task 3 gets refactored into clean core modules; pruning + persistence land in Task 4.1.
 
 **`packages/core/src/system-prompt.ts`:**
 - Export `buildSystemPrompt(ctx: { today: Date })`: builds the full system prompt with R1-R13 from the architecture spec
@@ -760,20 +763,8 @@ The "productization pass" over Task 3. The inline code from Task 3 gets refactor
 - Loads active files synchronously: `tasks/*.md` + `daily/YYYY-MM-DD.md` (if present)
 - Builds either a single "active state" system addendum message or injects the files as initial-context prefix in `system` — decision based on prompt caching (see below)
 - Calls `buildSystemPrompt` + appends profile + active files
-- Calls `pruneToolResults` on the `messages` history
+- Passes `messages` through verbatim — Task 4.1 inserts the `pruneToolResults` call here. Reserve the seam: comment in code that this is the pruning insertion point and the function-signature contract (`messages: ModelMessage[]`) is stable across the 4 → 4.1 boundary.
 - Appends the new user message
-
-**`packages/core/src/tool-result-pruning.ts`:**
-- Export `pruneToolResults(messages: ModelMessage[], opts: { k: number; fileVersionAt: (path: string) => number | undefined; messageCreatedAt: (msg: ModelMessage) => number }): ModelMessage[]`
-- Two stubbing conditions per `tool-result` block — block is stubbed if **either** holds:
-  - **Age cap (K):** the block sits before the last `K` `tool`-role messages.
-  - **Version drift:** the block referenced a single file (extracted via `toolCallId → previous assistant tool-call.input.file_path`) and `fileVersionAt(filePath) > messageCreatedAt(toolMessage)`. If the path lookup fails (e.g. `list_files`, `search_files`), only the K-window applies.
-- For each stubbed `tool-result` content part: `output` is replaced by the stub string `[Previous ${toolName} result — superseded by current state; re-read if needed]`. `toolCallId` and `toolName` are preserved.
-- `tool-error` parts stay untouched (error info may remain relevant for the LLM).
-- `user` and `assistant` messages (incl. `tool-call` parts!) are **never** modified.
-- K from MVP spec: 5.
-- `fileVersionAt`: in the Supabase repo, joined from `files.updated_at`; in the local repo, `fs.stat(path).mtime` converted to ms epoch.
-- `messageCreatedAt`: in Supabase, `messages.created_at`; in CLI memory, an injected timestamp set when the message is appended.
 
 **`packages/core/src/model-router.ts`:**
 - Export `routeModel(userMessage: string): 'haiku' | 'sonnet'`
@@ -783,11 +774,7 @@ The "productization pass" over Task 3. The inline code from Task 3 gets refactor
 - No throw on uncertainty — default is Haiku
 - Tests cover edge cases
 
-**Session persistence:**
-- `packages/core/src/sessions.ts`: `loadOrCreateSession(repo, today)` / `appendMessages(session, new)` / `saveSession(repo, session)`
-- Session storage: `basePath/.keppt/sessions/YYYY-MM-DD.json` with `{ date, messages: ModelMessage[] }`
-- CLI loads today's session at startup, writes after each turn
-- Session switching (continuing a past session) is **not** MVP — it's not in Phase 1
+**Session persistence:** *(deferred to Task 4.1.)* Task 4's CLI keeps the in-memory `messages: ModelMessage[]` array from Task 3. Per-turn message state survives across REPL turns within one process but is lost on exit — acceptable for Task 4 smoke since the manual transcript (T4-AC-14) runs in one session.
 
 **Input heuristic (`packages/core/src/input-validation.ts`):**
 - Max 2000 chars (hard reject with a friendly message)
@@ -810,45 +797,102 @@ The "productization pass" over Task 3. The inline code from Task 3 gets refactor
 Vitest suite green:
 - **T4-AC-01:** `buildSystemPrompt({ today: new Date('2026-04-24') })` contains `"Today is Friday, 24. April 2026"` and all R1-R13 marker strings (each rule gets a unique anchor in the prompt — the test checks all 13 anchors).
 - **T4-AC-01b:** `buildSystemPrompt(...)` contains a `## Tool conventions` section with the five T-C1..T-C5 anchors (each conventions bullet has a unique marker the test asserts). Reinforces the tool-description-level rules and keeps GTD rules (R1–R13) free of tool-protocol guidance.
-- **T4-AC-02:** `pruneToolResults` with K=5, 10 tool messages, and `fileVersionAt` returning a stable version (no drift) transforms the oldest 5 into stubs and leaves the newest 5 identical.
-- **T4-AC-03:** `pruneToolResults` leaves user/assistant messages untouched, including assistant messages that contain `tool-call` parts.
-- **T4-AC-04:** `pruneToolResults` leaves a message with mixed parts (text + tool-call in assistant) unchanged.
-- **T4-AC-05:** `pruneToolResults` preserves `tool-error` parts.
-- **T4-AC-05b:** `pruneToolResults` stubs a `tool-result` within the K-window when `fileVersionAt(filePath) > messageCreatedAt(toolMessage)` — version drift overrides the K-keep.
-- **T4-AC-05c:** `pruneToolResults` is granular per file: with two recent reads on `inbox.md` and `focus.md` and `fileVersionAt` reporting drift only for `focus.md`, the focus tool-result is stubbed and the inbox tool-result stays.
-- **T4-AC-05d:** `pruneToolResults` falls back to K-only for `list_files` / `search_files` results (no single `file_path` to look up); inside the K-window they stay verbatim, outside they are stubbed.
 - **T4-AC-06:** `routeModel` routes "Plan my day" → sonnet, "New task: milk" → haiku, "Clean up the inbox" → sonnet, and "Check off X" → haiku.
-- **T4-AC-07:** Session roundtrip: `loadOrCreateSession` in an empty vault creates a new session file.
-- **T4-AC-08:** Session roundtrip: append + save → load returns identical messages.
-- **T4-AC-09:** Session roundtrip: new day → new session file, while the old one stays.
 - **T4-AC-10:** Input validation rejects 2001 chars.
 - **T4-AC-11:** Input validation accepts 2000 chars of normal language.
 - **T4-AC-12:** Input validation rejects a `function foo() { return 1; }` paste with 50 lines.
 - **T4-AC-13:** Input validation accepts normal task text such as "New task: write VW quote".
 - **T4-AC-14:** Manual smoke test transcript against the real vault: 3 turns produce cache writes on the first turn, cache reads on the second and third turns (observable in the debug log), and a "Plan my day" message routes to Sonnet (visible in the debug log).
 
+> AC numbering keeps gaps (`-02..-05d`, `-07..-09`) intentionally — those slots are reserved for the original pruning/session contracts, which migrated to Task 4.1 with a fresh `T4.1-AC-XX` namespace. The gap makes the split visible in code review.
+
 ### Key Locations
 
 - `packages/core/src/system-prompt.ts` (+ possibly `system-prompt.template.md` as a file imported at compile time)
-- `packages/core/src/request-builder.ts`
-- `packages/core/src/tool-result-pruning.ts`
+- `packages/core/src/request-builder.ts` (pruning seam reserved for Task 4.1)
 - `packages/core/src/model-router.ts`
-- `packages/core/src/sessions.ts`
 - `packages/core/src/input-validation.ts`
 - `packages/core/src/__tests__/` — one test file per module
-- `apps/cli/src/index.ts` (refactored)
+- `apps/cli/src/index.ts` (refactored; in-memory `messages` array retained — Task 4.1 swaps it for sessions)
 
 ### Key Discoveries
 
 - **Prompt caching is manual.** The SDK caches nothing automatically. The `cacheControl` marker defines the end of the cached block. Phase 1 strategy: a single marker on the `streamText` call that flags everything up to that point (system + tool definitions) as cacheable. End-of-message markers via `prepareStep` (for message-history caching) is a Phase 2 topic.
+- **R12 session-start suggestion** is a text response in Phase 1 (no generative UI). The system prompt contains the state table from R12; the LLM decides which suggestion to make on the first turn of a new session.
+- **The input heuristic must not be too aggressive.** A task like "Write code review for PR #42" contains special chars but not in the proportions the heuristic rejects. Test cases cover honest edge cases.
+- **The pruning seam stays a no-op in Task 4.** `request-builder.ts` passes `messages` through verbatim so the public function signature `buildRequest({ ..., messages: ModelMessage[] })` is the contract Task 4.1 extends. No `pruneToolResults` import in Task 4 — leaving it out keeps the diff minimal and avoids a half-finished implementation in tree.
+
+---
+
+## Task 4.1: Tool-result pruning + session persistence
+
+> **Post-split task.** Carved out of the original Task 4 during `/start-task 4` on 2026-05-18. Task 4 ships the prompt/router/input/caching pipeline; Task 4.1 adds the two remaining MVP-quality concerns the original Task 4 also bundled: long-session token control (pruning) and conversation continuity across REPL restarts (sessions). Split rationale: combined diff exceeded the `/plan` "single commit" sizing rule.
+
+### Instructions
+
+Two independent additions wired into the existing `request-builder.ts` + `apps/cli/src/index.ts` from Task 4.
+
+**`packages/core/src/tool-result-pruning.ts`:**
+- Export `pruneToolResults(messages: ModelMessage[], opts: { k: number; fileVersionAt: (path: string) => number | undefined; messageCreatedAt: (msg: ModelMessage) => number }): ModelMessage[]`
+- Two stubbing conditions per `tool-result` block — block is stubbed if **either** holds:
+  - **Age cap (K):** the block sits before the last `K` `tool`-role messages.
+  - **Version drift:** the block referenced a single file (extracted via `toolCallId → previous assistant tool-call.input.file_path`) and `fileVersionAt(filePath) > messageCreatedAt(toolMessage)`. If the path lookup fails (e.g. `list_files`, `search_files`), only the K-window applies.
+- For each stubbed `tool-result` content part: `output` is replaced by the stub string `[Previous ${toolName} result — superseded by current state; re-read if needed]`. `toolCallId` and `toolName` are preserved.
+- `tool-error` parts stay untouched (error info may remain relevant for the LLM).
+- `user` and `assistant` messages (incl. `tool-call` parts!) are **never** modified.
+- K from MVP spec: 5.
+- `fileVersionAt`: in the Supabase repo, joined from `files.updated_at`; in the local repo, `fs.stat(path).mtime` converted to ms epoch.
+- `messageCreatedAt`: in Supabase, `messages.created_at`; in CLI memory, an injected timestamp set when the message is appended.
+- Pure function — no logger, no I/O. The caller injects `fileVersionAt` and `messageCreatedAt` closures.
+
+**`packages/core/src/sessions.ts`:**
+- Export `loadOrCreateSession(vaultPath, today)` / `appendMessages(session, newMessages, createdAtMs)` / `saveSession(vaultPath, session)`
+- Session storage: `<vaultPath>/.keppt/sessions/YYYY-MM-DD.json` with `{ date, messages: ModelMessage[], createdAt: number[] }` where `createdAt[i]` is the epoch-ms timestamp injected when `messages[i]` was appended. Parallel-array keeps `ModelMessage[]` an opaque pass-through value compatible with `streamText`.
+- **Vault path, not repo.** `sessions.ts` writes directly via `fs/promises` to `.keppt/sessions/` — the GTD layout gate (`canWrite`) explicitly forbids `.keppt/` paths for the LLM, so going through `FileRepository.write` would have to be bypass-routed. Pattern matches `apps/cli/src/cli-error-log.ts` (Task 3.6/3.9) which also writes to `.keppt/logs/` directly. Decision: same direct-fs pattern here.
+- Session switching (continuing a past session) is **not** MVP — it's not in Phase 1. Today's session file is loaded; past sessions sit on disk untouched.
+
+**Integration:**
+- `packages/core/src/request-builder.ts` (modified) — adds the `pruneToolResults(messages, { k: 5, fileVersionAt, messageCreatedAt })` call at the seam reserved in Task 4. New `opts` fields: `fileVersionAt` and `messageCreatedAt` (both required). `buildRequest` itself stays pure; the closures are constructed by the CLI.
+- `apps/cli/src/index.ts` (modified) — replace the in-memory `messages: ModelMessage[]` with `let session = await loadOrCreateSession(vaultPath, today)`. After each successful turn: `appendMessages(session, [pendingUser, ...response.messages], Date.now()); await saveSession(vaultPath, session)`. Build `fileVersionAt = (p) => { try { return fs.statSync(path.join(vaultPath, p)).mtimeMs; } catch { return undefined; } }` and `messageCreatedAt = (msg) => session.createdAt[session.messages.indexOf(msg)] ?? Date.now()` (with the obvious O(n) caveat — acceptable for K≤5 history sizes; see Open Issues if it ever matters).
+- Stream-error path keeps the existing `pendingUser` rollback contract from Task 3 (Decision 8 in `task-3-cli-vercel-ai-sdk.md`): if the stream aborts mid-turn, neither `appendMessages` nor `saveSession` runs — the session file on disk stays at its pre-turn state.
+
+### Acceptance
+
+Vitest suite green:
+- **T4.1-AC-01:** `pruneToolResults` with K=5, 10 tool messages, and `fileVersionAt` returning a stable version (no drift) transforms the oldest 5 into stubs and leaves the newest 5 identical.
+- **T4.1-AC-02:** `pruneToolResults` leaves user/assistant messages untouched, including assistant messages that contain `tool-call` parts.
+- **T4.1-AC-03:** `pruneToolResults` leaves a message with mixed parts (text + tool-call in assistant) unchanged.
+- **T4.1-AC-04:** `pruneToolResults` preserves `tool-error` parts.
+- **T4.1-AC-05:** `pruneToolResults` stubs a `tool-result` within the K-window when `fileVersionAt(filePath) > messageCreatedAt(toolMessage)` — version drift overrides the K-keep.
+- **T4.1-AC-06:** `pruneToolResults` is granular per file: with two recent reads on `inbox.md` and `focus.md` and `fileVersionAt` reporting drift only for `focus.md`, the focus tool-result is stubbed and the inbox tool-result stays.
+- **T4.1-AC-07:** `pruneToolResults` falls back to K-only for `list_files` / `search_files` results (no single `file_path` to look up); inside the K-window they stay verbatim, outside they are stubbed.
+- **T4.1-AC-08:** Session roundtrip: `loadOrCreateSession` in an empty vault creates a new session file (`<vaultPath>/.keppt/sessions/<today>.json` with `{ date, messages: [], createdAt: [] }`).
+- **T4.1-AC-09:** Session roundtrip: append + save → load returns identical `messages` and `createdAt` arrays.
+- **T4.1-AC-10:** Session roundtrip: new day → new session file at `<today2>.json`, while the original `<today1>.json` stays on disk.
+- **T4.1-AC-11:** Stream-abort safety: simulate an abort mid-turn via `AbortController.abort()` against `MockLanguageModelV4`; assert the on-disk session file is unchanged from its pre-turn state (no partial `pendingUser` write).
+
+### Key Locations
+
+- `packages/core/src/tool-result-pruning.ts` (new)
+- `packages/core/src/sessions.ts` (new)
+- `packages/core/src/request-builder.ts` (modified — pruning seam activated)
+- `packages/core/src/__tests__/tool-result-pruning.test.ts` (new)
+- `packages/core/src/__tests__/sessions.test.ts` (new)
+- `packages/core/src/__tests__/request-builder.test.ts` (extended — assert pruning is called with `k: 5`)
+- `apps/cli/src/index.ts` (modified — session load/save replaces in-memory `messages`)
+- `apps/cli/test/workspace-wiring.test.ts` (re-verified or extended if it hits the message path)
+- `docs/task-log/task-4.1-pruning-and-sessions.md` (post-implementation wrap-up)
+
+### Key Discoveries
+
 - **Tool-result pruning only transforms `role: 'tool'` messages.** Assistant messages with `tool-call` parts stay untouched (they show "a call happened", which matters for context — only the concrete result is stubbed).
 - **A `tool-result` part has the fields `type: 'tool-result'`, `toolCallId`, `toolName`, `output`** (see SDK research §8). Pruning replaces `output` with a string, not the whole part.
 - **Two stubbing conditions, OR-combined.** K=5 is the size cap (long-session token control); file-version drift is the freshness cap (catches external edits between turns and prior LLM-side `edit_file`/`write_file` calls in the same conversation). Either alone leaves a real gap — see architecture spec § *Context Management: Tool-Result Pruning*.
 - **`file_path` lives in the tool-call, not the tool-result.** The pruner joins `tool-result.toolCallId` to the previous assistant message's `tool-call.input.file_path`. `read_file`, `edit_file`, `write_file` all carry a single `file_path`. `list_files` and `search_files` don't and use the K-window only.
 - **K=5** per the architecture spec. Tunable, but fixed for MVP.
-- **R12 session-start suggestion** is a text response in Phase 1 (no generative UI). The system prompt contains the state table from R12; the LLM decides which suggestion to make on the first turn of a new session.
-- **The input heuristic must not be too aggressive.** A task like "Write code review for PR #42" contains special chars but not in the proportions the heuristic rejects. Test cases cover honest edge cases.
 - **Session switching is explicitly not an MVP feature.** Today's session file is loaded; past sessions just sit on disk and are not touched by the CLI. Phase 2a brings the UI for that.
+- **`.keppt/sessions/` uses the same direct-fs pattern as `.keppt/logs/`.** The GTD layout gate forbids `.keppt/` writes from the LLM. System code (sessions, error logs) bypasses the gate by writing through `fs/promises` directly — that's the correct shape, not a hack. `FileRepository` stays storage-only for LLM-visible files.
+- **Parallel `createdAt: number[]` array.** Keeps `messages: ModelMessage[]` an opaque value the SDK can consume without translation. The alternative (wrap each message in `{ message, createdAt }`) would force translation on every `streamText` call. Index-based lookup is O(n) but n ≤ K + active context, which is small in Phase 1.
 
 ---
 
