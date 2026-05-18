@@ -12,23 +12,32 @@ import {
   validateFilePath,
 } from "./file-repository.js";
 import { appendHistoryEntry, type ChangeActor } from "./history-log.js";
+import { type Logger, NoopLogger, safeLog } from "./logging.js";
 import { findMatches, formatToday, isInScope } from "./search.js";
 
 export interface LocalFileRepositoryOptions {
   now?: () => Date;
   changedBy?: ChangeActor;
+  logger?: Logger;
 }
 
 export class LocalFileRepository implements FileRepository {
   private readonly basePath: string;
   private readonly now: () => Date;
   private readonly changedBy: ChangeActor;
+  private readonly logger: Logger;
   private canonicalBasePromise?: Promise<string>;
 
   constructor(basePath: string, options: LocalFileRepositoryOptions = {}) {
     this.basePath = basePath;
     this.now = options.now ?? (() => new Date());
     this.changedBy = options.changedBy ?? "llm";
+    // safeLog enforces the Logger contract's non-throwing requirement at
+    // this seam. The repo.search.path_skipped emission lives inside the
+    // InvalidPathError catch that turns an unsafe file into a silent skip;
+    // a throwing logger there would convert the deliberately-degraded
+    // search into an aborted one. Mirrors the buildTools wrap (tools.ts).
+    this.logger = safeLog(options.logger ?? new NoopLogger());
   }
 
   // Static checks #1–#12 (sync, shared with InMemoryFileRepository) plus the
@@ -184,6 +193,13 @@ export class LocalFileRepository implements FileRepository {
   // contentBefore, and rolling back a phantom entry is a no-op. A two-phase
   // pending/committed log would remove the noise but is deferred until we
   // build a rollback UI that actually consumes it.
+  //
+  // Storage shape note: every entry stores full pre- and post-content. Fine
+  // for the Phase-1 local vault; the verbatim TEXT-TEXT row shape must NOT
+  // be carried over to Supabase as-is. See docs/specs/architecture.md
+  // ("How File Versioning Works → Storage cost") for the scaling analysis
+  // and migration-time options (delta storage / content-addressed blobs /
+  // retention).
   private async commit(
     filePath: string,
     abs: string,
@@ -236,8 +252,16 @@ export class LocalFileRepository implements FileRepository {
         // through a symlink outside the vault is silently skipped rather
         // than aborting the whole search. The same path will reject if
         // read/write/edit is called on it directly — that's where the
-        // user-visible error belongs.
-        if (err instanceof InvalidPathError) continue;
+        // user-visible error belongs. The injected logger sees the skip
+        // so backend operators can correlate "search misses my file".
+        if (err instanceof InvalidPathError) {
+          this.logger.debug({
+            message: `search skipped path-validation rejection: ${err.reason}`,
+            code: "repo.search.path_skipped",
+            meta: { filePath, reason: err.reason },
+          });
+          continue;
+        }
         throw err;
       }
       const content = await readFile(abs, "utf8");

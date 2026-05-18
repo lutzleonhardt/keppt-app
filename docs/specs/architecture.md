@@ -1069,7 +1069,47 @@ A single, idempotent server-side step runs **before every LLM request** (not jus
 
 **Diff display (v2 feature):** Compare two `file_history` entries, render diff in the UI. Standard text-diff algorithm, no Git plumbing needed.
 
-**Storage cost:** Markdown files are tiny. Even a heavy user with 50 files × 100 versions = 5,000 rows of text. PostgreSQL handles millions of rows without breaking a sweat. This will never be a scaling problem.
+**Storage cost (revised 2026-05-18):** The earlier napkin estimate
+("50 files × 100 versions = 5,000 rows, never a scaling problem") was
+based on the wrong unit of work. The realistic shape is:
+
+- **Daily notes dominate.** A daily-driver user produces 20–50 edits per
+  day on `daily/<today>.md`. Over a year that is 7,300–18,250 versions
+  for *one file*, not 100.
+- **Each entry stores content twice.** `appendHistoryEntry` writes both
+  `contentBefore` and `contentAfter`. `contentAfter` of version N equals
+  the on-disk state until version N+1 lands, i.e. it is redundant with
+  either the next entry's `contentBefore` or the live `files` row.
+- **Daily notes grow over the day.** Later versions of the same daily
+  note are larger; the duplication tax compounds with size.
+
+Rough estimate for a daily-driver user: 365 dailies × ~30 edits/day ×
+~2 KB average content × 2 (before+after) ≈ **44 MB/year of audit text
+per user**, before any other writes. At 100 users that is ~4.4 GB/year
+purely for daily-note history; Supabase row storage handles this, but
+egress and backup costs are no longer "negligible," and the growth is
+linear in users × retention, not bounded.
+
+**Therefore, do NOT carry the verbatim `contentBefore TEXT + contentAfter
+TEXT` row shape from the Phase-1 JSONL straight into the Supabase
+`file_history` table.** The migration is the place to pick one of:
+
+1. **Delta storage** — store a unified diff against the parent version.
+   Cheap for the incremental-edit case (`edit_file` produces small
+   diffs by design), expensive only on `write_file` rewrites.
+2. **Content-addressed blob storage** — hash each unique content
+   snapshot, dedupe in a `content_blobs` table, store `content_sha`
+   pointers in `file_history`. Best when the same content appears
+   across many history entries (rollbacks, no-op saves, etc.).
+3. **Retention policy** — full snapshots for the last N days, hashes /
+   diffs / archival blob storage before that. Acceptable trade against
+   rollback fidelity for old versions if the product wants it.
+4. **Drop `contentAfter` entirely.** Reconstructable from
+   `contentBefore` of the next entry or from the live `files` row.
+   Halves storage at zero rollback cost. The cheapest fix.
+
+Inline reference in code: `packages/core/src/local-file-repository.ts`
+`commit()` comment.
 
 **What Capacitor gives us for free:**
 

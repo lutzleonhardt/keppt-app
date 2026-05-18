@@ -33,9 +33,10 @@ describe("appendCliErrorLog", () => {
     expect(lines).toHaveLength(1);
     const entry = JSON.parse(lines[0]!);
     expect(entry).toMatchObject({
+      level: "error",
       kind: "api_call_error",
       message: "low balance",
-      context: { phase: "stream" },
+      meta: { phase: "stream" },
       api: {
         statusCode: 400,
         requestBodyValues: { model: "claude-haiku-4-5" },

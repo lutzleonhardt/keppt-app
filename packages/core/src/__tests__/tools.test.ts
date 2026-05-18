@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { FileRepository, SearchResult, SearchScope } from "../file-repository.js";
 import type { EditResult, SearchReplaceEdit } from "../edit.js";
 import { InMemoryFileRepository } from "../in-memory-file-repository.js";
+import { MemoryLogger, type LogEvent, type Logger } from "../logging.js";
 import { buildTools } from "../tools.js";
 
 class TrapRepository implements FileRepository {
@@ -446,5 +447,216 @@ describe("buildTools — GTD layout gate", () => {
       prefix: "archive/",
     })) as string[];
     expect(archiveOnly).toEqual(["archive/daily/2026-05-01.md"]);
+  });
+});
+
+// Three named observability seams in the tool layer flow through the
+// injected Logger. Codes are stable contract surface — see
+// docs/plans/phase-1-cli.md Task 3.9.
+describe("buildTools — Logger seams", () => {
+  it("emits tool.edit_file.failed (info) on a structured edit match failure", async () => {
+    const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+    await repo.write(
+      "tasks/inbox.md",
+      "- [ ] buy milk\n- [ ] buy milk\n",
+      "seed",
+    );
+    const logger = new MemoryLogger();
+
+    const model = sequencedMockModel([
+      streamResult(
+        toolCallChunks("edit_file", "call-1", {
+          file_path: "tasks/inbox.md",
+          edits: [{ search: "- [ ] buy milk\n", replace: "- [x] buy milk\n" }],
+          change_summary: "ambiguous",
+        }),
+      ),
+      streamResult(textChunks("done")),
+    ]);
+    const result = streamText({
+      model,
+      tools: buildTools(repo, { now: () => FIXED_NOW, logger }),
+      stopWhen: isStepCount(3),
+      messages: [{ role: "user", content: "go" }],
+    });
+    for await (const part of result.fullStream) {
+      if (part.type === "error") throw part.error;
+    }
+
+    const failed = logger.byCode("tool.edit_file.failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({
+      level: "info",
+      code: "tool.edit_file.failed",
+      meta: {
+        filePath: "tasks/inbox.md",
+        matchCount: 2,
+        failedSearchLength: "- [ ] buy milk\n".length,
+        currentContentLength: "- [ ] buy milk\n- [ ] buy milk\n".length,
+      },
+    });
+    // DSGVO / log-bloat guard: failure diagnostics must not embed file
+    // contents or the model's verbatim search string. The CLI logger
+    // serializes meta verbatim into .keppt/logs/cli-errors.jsonl, which
+    // can persist for the lifetime of the vault.
+    expect(failed[0]?.meta).not.toHaveProperty("error");
+    expect(failed[0]?.meta).not.toHaveProperty("currentContent");
+    expect(failed[0]?.meta).not.toHaveProperty("failedSearch");
+    expect(JSON.stringify(failed[0])).not.toContain("buy milk");
+  });
+
+  it("safeLog wrapping: a throwing logger does not change tool semantics", async () => {
+    // Tool layer applies safeLog at the buildTools seam. An adapter
+    // that throws on every call must not turn structured ok:false
+    // results (invalid_path, edit-match failure, retry budget) into
+    // stream errors that abort the turn.
+    class ThrowingLogger implements Logger {
+      calls = 0;
+      private boom(): never {
+        this.calls += 1;
+        throw new Error("logger boom");
+      }
+      debug(_e: LogEvent): void {
+        this.boom();
+      }
+      info(_e: LogEvent): void {
+        this.boom();
+      }
+      warn(_e: LogEvent): void {
+        this.boom();
+      }
+      error(_e: LogEvent): void {
+        this.boom();
+      }
+    }
+
+    const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+    await repo.write(
+      "tasks/inbox.md",
+      "- [ ] buy milk\n- [ ] buy milk\n",
+      "seed",
+    );
+    const logger = new ThrowingLogger();
+
+    const model = sequencedMockModel([
+      // invalid_path path — logger.warn would normally fire here.
+      streamResult(
+        toolCallChunks("read_file", "call-1", {
+          file_path: "tasks/../secrets.md",
+        }),
+      ),
+      // edit_file match failure path — logger.info would normally fire here.
+      streamResult(
+        toolCallChunks("edit_file", "call-2", {
+          file_path: "tasks/inbox.md",
+          edits: [{ search: "- [ ] buy milk\n", replace: "- [x] buy milk\n" }],
+          change_summary: "ambiguous",
+        }),
+      ),
+      streamResult(textChunks("done")),
+    ]);
+    const result = streamText({
+      model,
+      tools: buildTools(repo, { now: () => FIXED_NOW, logger }),
+      stopWhen: isStepCount(5),
+      messages: [{ role: "user", content: "go" }],
+    });
+    const toolResults: Array<{ name: string; output: unknown }> = [];
+    for await (const part of result.fullStream) {
+      if (part.type === "tool-result") {
+        toolResults.push({ name: part.toolName, output: part.output });
+      } else if (part.type === "error") {
+        throw part.error;
+      }
+    }
+
+    expect(toolResults).toHaveLength(2);
+    expect(toolResults[0]?.output).toMatchObject({
+      ok: false,
+      error: { reason: "invalid_path" },
+    });
+    expect(toolResults[1]?.output).toMatchObject({
+      ok: false,
+      error: { reason: "match", matchCount: 2 },
+    });
+    // Both seams attempted to log and were swallowed by safeLog.
+    expect(logger.calls).toBeGreaterThanOrEqual(2);
+  });
+
+  it("emits tool.edit_file.retry_budget_exhausted (warn) on the third failed edit_file call against the same file", async () => {
+    const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+    await repo.write(
+      "tasks/inbox.md",
+      "- [ ] buy milk\n- [ ] buy milk\n",
+      "seed",
+    );
+    const logger = new MemoryLogger();
+
+    const ambiguousEdit = {
+      file_path: "tasks/inbox.md",
+      edits: [{ search: "- [ ] buy milk\n", replace: "- [x] buy milk\n" }],
+      change_summary: "ambiguous",
+    };
+    const model = sequencedMockModel([
+      streamResult(toolCallChunks("edit_file", "call-1", ambiguousEdit)),
+      streamResult(toolCallChunks("edit_file", "call-2", ambiguousEdit)),
+      streamResult(toolCallChunks("edit_file", "call-3", ambiguousEdit)),
+      streamResult(textChunks("done")),
+    ]);
+    const result = streamText({
+      model,
+      tools: buildTools(repo, { now: () => FIXED_NOW, logger }),
+      stopWhen: isStepCount(5),
+      messages: [{ role: "user", content: "go" }],
+    });
+    for await (const part of result.fullStream) {
+      if (part.type === "error") throw part.error;
+    }
+
+    const exhausted = logger.byCode("tool.edit_file.retry_budget_exhausted");
+    expect(exhausted).toHaveLength(1);
+    expect(exhausted[0]).toMatchObject({
+      level: "warn",
+      code: "tool.edit_file.retry_budget_exhausted",
+      meta: { filePath: "tasks/inbox.md", attempts: 2 },
+    });
+    // Plus exactly two preceding match-failure info events (calls 1 and 2);
+    // the third call short-circuits before repo.edit runs.
+    expect(logger.byCode("tool.edit_file.failed")).toHaveLength(2);
+  });
+
+  it("emits tool.<name>.invalid_path (warn) when a tool catches InvalidPathError", async () => {
+    // `..` traversal is rejected synchronously by validateFilePath inside
+    // canRead, which the read_file tool catches and converts to a structured
+    // invalid_path result. Same pattern fires for write_file and edit_file.
+    const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+    const logger = new MemoryLogger();
+
+    const model = sequencedMockModel([
+      streamResult(
+        toolCallChunks("read_file", "call-1", {
+          file_path: "tasks/../secrets.md",
+        }),
+      ),
+      streamResult(textChunks("done")),
+    ]);
+    const result = streamText({
+      model,
+      tools: buildTools(repo, { now: () => FIXED_NOW, logger }),
+      stopWhen: isStepCount(3),
+      messages: [{ role: "user", content: "go" }],
+    });
+    for await (const part of result.fullStream) {
+      if (part.type === "error") throw part.error;
+    }
+
+    const invalid = logger.byCode("tool.read_file.invalid_path");
+    expect(invalid).toHaveLength(1);
+    expect(invalid[0]).toMatchObject({
+      level: "warn",
+      code: "tool.read_file.invalid_path",
+      meta: { filePath: "tasks/../secrets.md" },
+    });
+    expect(typeof invalid[0]?.meta?.reason).toBe("string");
   });
 });

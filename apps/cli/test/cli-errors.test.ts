@@ -29,6 +29,22 @@ describe("formatCliError", () => {
     expect(formatCliError(err)).not.toContain("claude-haiku-4-5");
   });
 
+  it("formats OpenAI errors using x-request-id and provider-neutral wording", () => {
+    const err = new APICallError({
+      message: "You exceeded your current quota, please check your plan and billing details.",
+      url: "https://api.openai.com/v1/chat/completions",
+      requestBodyValues: { model: "gpt-4o", messages: [] },
+      statusCode: 429,
+      responseHeaders: { "x-request-id": "req_openai_456" },
+      isRetryable: true,
+      data: { error: { message: "...", type: "insufficient_quota", code: "insufficient_quota" } },
+    });
+
+    expect(formatCliError(err)).toBe(
+      "HTTP 429: Rate limit reached. Wait a bit, then retry. Request ID: req_openai_456.",
+    );
+  });
+
   it("keeps unknown errors concise", () => {
     expect(formatCliError(new Error("boom"))).toBe("boom");
   });

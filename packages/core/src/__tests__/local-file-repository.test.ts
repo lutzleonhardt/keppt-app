@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { InvalidPathError } from "../file-repository.js";
 import { historyFilePath } from "../history-log.js";
 import { LocalFileRepository } from "../local-file-repository.js";
+import { type Logger, MemoryLogger } from "../logging.js";
 import { runFileRepositoryContract } from "./file-repository.contract.js";
 
 // Symlink tests need POSIX symlink semantics. Windows can do it but only
@@ -261,6 +262,108 @@ describe.skipIf(!symlinkable)("LocalFileRepository — symlink safety", () => {
     expect(await repo.read("links/alias.md")).toBe("hello");
   });
 });
+
+// Search emits a debug event for every in-scope path it has to skip because
+// resolveSafe rejects it. The skip itself is unchanged (search keeps
+// working, the rejected file is simply not searched), but backend operators
+// need the signal to correlate "search misses my file" reports — that's the
+// whole point of the Task 3.9 logger seam. We use an in-scope filename
+// (`tasks/inbox.md`) realized on disk as a symlink escaping the vault, so
+// resolveSafe throws "symlink escapes vault root" at the search-loop catch.
+// `walk()` itself does not surface symlinks (DT_LNK), so we subclass the
+// repository to inject the path into the search loop directly — the
+// production code path under test starts at the catch, not at the listing.
+describe.skipIf(!symlinkable)(
+  "LocalFileRepository — search logger seam",
+  () => {
+    it("emits repo.search.path_skipped debug event when search swallows InvalidPathError", async () => {
+      const vaultRoot = await makeTempBase();
+      const vault = path.join(vaultRoot, "vault");
+      await mkdir(vault, { recursive: true });
+      await mkdir(path.join(vault, "tasks"), { recursive: true });
+
+      // The escape target lives outside the vault so resolveSafe throws
+      // "symlink escapes vault root" instead of any other reason.
+      const secret = path.join(vaultRoot, "secret.md");
+      await writeFile(secret, "hello secret", "utf8");
+      await symlink(secret, path.join(vault, "tasks", "inbox.md"));
+
+      class FixedListRepo extends LocalFileRepository {
+        async list(): Promise<string[]> {
+          return ["tasks/inbox.md"];
+        }
+      }
+
+      const logger = new MemoryLogger();
+      const repo = new FixedListRepo(vault, {
+        now: () => FIXED_NOW,
+        logger,
+      });
+
+      const results = await repo.search("hello", "active");
+      expect(results).toEqual([]);
+
+      const skipped = logger.byCode("repo.search.path_skipped");
+      expect(skipped).toHaveLength(1);
+      expect(skipped[0]).toMatchObject({
+        level: "debug",
+        code: "repo.search.path_skipped",
+        meta: {
+          filePath: "tasks/inbox.md",
+          reason: "symlink escapes vault root",
+        },
+      });
+    });
+
+    // Regression: the InvalidPathError catch in search() is a containment
+    // path — an unsafe file is silently skipped so the rest of the search
+    // still completes. A throwing logger at that emission must not flip
+    // the deliberately-degraded path into an aborted search. safeLog in
+    // the LocalFileRepository constructor enforces this; this test pins
+    // it. Without the wrap, the throw inside this.logger.debug propagates
+    // out of the catch and rejects the search promise.
+    it(
+      "search swallows a throwing logger and still returns degraded results",
+      async () => {
+        const vaultRoot = await makeTempBase();
+        const vault = path.join(vaultRoot, "vault");
+        await mkdir(vault, { recursive: true });
+        await mkdir(path.join(vault, "tasks"), { recursive: true });
+
+        const secret = path.join(vaultRoot, "secret.md");
+        await writeFile(secret, "hello secret", "utf8");
+        await symlink(secret, path.join(vault, "tasks", "inbox.md"));
+
+        class FixedListRepo extends LocalFileRepository {
+          async list(): Promise<string[]> {
+            return ["tasks/inbox.md"];
+          }
+        }
+
+        const throwingLogger: Logger = {
+          debug: () => {
+            throw new Error("logger transport broken");
+          },
+          info: () => {
+            throw new Error("logger transport broken");
+          },
+          warn: () => {
+            throw new Error("logger transport broken");
+          },
+          error: () => {
+            throw new Error("logger transport broken");
+          },
+        };
+        const repo = new FixedListRepo(vault, {
+          now: () => FIXED_NOW,
+          logger: throwingLogger,
+        });
+
+        await expect(repo.search("hello", "active")).resolves.toEqual([]);
+      },
+    );
+  },
+);
 
 describe("LocalFileRepository — list filters", () => {
   it("skips dot-directories and non-markdown files", async () => {

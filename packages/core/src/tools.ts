@@ -7,6 +7,7 @@ import {
   type FileRepository,
 } from "./file-repository.js";
 import { canRead, canWrite } from "./gtd-layout.js";
+import { type Logger, NoopLogger, safeLog } from "./logging.js";
 import { formatToday } from "./search.js";
 import type { SearchResult } from "./file-repository.js";
 
@@ -68,6 +69,7 @@ async function readFileTool(
   repo: FileRepository,
   filePath: string,
   today: string,
+  logger: Logger,
 ): Promise<ReadFileResult> {
   try {
     if (!canRead(filePath, today)) {
@@ -86,6 +88,11 @@ async function readFileTool(
       return { ok: false, error: { reason: "not_found", message: err.message } };
     }
     if (err instanceof InvalidPathError) {
+      logger.warn({
+        message: `read_file rejected invalid path: ${err.reason}`,
+        code: "tool.read_file.invalid_path",
+        meta: { filePath, reason: err.reason },
+      });
       return { ok: false, error: { reason: "invalid_path", message: err.message } };
     }
     throw err;
@@ -98,6 +105,7 @@ async function writeFileTool(
   content: string,
   changeSummary: string,
   today: string,
+  logger: Logger,
 ): Promise<WriteFileResult> {
   try {
     if (!canWrite(filePath, today)) {
@@ -113,6 +121,11 @@ async function writeFileTool(
     return { ok: true };
   } catch (err) {
     if (err instanceof InvalidPathError) {
+      logger.warn({
+        message: `write_file rejected invalid path: ${err.reason}`,
+        code: "tool.write_file.invalid_path",
+        meta: { filePath, reason: err.reason },
+      });
       return { ok: false, error: { reason: "invalid_path", message: err.message } };
     }
     throw err;
@@ -171,6 +184,7 @@ async function editFileTool(
   changeSummary: string,
   today: string,
   failures: EditFailuresByFilePath,
+  logger: Logger,
 ): Promise<EditFileResult> {
   // The outer try/catch turns InvalidPathError (thrown by canWrite ->
   // validateFilePath) into a structured invalid_path result, so a
@@ -199,6 +213,11 @@ async function editFileTool(
     const count = failures.get(filePath) ?? 0;
     if (count >= MAX_EDIT_FAILURES_PER_FILE) {
       const currentContent = await readOrEmpty(repo, filePath);
+      logger.warn({
+        message: `edit_file retry budget exhausted on ${filePath}`,
+        code: "tool.edit_file.retry_budget_exhausted",
+        meta: { filePath, attempts: count },
+      });
       return {
         ok: false,
         error: { reason: "retry_budget_exhausted", currentContent },
@@ -207,9 +226,31 @@ async function editFileTool(
     const result: EditResult = await repo.edit(filePath, edits, changeSummary);
     if (result.ok) return { ok: true };
     failures.set(filePath, count + 1);
+    // Bounded diagnostics only — `EditError.currentContent` is the entire
+    // target file and `failedSearch` is a model-supplied verbatim slice.
+    // Both are personal data (vault notes) and would persist to the
+    // CLI's JSONL log unredacted; log lengths/counts instead so log size
+    // stays bounded by failure count, not file size, and no note content
+    // leaks outside the mutation-history path.
+    const editError = result.error as EditError | undefined;
+    logger.info({
+      message: `edit_file match failed on ${filePath}`,
+      code: "tool.edit_file.failed",
+      meta: {
+        filePath,
+        matchCount: editError?.matchCount ?? 0,
+        failedSearchLength: editError?.failedSearch.length ?? 0,
+        currentContentLength: editError?.currentContent.length ?? 0,
+      },
+    });
     return { ok: false, error: { ...(result.error as EditError), reason: "match" } };
   } catch (err) {
     if (err instanceof InvalidPathError) {
+      logger.warn({
+        message: `edit_file rejected invalid path: ${err.reason}`,
+        code: "tool.edit_file.invalid_path",
+        meta: { filePath, reason: err.reason },
+      });
       return { ok: false, error: { reason: "invalid_path", message: err.message } };
     }
     throw err;
@@ -221,6 +262,11 @@ export interface BuildToolsOptions {
   // prompt's daily-note path and the GTD gate cannot disagree across a
   // UTC-midnight rollover within a long-running session.
   now?: () => Date;
+  // Operational diagnostics for tool-layer events: edit retry-budget
+  // exhaustion, structured edit failures, and InvalidPathError catches.
+  // Defaults to NoopLogger so existing callers are untouched. Codes are
+  // stable contract surface — see docs/plans/phase-1-cli.md Task 3.9.
+  logger?: Logger;
 }
 
 /**
@@ -245,6 +291,12 @@ export function buildTools(
   options: BuildToolsOptions = {},
 ): ToolSet {
   const now = options.now ?? (() => new Date());
+  // safeLog enforces the Logger contract's non-throwing requirement at
+  // the seam: even if an external adapter (Pino transport, network sink,
+  // future Sentry wrapper) throws synchronously, tool semantics are
+  // preserved — `invalid_path` stays a structured `ok: false`, not a
+  // stream-aborting exception.
+  const logger = safeLog(options.logger ?? new NoopLogger());
   const today = (): string => formatToday(now());
   const failures: EditFailuresByFilePath = new Map();
   return {
@@ -253,7 +305,7 @@ export function buildTools(
         "Reads the markdown content of a file relative to the vault root.",
       inputSchema: z.object({ file_path: filePathSchema }),
       execute: async ({ file_path }) =>
-        readFileTool(repo, file_path, today()),
+        readFileTool(repo, file_path, today(), logger),
     }),
     edit_file: tool({
       description:
@@ -275,6 +327,7 @@ export function buildTools(
           change_summary,
           today(),
           failures,
+          logger,
         ),
     }),
     write_file: tool({
@@ -286,7 +339,7 @@ export function buildTools(
         change_summary: changeSummarySchema,
       }),
       execute: async ({ file_path, content, change_summary }) =>
-        writeFileTool(repo, file_path, content, change_summary, today()),
+        writeFileTool(repo, file_path, content, change_summary, today(), logger),
     }),
     list_files: tool({
       description:
