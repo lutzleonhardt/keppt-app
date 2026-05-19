@@ -20,6 +20,7 @@ import {
   createStdTerminalOutput,
   type TerminalOutput,
 } from "./terminal-output.js";
+import { announceSessionBoundary } from "./session-boundary.js";
 
 const MAX_STEPS = 10;
 const DEBUG = process.env.DEBUG === "1";
@@ -61,6 +62,7 @@ async function main(): Promise<void> {
   // crosses UTC midnight, so new turns land in today's session file rather
   // than appending to yesterday's.
   let session = await sessionStore.loadOrCreate(formatToday(turnNow));
+  announceSessionBoundary(terminal, session, false);
 
   // fileVersionAt: mtime of the file (ms epoch) for drift detection inside
   // the K-window. Tool-result pruning consults this; undefined when the file
@@ -144,6 +146,7 @@ async function main(): Promise<void> {
     if (todayKey !== session.date) {
       try {
         session = await sessionStore.loadOrCreate(todayKey);
+        announceSessionBoundary(terminal, session, true);
       } catch (err) {
         const log = await appendCliErrorLog(vaultPath, err, {
           phase: "session_load_rollover",

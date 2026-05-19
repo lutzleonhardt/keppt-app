@@ -20,6 +20,18 @@ export interface TerminalOutput {
   // Informational REPL line, e.g. "(stream aborted)" or
   // "(Press Ctrl+C again to exit.)". Framed with a leading and trailing \n.
   info(message: string): void;
+  // Session boundary banner — printed once at CLI start and again whenever a
+  // UTC-midnight rollover moves new turns into a fresh session file. Without
+  // this, a CLI left open across midnight silently loses its conversational
+  // context (next turn starts an empty session for the new date) and the
+  // user only notices via odd "I don't remember that" replies. The banner
+  // makes the boundary visible.
+  sessionBanner(message: string): void;
+  // One line of replayed prior conversation, written right after a
+  // `resumed session` banner so the user immediately sees what context the
+  // CLI just loaded — instead of staring at a blank prompt and guessing
+  // whether the last `read_file` he asked for actually survived the restart.
+  replayLine(line: string): void;
   // One-line user-facing error summary written to stderr. Caller composes
   // the full message (prefix + formatCliError + log suffix); the sink only
   // appends a trailing newline.
@@ -42,6 +54,12 @@ export function createStdTerminalOutput(): TerminalOutput {
     },
     info: (message) => {
       stdout.write(`\n${message}\n`);
+    },
+    sessionBanner: (message) => {
+      stdout.write(`\n─── ${message} ───\n`);
+    },
+    replayLine: (line) => {
+      stdout.write(`${line}\n`);
     },
     errorSummary: (message) => {
       stderr.write(`${message}\n`);
