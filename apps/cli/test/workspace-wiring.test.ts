@@ -33,8 +33,13 @@ describe("@gtd/cli — workspace wiring", () => {
     // disable_parallel_tool_use flag on streamText. If the flag is ever
     // removed, the budget's counter regresses to the racy
     // read-then-await-then-increment hazard. This static source check
-    // makes that invariant unmissable in code review.
-    const source = await readFile(path.resolve(here, "../src/index.ts"), "utf8");
+    // makes that invariant unmissable in code review. The `streamText`
+    // call site moved from `index.ts` to `turn-loop.ts` when the per-turn
+    // body was extracted (Task 4.2 follow-up); the regex follows it.
+    const source = await readFile(
+      path.resolve(here, "../src/turn-loop.ts"),
+      "utf8",
+    );
     expect(source).toMatch(
       /providerOptions:\s*\{\s*anthropic:\s*\{\s*disableParallelToolUse:\s*true\b/,
     );
