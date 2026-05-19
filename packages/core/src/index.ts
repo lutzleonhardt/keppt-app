@@ -70,6 +70,12 @@ export {
   type PruneToolResultsOptions,
 } from "./tool-result-pruning.js";
 export { Session, type SessionStore } from "./sessions.js";
+export {
+  MemoryTurnLogger,
+  NoopTurnLogger,
+  type TurnLogRecord,
+  type TurnLogger,
+} from "./turn-log.js";
 export { formatToday } from "./search.js";
 export {
   MAX_INPUT_CHARS,

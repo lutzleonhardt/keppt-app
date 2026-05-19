@@ -13,6 +13,11 @@ import {
   MAX_INPUT_CHARS,
 } from "@gtd/core";
 import { FsSessionStore } from "./fs-session-store.js";
+import { FsTurnLogger } from "./fs-turn-logger.js";
+import {
+  writeTurnArtifact,
+  type TurnLogContext,
+} from "./turn-artifact.js";
 import { appendCliErrorLog } from "./cli-error-log.js";
 import { createCliLogger } from "./cli-logger.js";
 import { formatCliError } from "./cli-errors.js";
@@ -24,6 +29,11 @@ import { announceSessionBoundary } from "./session-boundary.js";
 
 const MAX_STEPS = 10;
 const DEBUG = process.env.DEBUG === "1";
+// Single source of truth for the model identifier — used both as the
+// `streamText` model wiring and as the `model` field on per-turn debug
+// artifacts. Changing this in one place keeps the artifact, the SDK call,
+// and any future routing-aware code in sync.
+const MODEL_ID = "claude-haiku-4-5";
 
 function requireEnv(name: string, terminal: TerminalOutput): string {
   const value = process.env[name];
@@ -63,6 +73,15 @@ async function main(): Promise<void> {
   // than appending to yesterday's.
   let session = await sessionStore.loadOrCreate(formatToday(turnNow));
   announceSessionBoundary(terminal, session, false);
+
+  // Per-turn debug artifacts (Task 4.2). DEBUG=1 produces one JSON file per
+  // turn at <vault>/.keppt/logs/sessions/<date>/turn-NNN.json — the
+  // post-pruning request snapshot, per-step response breakdown, and total
+  // usage. The whole machinery is skipped when DEBUG is off so cold-path
+  // record assembly does not cost anything on hot REPL turns.
+  let turnLogger: FsTurnLogger | null = DEBUG
+    ? await FsTurnLogger.create(vaultPath, session.date)
+    : null;
 
   // fileVersionAt: mtime of the file (ms epoch) for drift detection inside
   // the K-window. Tool-result pruning consults this; undefined when the file
@@ -147,6 +166,12 @@ async function main(): Promise<void> {
       try {
         session = await sessionStore.loadOrCreate(todayKey);
         announceSessionBoundary(terminal, session, true);
+        if (DEBUG) {
+          // Re-seed the per-day artifact counter against the new day's
+          // subdirectory so post-midnight turns land under
+          // .keppt/logs/sessions/<today>/turn-001.json, not yesterday's dir.
+          turnLogger = await FsTurnLogger.create(vaultPath, session.date);
+        }
       } catch (err) {
         const log = await appendCliErrorLog(vaultPath, err, {
           phase: "session_load_rollover",
@@ -196,6 +221,15 @@ async function main(): Promise<void> {
       continue;
     }
 
+    // Per-turn debug artifact (only built when DEBUG=1 and turnLogger
+    // exists). `turnLogger` non-null implies DEBUG=1 — that's the single
+    // runtime gate. The artifact snapshot of `providerOptions` is a
+    // separate literal from the one passed into `streamText` so the
+    // workspace-wiring static regex (which scans the `streamText` call
+    // site) is unaffected. `turnCtx` is built after `buildRequest` returns
+    // and then captured by reference across the try-block and its catch.
+    let turnCtx: TurnLogContext | null = null;
+
     try {
       const { system, messages: requestMessages } = buildRequest({
         today: turnNow,
@@ -203,9 +237,24 @@ async function main(): Promise<void> {
         fileVersionAt,
         messageCreatedAt,
       });
+      if (turnLogger) {
+        turnCtx = {
+          turnLogger,
+          turnId: turnLogger.nextTurnId(),
+          startedAtMs: turnStartedAt,
+          model: MODEL_ID,
+          system,
+          messages: requestMessages,
+          providerOptions: {
+            disableParallelToolUse: true,
+            cacheControl: { type: "ephemeral" },
+          },
+          cliLogger,
+        };
+      }
 
       const result = streamText({
-        model: anthropic("claude-haiku-4-5"),
+        model: anthropic(MODEL_ID),
         system,
         messages: requestMessages,
         tools,
@@ -292,7 +341,18 @@ async function main(): Promise<void> {
       }
 
       if (DEBUG) {
+        // `result.totalUsage` resolves once per stream; share the value
+        // between the per-turn artifact and the prompt.cache_usage JSONL
+        // index below so we don't await the same PromiseLike twice.
         const usage = await result.totalUsage;
+        if (turnCtx) {
+          await writeTurnArtifact(turnCtx, {
+            outcome: "ok",
+            steps: await result.steps,
+            totalUsage: usage,
+            responseMessages: response.messages,
+          });
+        }
         cliLogger.debug({
           message: "prompt cache usage",
           code: "prompt.cache_usage",
@@ -307,6 +367,7 @@ async function main(): Promise<void> {
     } catch (err) {
       if (controller.signal.aborted) {
         terminal.info("(stream aborted)");
+        if (turnCtx) await writeTurnArtifact(turnCtx, { outcome: "aborted" });
       } else {
         // Routed directly through the awaitable helper (not cliLogger.error)
         // so the user-facing line includes the literal log path. The Logger
@@ -320,6 +381,7 @@ async function main(): Promise<void> {
         terminal.errorSummary(
           `\nStream error: ${formatCliError(err)}${logSuffix}`,
         );
+        if (turnCtx) await writeTurnArtifact(turnCtx, { outcome: "stream_error", err });
       }
     } finally {
       activeAbort = null;
