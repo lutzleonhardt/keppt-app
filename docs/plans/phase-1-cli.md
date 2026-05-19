@@ -36,7 +36,7 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 3.8. Path-safety expansion (8 → 13 attack vectors): drive letters, segment trailing dots/whitespace, length caps, reserved Windows names, runtime symlink-escape check in `LocalFileRepository` — Task-3 follow-up, post-created 2026-05-09 from the same comparison review. See `docs/task-log/task-3.8-path-safety.md`.
 3.9. Shared logging abstraction — Task-3 follow-up, post-created 2026-05-09 from the operational logging architecture decision. Introduces a runtime-neutral `Logger`/`LogEvent` contract, keeps `packages/core` free of `console.*`, and moves CLI terminal output vs. diagnostics behind explicit adapters.
 4. System prompt R1-R13 + request builder + input heuristic + prompt caching (model routing deferred — see Task 4 block)
-4.1. Tool-result pruning + session persistence — Task-4 follow-up, split out 2026-05-18 during `/start-task 4` because the original Task 4 exceeded the `/plan` "diff + tests fit one commit" sizing rule. Task 4 ships the prompt/router/input/caching pipeline with the existing in-memory message array; Task 4.1 swaps that array for on-disk sessions and adds `pruneToolResults` to the request-builder. Reverse dependency forced: Task 4.1 edits `request-builder.ts` and `apps/cli/src/index.ts`, which Task 4 creates/rewrites.
+4.1. Tool-result pruning + session persistence — Task-4 follow-up, split out 2026-05-18 during `/start-task 4` because the original Task 4 exceeded the `/plan` "diff + tests fit one commit" sizing rule. Task 4 ships the prompt/router/input/caching pipeline with the existing in-memory message array; Task 4.1 swaps that array for on-disk sessions and adds `pruneToolResults` to the request-builder. Reverse dependency forced: Task 4.1 edits `request-builder.ts` and `apps/cli/src/index.ts`, which Task 4 creates/rewrites. **Pre-commit redesign 2026-05-19:** a Codex adversarial review of the in-flight 4.1 diff flagged three concrete bugs (Phase-2-save rollback gap, UTC day-rollover contamination, non-atomic write) plus a layering smell (core writing through `node:fs` directly, unusable from the Phase-2a web/Supabase target). All four folded into 4.1 before commit — they sit inside 4.1's own artifacts. Result: `Session` reshaped from passive record into a class with encapsulated invariants + injectable `SessionStore`.
 5. Daily-note lifecycle (R5) + clock injection
 5.5. Vault readiness on turn start (`ensureVaultReady`: first-run task-file init + day rollover) — Task-5 follow-up, post-created after planning. Closes the gap that the original Task 5 left first-run task files non-existent and pre-created empty daily notes the user may never use, **and** closes the Task-3.5 follow-up Codex finding (medium): without rollover, the new `canRead` gate makes a stale `daily/<yesterday>.md` unreachable to `list_files`/`search_files`/`read_file` until rollover runs. See `docs/task-log/task-5.5-vault-readiness.md`.
 5.6. Future daily notes (today + future drafts) — Task-5.5 follow-up, post-created 2026-05-10 after a manual smoke-test surfaced that the LLM cannot read/write/list/search a user-pre-created `daily/<future>.md`. Relaxes the GTD layout gate from "exactly today" to "any `daily/YYYY-MM-DD.md` with `date >= today`", changes the rollover criterion to `date < today`, and patches a `search_files(scope: "all")` hole where future dailies fell through both active and archive scopes. Driven by the GTD ruleset (Active-Sync covers "today's/tomorrow's Daily Note plan", Weekly-Review step 8 prepares the next workday's note). See `docs/task-log/task-5.6-future-dailies.md`.
@@ -823,6 +823,20 @@ Vitest suite green:
 ## Task 4.1: Tool-result pruning + session persistence
 
 > **Post-split task.** Carved out of the original Task 4 during `/start-task 4` on 2026-05-18. Task 4 ships the prompt/router/input/caching pipeline; Task 4.1 adds the two remaining MVP-quality concerns the original Task 4 also bundled: long-session token control (pruning) and conversation continuity across REPL restarts (sessions). Split rationale: combined diff exceeded the `/plan` "single commit" sizing rule.
+>
+> **Pre-commit redesign (2026-05-19).** A Codex adversarial review of the in-flight 4.1 diff (before commit) returned `needs-attention` with three concrete bugs and surfaced a layering smell. All four folded into 4.1 *before* commit — they touch 4.1's own artifacts (`sessions.ts` + CLI wiring), so a separate 4.2 immediately rewriting them would be churn:
+>
+> 1. **High — Phase-2 save failure leaves unsaved state live in memory.** Phase 2 appended `response.messages` to `session` *before* awaiting `saveSession`. If the write failed, the in-memory session held messages that never landed on disk, and the next successful Phase-1 save would persist them anyway — breaking the two-phase contract.
+> 2. **Medium — UTC day-rollover contamination.** `session` was loaded once at startup and aliased into closures; if the CLI crosses UTC midnight, new turns get appended to the previous day's session file.
+> 3. **Medium — Non-atomic write.** `saveSession` overwrote the final path directly; an interrupted `writeFile` (crash, SIGKILL, ENOSPC) corrupts the only durable conversation log.
+> 4. **Layering smell — `packages/core/src/sessions.ts` imported `node:fs/promises`.** Core is shared with the Phase-2a web/Supabase target, which has no `fs`. The previous plan ratified this as "same pattern as `.keppt/logs/`", but `cli-error-log.ts` lives in `apps/cli` — `sessions.ts` lived in `core` and was the layering violation, not a parallel.
+>
+> All four bugs share a root cause: `Session` was a passive record, and callers were responsible for invariants the data structure should own. The fix is OOP-shaped: `Session` becomes a class with encapsulated `_messages` / `_createdAt` (invariant `length === length`), atomic `appendTurn`, `snapshot()` / restore for transactional save-and-rollback, and identity by `date`. Persistence moves behind a `SessionStore` interface in core with `FsSessionStore` implementation in `apps/cli`; `SupabaseSessionStore` slots into the same interface in Phase 2a.
+>
+> **Second Codex pass (2026-05-19, post-redesign).** A second adversarial review against the OOP-shaped diff surfaced two more findings:
+>
+> 5. **High — Phase-2 timestamps hide stale reads after same-turn edits.** Stamping response messages with `Date.now()` *after* the stream ran meant the drift check missed any same-turn `read_file → edit_file` flow on the same file. Fixed by stamping with `turnStartedAt` (captured before `streamText`); see new T4.1-AC-16 + Key Discovery.
+> 6. **Medium → out-of-scope — Whole-session save loses turns from concurrent CLI processes.** Reframed during discussion: this is not primarily a persistence bug but an unhandled use case. Two parallel turns into one session produce semantically incoherent LLM context regardless of whether persistence preserves both. The Phase-1 CLI assumes single-instance per vault; documented in `FsSessionStore.save` block comment and Key Discoveries. Phase 2a solves both layers structurally (append-only `messages` rows + `sessions.in_flight_turn_id` with SSE turn-locking).
 
 ### Instructions
 
@@ -841,16 +855,82 @@ Two independent additions wired into the existing `request-builder.ts` + `apps/c
 - `messageCreatedAt`: in Supabase, `messages.created_at`; in CLI memory, an injected timestamp set when the message is appended.
 - Pure function — no logger, no I/O. The caller injects `fileVersionAt` and `messageCreatedAt` closures.
 
-**`packages/core/src/sessions.ts`:**
-- Export `loadOrCreateSession(vaultPath, today)` / `appendMessages(session, newMessages, createdAtMs)` / `saveSession(vaultPath, session)`
-- Session storage: `<vaultPath>/.keppt/sessions/YYYY-MM-DD.json` with `{ date, messages: ModelMessage[], createdAt: number[] }` where `createdAt[i]` is the epoch-ms timestamp injected when `messages[i]` was appended. Parallel-array keeps `ModelMessage[]` an opaque pass-through value compatible with `streamText`.
-- **Vault path, not repo.** `sessions.ts` writes directly via `fs/promises` to `.keppt/sessions/` — the GTD layout gate (`canWrite`) explicitly forbids `.keppt/` paths for the LLM, so going through `FileRepository.write` would have to be bypass-routed. Pattern matches `apps/cli/src/cli-error-log.ts` (Task 3.6/3.9) which also writes to `.keppt/logs/` directly. Decision: same direct-fs pattern here.
-- Session switching (continuing a past session) is **not** MVP — it's not in Phase 1. Today's session file is loaded; past sessions sit on disk untouched.
+**`packages/core/src/sessions.ts` — `Session` class + `SessionStore` interface:**
+
+```ts
+export class Session {
+  readonly date: string;          // YYYY-MM-DD — entity identity
+  private _messages: ModelMessage[];
+  private _createdAt: number[];   // parallel array; invariant: length === _messages.length
+
+  static createEmpty(date: string): Session;
+  static fromJSON(raw: unknown): Session;    // shape-validates, throws on malformed
+
+  get messages(): readonly ModelMessage[];    // read-only view for streamText / buildRequest
+  createdAtOf(msg: ModelMessage): number | undefined;  // encapsulates the indexOf lookup
+
+  appendTurn(messages: ModelMessage[], createdAtMs: number): void;
+  snapshot(): () => void;          // returns restore() — truncates both arrays back to snapshot lengths
+  toJSON(): { date: string; messages: ModelMessage[]; createdAt: number[] };
+}
+
+export interface SessionStore {
+  loadOrCreate(date: string): Promise<Session>;
+  save(session: Session): Promise<void>;
+}
+```
+
+- **Identity is `date`.** A `Session` is the conversation for one calendar day; the CLI never mutates `date` after construction. `loadOrCreate` returns a fresh empty session for unknown dates.
+- **Invariant `_messages.length === _createdAt.length`** is the class's job, not the caller's. `appendTurn` keeps it; `snapshot()` restores both arrays together; `fromJSON` validates it on load.
+- **`snapshot()` / `restore()` is the transactional seam.** Each `save` is wrapped: `snapshot → appendTurn → save → on-error restore`. Pure in-memory rollback; no file is touched in `restore`.
+- **`toJSON()` makes `JSON.stringify(session)` produce the same shape `fromJSON` consumes.** Roundtrip survives a parse without a separate mapper.
+- **No `node:fs` import in `packages/core/src/sessions.ts`.** Persistence lives behind `SessionStore`; core stays storage-agnostic so Phase 2a Web/Supabase can implement the same interface against the `messages` table.
+- Session switching (loading a past day's session and continuing) is **not** MVP. Today's session is loaded; older files sit on disk untouched.
+
+**`apps/cli/src/fs-session-store.ts` (new) — `class FsSessionStore implements SessionStore`:**
+
+- Constructed with `(vaultPath: string)`. Stores at `<vaultPath>/.keppt/sessions/<date>.json`.
+- `loadOrCreate(date)`: reads the file, returns `Session.fromJSON(JSON.parse(raw))`. On ENOENT returns `Session.createEmpty(date)`. Other errors propagate.
+- `save(session)`: **atomic write** via tmp + rename:
+  - `await mkdir(dirname(final), { recursive: true })`.
+  - Write JSON to `<final>.tmp.<pid>.<Date.now()>` in the same directory.
+  - `await rename(tmp, final)` — POSIX atomic replace within the same filesystem; closes the partial-write data-loss hole.
+  - `fsync` deliberately omitted — Phase 1 trades the post-crash data-loss window for throughput, same trade-off `cli-error-log.ts` already makes for JSONL appends.
 
 **Integration:**
-- `packages/core/src/request-builder.ts` (modified) — adds the `pruneToolResults(messages, { k: 5, fileVersionAt, messageCreatedAt })` call at the seam reserved in Task 4. New `opts` fields: `fileVersionAt` and `messageCreatedAt` (both required). `buildRequest` itself stays pure; the closures are constructed by the CLI.
-- `apps/cli/src/index.ts` (modified) — replace the in-memory `messages: ModelMessage[]` with `let session = await loadOrCreateSession(vaultPath, today)`. After each successful turn: `appendMessages(session, [pendingUser, ...response.messages], Date.now()); await saveSession(vaultPath, session)`. Build `fileVersionAt = (p) => { try { return fs.statSync(path.join(vaultPath, p)).mtimeMs; } catch { return undefined; } }` and `messageCreatedAt = (msg) => session.createdAt[session.messages.indexOf(msg)] ?? Date.now()` (with the obvious O(n) caveat — acceptable for K≤5 history sizes; see Open Issues if it ever matters).
-- Stream-error path keeps the existing `pendingUser` rollback contract from Task 3 (Decision 8 in `task-3-cli-vercel-ai-sdk.md`): if the stream aborts mid-turn, neither `appendMessages` nor `saveSession` runs — the session file on disk stays at its pre-turn state.
+- `packages/core/src/request-builder.ts` (modified) — adds the `pruneToolResults(messages, { k: 5, fileVersionAt, messageCreatedAt })` call at the seam reserved in Task 4. New `opts` fields: `fileVersionAt` and `messageCreatedAt` (both required). **`buildRequest` drops its `userMessage` parameter** — the user message is now part of `messages` (persisted before the call), so `buildRequest` no longer special-cases the last turn's user message. New shape: `({ today, profile, messages, fileVersionAt, messageCreatedAt }) → { system, messages: prunedMessages }`. `buildRequest` itself stays pure; the closures are constructed by the CLI.
+- `apps/cli/src/index.ts` (modified) — instantiate `FsSessionStore`, day-rollover guard per turn, snapshot/restore around each save:
+  ```ts
+  const store = new FsSessionStore(vaultPath);
+  let turnNow = new Date();
+  let session = await store.loadOrCreate(formatToday(turnNow));
+
+  // per turn:
+  turnNow = new Date();
+  const todayKey = formatToday(turnNow);
+  if (todayKey !== session.date) {
+    session = await store.loadOrCreate(todayKey);   // closes day-rollover gap
+  }
+
+  // Phase 1 (before stream) — rollback on save failure aborts the turn:
+  const restoreP1 = session.snapshot();
+  session.appendTurn([{ role: "user", content: line }], turnStartedAt);
+  try { await store.save(session); }
+  catch (err) { restoreP1(); /* log phase: "session_save_phase1", continue */ }
+
+  // ... streamText ...
+
+  // Phase 2 (after stream success) — rollback on save failure does NOT replay the stream:
+  const restoreP2 = session.snapshot();
+  session.appendTurn(response.messages, Date.now());
+  try { await store.save(session); }
+  catch (err) { restoreP2(); /* log phase: "session_save_phase2" */ }
+  ```
+  - `let session` (not `const`) is required for the day-rollover reassignment.
+  - `fileVersionAt = (p) => { try { return statSync(path.join(vaultPath, p)).mtimeMs; } catch { return undefined; } }` — unchanged.
+  - `messageCreatedAt = (msg) => session.createdAtOf(msg) ?? Date.now()` — was an inline `indexOf` in the previous plan; the lookup now lives in the class.
+- **Logging split** — session-save failures go to `cli-error-log.ts` with `phase: "session_save_phase1" | "session_save_phase2"`, distinct from `phase: "stream"`. A streamText exception means the model failed; a save exception means the model succeeded but we couldn't persist the answer. Conflating them defeats post-mortem.
+- **Stream-abort contract (replaces Task 3 Decision 8).** If the stream aborts mid-turn, Phase 2 does not run. The session file on disk retains the user message from Phase 1 but contains no assistant/tool messages from the aborted turn. This is a deliberate change from Task 3's "all-or-nothing per turn" rollback: it prepares the Phase 2 web/SSE flow where a closed browser tab / dropped connection must still show the user "you asked X" on reconnect, so the user knows to ask again. The structural property `session.messages.at(-1)?.role === "user"` becomes the "this turn was abandoned (or is in flight)" indicator, with no schema field needed.
 
 ### Acceptance
 
@@ -862,22 +942,30 @@ Vitest suite green:
 - **T4.1-AC-05:** `pruneToolResults` stubs a `tool-result` within the K-window when `fileVersionAt(filePath) > messageCreatedAt(toolMessage)` — version drift overrides the K-keep.
 - **T4.1-AC-06:** `pruneToolResults` is granular per file: with two recent reads on `inbox.md` and `focus.md` and `fileVersionAt` reporting drift only for `focus.md`, the focus tool-result is stubbed and the inbox tool-result stays.
 - **T4.1-AC-07:** `pruneToolResults` falls back to K-only for `list_files` / `search_files` results (no single `file_path` to look up); inside the K-window they stay verbatim, outside they are stubbed.
-- **T4.1-AC-08:** Session roundtrip: `loadOrCreateSession` in an empty vault creates a new session file (`<vaultPath>/.keppt/sessions/<today>.json` with `{ date, messages: [], createdAt: [] }`).
-- **T4.1-AC-09:** Session roundtrip: append + save → load returns identical `messages` and `createdAt` arrays.
+- **T4.1-AC-08:** `FsSessionStore.loadOrCreate` in an empty vault returns `Session.createEmpty(date)` (empty `messages`, no `createdAt` entries) and does NOT yet write the file. Materialization happens on `save`.
+- **T4.1-AC-09:** Session roundtrip: `appendTurn` + `store.save` → `store.loadOrCreate` returns a `Session` whose `messages` (compared deeply against the originals) and per-message `createdAtOf` lookups match.
 - **T4.1-AC-10:** Session roundtrip: new day → new session file at `<today2>.json`, while the original `<today1>.json` stays on disk.
-- **T4.1-AC-11:** Stream-abort safety: simulate an abort mid-turn via `AbortController.abort()` against `MockLanguageModelV4`; assert the on-disk session file is unchanged from its pre-turn state (no partial `pendingUser` write).
+- **T4.1-AC-11:** Stream-abort safety (two-phase save): simulate an abort mid-turn via `AbortController.abort()` against `MockLanguageModelV4`; assert the on-disk session file contains the user message of the aborted turn (Phase 1 save ran) **and no** assistant/tool messages from that turn (Phase 2 save did not run). The structural property `session.messages.at(-1)?.role === "user"` holds.
+- **T4.1-AC-12:** Happy-path two-phase save: after a successful turn against `MockLanguageModelV4`, the on-disk session file contains `[…pre-turn history, userMessage, …response.messages]` in order, with `createdAt.length === messages.length`.
+- **T4.1-AC-13:** `Session.snapshot()` + restore: a `restore()` closure obtained before `appendTurn` rolls `messages` and per-message `createdAtOf` lookups back to their pre-`appendTurn` state — including the "save throws after appendTurn" path the CLI uses for Phase-2 save-failure rollback. Closes the Codex high-severity finding.
+- **T4.1-AC-14:** Day-rollover: with a CLI loop that calls `formatToday(turnNow)` per turn and reloads `session` from the store on change, simulate two turns at UTC `2026-05-19T23:59:30Z` and `2026-05-20T00:00:30Z`; the second turn's messages land in `<vault>/.keppt/sessions/2026-05-20.json`, not `2026-05-19.json`. Day-1 file retains only day-1 messages.
+- **T4.1-AC-15:** Atomic write: `FsSessionStore.save` writes via `<final>.tmp.<pid>.<ts>` + `rename`. Assert via spy on `node:fs/promises.rename` that the final path is reached through a rename of a same-directory tmp file (not a direct `writeFile` to the final path). Closes the Codex non-atomic-write finding.
+- **T4.1-AC-16:** Same-turn read-then-edit drift: simulate a turn where `read_file("tasks/inbox.md")` ran before `edit_file("tasks/inbox.md")` in the same response, with the file's mtime bumped during the (mocked) stream. Phase 2 stamps response messages with `turnStartedAt` (not `Date.now()`); the next turn's `buildRequest`-driven pruner classifies the read as drift-invalidated and stubs it. Closes the Codex high-severity drift finding.
 
 ### Key Locations
 
 - `packages/core/src/tool-result-pruning.ts` (new)
-- `packages/core/src/sessions.ts` (new)
+- `packages/core/src/sessions.ts` (new — `class Session` + `interface SessionStore`, no `node:fs` import)
 - `packages/core/src/request-builder.ts` (modified — pruning seam activated)
 - `packages/core/src/__tests__/tool-result-pruning.test.ts` (new)
-- `packages/core/src/__tests__/sessions.test.ts` (new)
+- `packages/core/src/__tests__/sessions.test.ts` (new — `Session` class behavior: `appendTurn`, `snapshot`/restore, `toJSON`/`fromJSON` roundtrip, invariant enforcement, malformed-JSON rejection)
 - `packages/core/src/__tests__/request-builder.test.ts` (extended — assert pruning is called with `k: 5`)
-- `apps/cli/src/index.ts` (modified — session load/save replaces in-memory `messages`)
+- `apps/cli/src/fs-session-store.ts` (new — `FsSessionStore` with atomic tmp+rename `save`)
+- `apps/cli/test/fs-session-store.test.ts` (new — ENOENT → `createEmpty`, atomic write spy, roundtrip)
+- `apps/cli/src/index.ts` (modified — store DI, day-rollover guard, snapshot/restore around Phase-1 and Phase-2 saves, split error-log phases)
+- `apps/cli/test/two-phase-save.test.ts` (extended — AC-13 Phase-2-save rollback, AC-14 day-rollover)
 - `apps/cli/test/workspace-wiring.test.ts` (re-verified or extended if it hits the message path)
-- `docs/task-log/task-4.1-pruning-and-sessions.md` (post-implementation wrap-up)
+- `docs/task-log/task-4.1-pruning-and-sessions.md` (post-implementation wrap-up — includes the 2026-05-19 pre-commit redesign)
 
 ### Key Discoveries
 
@@ -887,8 +975,15 @@ Vitest suite green:
 - **`file_path` lives in the tool-call, not the tool-result.** The pruner joins `tool-result.toolCallId` to the previous assistant message's `tool-call.input.file_path`. `read_file`, `edit_file`, `write_file` all carry a single `file_path`. `list_files` and `search_files` don't and use the K-window only.
 - **K=5** per the architecture spec. Tunable, but fixed for MVP.
 - **Session switching is explicitly not an MVP feature.** Today's session file is loaded; past sessions just sit on disk and are not touched by the CLI. Phase 2a brings the UI for that.
-- **`.keppt/sessions/` uses the same direct-fs pattern as `.keppt/logs/`.** The GTD layout gate forbids `.keppt/` writes from the LLM. System code (sessions, error logs) bypasses the gate by writing through `fs/promises` directly — that's the correct shape, not a hack. `FileRepository` stays storage-only for LLM-visible files.
-- **Parallel `createdAt: number[]` array.** Keeps `messages: ModelMessage[]` an opaque value the SDK can consume without translation. The alternative (wrap each message in `{ message, createdAt }`) would force translation on every `streamText` call. Index-based lookup is O(n) but n ≤ K + active context, which is small in Phase 1.
+- **Session as a class, not a passive record (revised 2026-05-19).** The previous plan modeled `Session` as `interface Session { date, messages, createdAt }` with helper functions (`appendMessages`, `loadOrCreateSession`, `saveSession`) operating on it from outside. The Codex pre-commit review surfaced three bugs (Phase-2-save rollback, UTC day-rollover, non-atomic write) that all share the same root cause: callers were responsible for invariants the data structure should own. Specifically: (a) "remember to truncate `messages` and `createdAt` together on save failure", (b) "remember to compare `formatToday(turnNow)` against `session.date` per turn", (c) "remember that `messages.length === createdAt.length` must hold across mutations". All three are textbook anemic-domain-model symptoms — exactly the case where OOP wins over a passive record. The redesign moves the invariant + transactional append + snapshot/restore + identity-by-date into the `Session` class itself; the caller no longer reaches into `_messages` / `_createdAt`. The functional-record style is still the right shape for value objects (`ModelMessage`, `FilePath`) — but wrong for an entity with identity, mutable state, and an invariant, and the bug class is the proof.
+- **Persistence lives behind `SessionStore`, not direct `fs` in core (revised 2026-05-19).** The earlier plan ratified `sessions.ts` doing direct `fs` writes as "same pattern as `.keppt/logs/`". That justification was wrong on the wider lens: `cli-error-log.ts` lives in `apps/cli` (CLI-only persistence is fine there), but `sessions.ts` lived in `packages/core` — which is shared with the Phase-2a web/Supabase target where `node:fs` does not exist. The correct shape is `SessionStore` interface in core + `FsSessionStore` in `apps/cli` + `SupabaseSessionStore` in `apps/web` (Phase 2a). `FileRepository` continues to be the storage abstraction for LLM-visible vault files; `SessionStore` is the parallel abstraction for the system-owned session log.
+- **Atomic write via tmp + rename.** Direct overwrite of the session file was a data-loss risk: a crash, SIGKILL, or ENOSPC mid-`writeFile` would truncate the only durable conversation log. The standard POSIX pattern — write to `<final>.tmp.<pid>.<timestamp>`, then `rename` to the final path — gives an atomic replace within the same filesystem. `fsync` is omitted (same trade-off as `cli-error-log.ts` JSONL appends).
+- **Day-rollover handling.** `let session` (not `const`) at top of `main`, with a `formatToday(turnNow)` check per turn that reloads via the store when the day key changes. Without this guard, a long-running CLI that crosses UTC midnight would contaminate the previous day's session file with the new day's turns, and the expected `YYYY-MM-DD.json` for the new day would not appear until restart — despite `formatToday(turnNow)` already driving the system prompt and tool gate. Closed in this task; matches the spirit of the existing per-turn `turnNow` rebuild for `repo.now`.
+- **Parallel `createdAt: number[]` array (internal).** Keeps `messages: ModelMessage[]` an opaque value the SDK can consume without translation. The alternative (wrap each message in `{ message, createdAt }`) would force translation on every `streamText` call. The lookup is now encapsulated behind `Session.createdAtOf(msg)` (indexOf-based, O(n) but n ≤ K + active context).
+- **Two-phase save (user-first, response-after-success).** The CLI persists the user message immediately on receipt (Phase 1), then the assistant/tool response only after the stream completes successfully (Phase 2). Motivations: (a) prepares the Phase 2 web/SSE flow — on tab close / reconnect, the user sees their last question and infers "answer was lost, ask again" without any indicator field in the schema; `session.messages.at(-1)?.role === "user"` is the structural indicator. (b) `buildRequest` simplifies: with the user message already in `session.messages`, `buildRequest` drops its `userMessage` parameter and becomes a pure historical-messages transform. (c) **Both phases are now wrapped in `session.snapshot()` / `restore()`** — any in-memory mutation is reverted if its accompanying `store.save` rejects, closing the Codex high-severity finding that a failed Phase-2 save left assistant/tool state live in memory and would have persisted on the next successful turn's save. The Task 3 Decision 8 "rollback to pre-turn state" contract is **deliberately replaced** by this two-phase shape. Side-effect note: server/CLI-side tool calls (file edits) that ran before the abort *did* affect the vault even if the response message isn't persisted — that's correct, the vault is the truth, the session log is just the conversation transcript.
+- **Logging split for session-save failures.** Session-save errors land in `cli-error-log.ts` with `phase: "session_save_phase1" | "session_save_phase2"`, distinct from `phase: "stream"`. A `streamText` exception means the model failed; a save exception means the model succeeded but we couldn't persist the answer. Conflating them in the JSONL defeats post-mortem.
+- **Phase-2 timestamps use `turnStartedAt`, not `Date.now()` (added 2026-05-19, second Codex pass).** A second adversarial review flagged a high-severity drift bug: `Date.now()` was being captured *after* `await result.response`, which is after any same-turn `edit_file` had already bumped the file's mtime. The pruner's drift check (`fileVersionAt > messageCreatedAt`) would then return false next turn for the prior `read_file` tool-result, letting the LLM act on pre-edit state. Fix: stamp Phase-2 response messages with the `turnStartedAt` value captured immediately before `streamText` — guaranteed strictly less than any mtime produced during the turn, so the drift check fires correctly on read-then-edit-of-same-file. Granularity stays "all response messages share one stamp" — drift is per-file in the pruner (joined via `toolCallId → tool-call.input.file_path`), so a read of file A + unrelated edit of file B in the same turn does not cross-invalidate. Per-message stamping (capture during `for await (const part of result.fullStream)`) would be more precise but adds no correctness for this contract. See `apps/cli/src/index.ts` Phase-2 block comment.
+- **Multi-instance same-session concurrency is out of scope for Phase 1 (added 2026-05-19, second Codex pass).** A second adversarial review flagged that whole-session atomic replace still loses turns under concurrent CLI processes. Reframed after discussion: this is not primarily a persistence bug — it's an unhandled use case. Running two CLIs (or two future-Phase-2a clients) against the same `<vault>/<date>` simultaneously would produce *semantically incoherent LLM context* even with perfect persistence: each `streamText` call would see a stale snapshot of `session.messages`, each turn's answer would be generated without knowledge of the parallel turn, and the merged on-disk history would interleave two unrelated threads. Persistence-level locking would fix data-loss but not the semantic incoherence. The Phase 1 CLI is a **single-user single-instance testballoon**; the assumption is documented in `apps/cli/src/fs-session-store.ts` block comment on `save`. Phase 2a addresses both layers structurally — append-only `messages` rows (no load-modify-save) + `sessions.in_flight_turn_id` with SSE-broadcast turn-locking (one in-flight turn per session enforced at the API boundary). For Phase 1, a cheap pidfile-guard could be added if the use case ever materializes pre-Phase-2a; not done now because the use case does not exist.
 
 ---
 

@@ -1,17 +1,26 @@
 import { describe, expect, it } from "vitest";
-import type { ModelMessage } from "ai";
+import type {
+  AssistantModelMessage,
+  ModelMessage,
+  ToolCallPart,
+  ToolModelMessage,
+  ToolResultPart,
+} from "ai";
 
 import { buildRequest } from "../request-builder.js";
 
 const TODAY = new Date("2026-04-24");
+const NO_DRIFT = () => 0; // every file is "ancient" → no drift inside K-window.
+const ALWAYS_NOW = () => Date.now();
 
 describe("buildRequest", () => {
   it("returns a system prompt that carries the R-anchors plus the optional profile", () => {
     const result = buildRequest({
       today: TODAY,
       profile: "Prefers brevity. Works in Berlin time.",
-      messages: [],
-      userMessage: "Hello",
+      messages: [{ role: "user", content: "Hello" }],
+      fileVersionAt: NO_DRIFT,
+      messageCreatedAt: ALWAYS_NOW,
     });
 
     expect(result.system).toContain("[R1]");
@@ -23,8 +32,9 @@ describe("buildRequest", () => {
   it("omits the user-profile section when no profile is supplied", () => {
     const result = buildRequest({
       today: TODAY,
-      messages: [],
-      userMessage: "Hi",
+      messages: [{ role: "user", content: "Hi" }],
+      fileVersionAt: NO_DRIFT,
+      messageCreatedAt: ALWAYS_NOW,
     });
     expect(result.system).not.toContain("## User profile");
   });
@@ -33,50 +43,95 @@ describe("buildRequest", () => {
     const result = buildRequest({
       today: TODAY,
       profile: "   \n  ",
-      messages: [],
-      userMessage: "Hi",
+      messages: [{ role: "user", content: "Hi" }],
+      fileVersionAt: NO_DRIFT,
+      messageCreatedAt: ALWAYS_NOW,
     });
     expect(result.system).not.toContain("## User profile");
   });
 
-  it("passes prior messages through verbatim and appends the new user message", () => {
-    const prior: ModelMessage[] = [
+  it("does not append anything: messages flow through (after pruning) untouched in length", () => {
+    const messages: ModelMessage[] = [
       { role: "user", content: "first" },
       { role: "assistant", content: "ok" },
+      { role: "user", content: "second" },
     ];
     const result = buildRequest({
       today: TODAY,
-      messages: prior,
-      userMessage: "second",
+      messages,
+      fileVersionAt: NO_DRIFT,
+      messageCreatedAt: ALWAYS_NOW,
     });
-
-    expect(result.messages[0]).toEqual({ role: "user", content: "first" });
-    expect(result.messages[1]).toEqual({ role: "assistant", content: "ok" });
-    expect(result.messages[2]).toEqual({ role: "user", content: "second" });
     expect(result.messages).toHaveLength(3);
-  });
-
-  it("appends only the new user message when no prior history is supplied", () => {
-    const result = buildRequest({
-      today: TODAY,
-      messages: [],
-      userMessage: "hi",
-    });
-    expect(result.messages).toEqual([{ role: "user", content: "hi" }]);
+    expect(result.messages[2]).toEqual({ role: "user", content: "second" });
   });
 
   it("does not inject any vault content into `system` or `messages` (no active-state pre-load)", () => {
-    // Pruning-only contract (architecture amendment 2026-05-19): buildRequest
-    // is a pure transform — it must never read the vault. The LLM gets vault
-    // content via `read_file` tool calls only. Pinned by signature (no `repo`
-    // parameter) AND by behavior: no system-role message appears in the
-    // output, only the appended user message.
     const result = buildRequest({
       today: TODAY,
-      messages: [],
-      userMessage: "ping",
+      messages: [{ role: "user", content: "ping" }],
+      fileVersionAt: NO_DRIFT,
+      messageCreatedAt: ALWAYS_NOW,
     });
     expect(result.messages.every((m) => m.role !== "system")).toBe(true);
-    expect(result.messages).toHaveLength(1);
+  });
+
+  it("invokes pruneToolResults with k=5: 6 tool messages → the oldest one is stubbed, the newest 5 stay verbatim", () => {
+    // Structural pin on the seam wiring: if K were changed or pruning were
+    // bypassed, this assertion catches it. The drift channel is silenced
+    // (fileVersionAt → undefined) so only the K-rule fires.
+    const messages: ModelMessage[] = [];
+    for (let i = 0; i < 6; i++) {
+      const callId = `call-${i}`;
+      const callPart: ToolCallPart = {
+        type: "tool-call",
+        toolCallId: callId,
+        toolName: "read_file",
+        input: { file_path: `f-${i}.md` },
+      };
+      const assistant: AssistantModelMessage = {
+        role: "assistant",
+        content: [callPart],
+      };
+      const resultPart: ToolResultPart = {
+        type: "tool-result",
+        toolCallId: callId,
+        toolName: "read_file",
+        output: { type: "text", value: `content-${i}` },
+      };
+      const tool: ToolModelMessage = {
+        role: "tool",
+        content: [resultPart],
+      };
+      messages.push(assistant, tool);
+    }
+    messages.push({ role: "user", content: "ping" });
+
+    const result = buildRequest({
+      today: TODAY,
+      messages,
+      fileVersionAt: () => undefined,
+      messageCreatedAt: () => Date.now(),
+    });
+
+    const toolMessages = result.messages.filter(
+      (m): m is ToolModelMessage => m.role === "tool",
+    );
+    expect(toolMessages).toHaveLength(6);
+    // Oldest is stubbed.
+    expect(
+      (toolMessages[0]!.content[0] as ToolResultPart).output,
+    ).toEqual({
+      type: "text",
+      value:
+        "[Previous read_file result — superseded by current state; re-read if needed]",
+    });
+    // Newest 5 are verbatim.
+    for (let i = 1; i < 6; i++) {
+      expect((toolMessages[i]!.content[0] as ToolResultPart).output).toEqual({
+        type: "text",
+        value: `content-${i}`,
+      });
+    }
   });
 });

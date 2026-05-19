@@ -1,5 +1,8 @@
 import type { ModelMessage } from "ai";
 import { buildSystemPrompt } from "./system-prompt.js";
+import { pruneToolResults } from "./tool-result-pruning.js";
+
+const PRUNE_K = 5;
 
 export interface BuildRequestInput {
   today: Date;
@@ -10,12 +13,27 @@ export interface BuildRequestInput {
    */
   profile?: string;
   /**
-   * Conversation history so far. Task 4 passes this through verbatim;
-   * Task 4.1 will insert `pruneToolResults(messages)` at the marked seam
-   * below without changing this signature.
+   * Conversation history including the user message of the current turn.
+   * The CLI persists the user message before calling `buildRequest` (Phase 1
+   * of the two-phase save, see Task 4.1 plan), so this array already ends
+   * with the new user turn — `buildRequest` does not append anything.
+   *
+   * Accepted as `readonly` so callers can pass `Session.messages` directly
+   * without a cast; the pruner returns a fresh mutable array.
    */
-  messages: ModelMessage[];
-  userMessage: string;
+  messages: readonly ModelMessage[];
+  /**
+   * Returns the current version of the file at `filePath` (mtime in ms epoch
+   * locally, `files.updated_at` on the backend). Used by the pruner to decide
+   * which tool-results inside the K-window are drift-invalidated. Constructed
+   * by the caller.
+   */
+  fileVersionAt: (filePath: string) => number | undefined;
+  /**
+   * Returns the ms-epoch timestamp at which `msg` was appended to the session
+   * history. Used by the pruner to compare against `fileVersionAt(filePath)`.
+   */
+  messageCreatedAt: (msg: ModelMessage) => number;
 }
 
 export interface BuildRequestResult {
@@ -30,15 +48,14 @@ export interface BuildRequestResult {
  *   profile. It stays byte-identical across turns within a session, so a
  *   single ephemeral cache marker on the streamText call covers it plus the
  *   tool definitions.
- * - No active-state pre-load. Per the architecture amendment 2026-05-19
- *   (see `docs/specs/architecture.md` → "Request Architecture: How Each
- *   Message Is Built" and the Task 4 task-log Amendment), vault files are
- *   read on demand via `read_file`. Task 4.1's tool-result pruning keeps
- *   recent reads alive as the LLM's working snapshot and stubs old or
- *   drift-invalidated ones. Pure pass-through of `messages` until that lands.
+ * - `messages` is the pruned conversation history. The K=5 + per-file
+ *   version-drift contract is the LLM's only working snapshot of the vault
+ *   (architecture amendment 2026-05-19: no active-state pre-load).
+ *
+ * Pure synchronous transform — closures are injected by the caller, no I/O.
  */
 export function buildRequest(input: BuildRequestInput): BuildRequestResult {
-  const { today, profile, messages, userMessage } = input;
+  const { today, profile, messages, fileVersionAt, messageCreatedAt } = input;
 
   const systemParts: string[] = [buildSystemPrompt({ today })];
   if (profile && profile.trim().length > 0) {
@@ -46,13 +63,14 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   }
   const system = systemParts.join("\n");
 
-  // [Task 4.1 seam] Tool-result pruning will run on `messages` here before
-  // the user message is appended. Task 4 keeps this a pure pass-through —
-  // the `messages: ModelMessage[]` contract is what 4.1 extends, not modifies.
-  const prunedMessages = messages;
+  const prunedMessages = pruneToolResults(messages, {
+    k: PRUNE_K,
+    fileVersionAt,
+    messageCreatedAt,
+  });
 
   return {
     system,
-    messages: [...prunedMessages, { role: "user", content: userMessage }],
+    messages: prunedMessages,
   };
 }

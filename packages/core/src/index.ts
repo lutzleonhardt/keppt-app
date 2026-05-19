@@ -66,6 +66,12 @@ export {
   type BuildRequestResult,
 } from "./request-builder.js";
 export {
+  pruneToolResults,
+  type PruneToolResultsOptions,
+} from "./tool-result-pruning.js";
+export { Session, type SessionStore } from "./sessions.js";
+export { formatToday } from "./search.js";
+export {
   MAX_INPUT_CHARS,
   REJECTION_MESSAGE,
   validateUserInput,

@@ -1,14 +1,18 @@
 #!/usr/bin/env node
+import { statSync } from "node:fs";
 import { createInterface } from "node:readline";
+import path from "node:path";
 import { stdin, stdout } from "node:process";
 import { anthropic } from "@ai-sdk/anthropic";
 import { isStepCount, streamText, type ModelMessage } from "ai";
 import {
   buildRequest,
   buildTools,
+  formatToday,
   LocalFileRepository,
   MAX_INPUT_CHARS,
 } from "@gtd/core";
+import { FsSessionStore } from "./fs-session-store.js";
 import { appendCliErrorLog } from "./cli-error-log.js";
 import { createCliLogger } from "./cli-logger.js";
 import { formatCliError } from "./cli-errors.js";
@@ -48,7 +52,31 @@ async function main(): Promise<void> {
     now: () => turnNow,
     logger: cliLogger,
   });
-  const messages: ModelMessage[] = [];
+  // Session-backed history. The user message of each turn is persisted before
+  // the stream begins (Phase 1) so a mid-stream crash/abort/disconnect leaves
+  // the question visible on disk; the assistant/tool response is appended
+  // only on successful stream completion (Phase 2). See Task 4.1 plan.
+  const sessionStore = new FsSessionStore(vaultPath);
+  // `let` (not `const`) — the day-rollover guard reassigns this when the CLI
+  // crosses UTC midnight, so new turns land in today's session file rather
+  // than appending to yesterday's.
+  let session = await sessionStore.loadOrCreate(formatToday(turnNow));
+
+  // fileVersionAt: mtime of the file (ms epoch) for drift detection inside
+  // the K-window. Tool-result pruning consults this; undefined when the file
+  // is missing or stat fails (drift check then falls back to K-only).
+  const fileVersionAt = (filePath: string): number | undefined => {
+    try {
+      return statSync(path.join(vaultPath, filePath)).mtimeMs;
+    } catch {
+      return undefined;
+    }
+  };
+  // messageCreatedAt: parallel-array lookup encapsulated in the Session
+  // class. O(n) per call but n ≤ K + the active conversation window, which
+  // stays small in Phase 1.
+  const messageCreatedAt = (msg: ModelMessage): number =>
+    session.createdAtOf(msg) ?? Date.now();
 
   const rl = createInterface({ input: stdin, output: stdout, prompt: "> " });
 
@@ -109,11 +137,68 @@ async function main(): Promise<void> {
     turnNow = new Date();
     const tools = buildTools(repo, { now: () => turnNow, logger: cliLogger });
 
+    // Day-rollover guard. If the CLI has been running across UTC midnight,
+    // the session loaded at startup belongs to yesterday — new turns must
+    // land in today's `<vault>/.keppt/sessions/<today>.json`, not yesterday's.
+    const todayKey = formatToday(turnNow);
+    if (todayKey !== session.date) {
+      try {
+        session = await sessionStore.loadOrCreate(todayKey);
+      } catch (err) {
+        const log = await appendCliErrorLog(vaultPath, err, {
+          phase: "session_load_rollover",
+        });
+        const logSuffix = log.ok
+          ? `\nDetails logged to: ${log.path}`
+          : `\nCould not write error log (${log.path}): ${log.error}`;
+        terminal.errorSummary(
+          `\nSession load failed at day rollover: ${formatCliError(err)}${logSuffix}`,
+        );
+        activeAbort = null;
+        rl.resume();
+        rl.prompt();
+        continue;
+      }
+    }
+
+    // Phase 1 of the two-phase save: persist the user message before the
+    // stream begins so a mid-stream abort still leaves "you asked X" on disk.
+    // The structural property `session.messages.at(-1)?.role === "user"` is
+    // the indicator that an answer is missing — no schema field needed.
+    const pendingUser: ModelMessage = { role: "user", content: line };
+    const turnStartedAt = Date.now();
+    const restorePhase1 = session.snapshot();
+    session.appendTurn([pendingUser], turnStartedAt);
+    try {
+      await sessionStore.save(session);
+    } catch (err) {
+      // Roll back the in-memory append so the next turn does not build a
+      // prompt from a user message that never landed on disk. A failed
+      // Phase-1 save means we cannot reliably distinguish "answer lost"
+      // from "no question ever made it" on the next CLI start, so we
+      // refuse to proceed.
+      restorePhase1();
+      const log = await appendCliErrorLog(vaultPath, err, {
+        phase: "session_save_phase1",
+      });
+      const logSuffix = log.ok
+        ? `\nDetails logged to: ${log.path}`
+        : `\nCould not write error log (${log.path}): ${log.error}`;
+      terminal.errorSummary(
+        `\nSession save failed: ${formatCliError(err)}${logSuffix}`,
+      );
+      activeAbort = null;
+      rl.resume();
+      rl.prompt();
+      continue;
+    }
+
     try {
       const { system, messages: requestMessages } = buildRequest({
         today: turnNow,
-        messages,
-        userMessage: line,
+        messages: session.messages,
+        fileVersionAt,
+        messageCreatedAt,
       });
 
       const result = streamText({
@@ -167,7 +252,41 @@ async function main(): Promise<void> {
 
       terminal.endStream();
       const response = await result.response;
-      messages.push({ role: "user", content: line }, ...response.messages);
+      // Phase 2 of the two-phase save: response messages join the session
+      // only on successful completion. The user message landed on disk in
+      // Phase 1 already, so we append response messages alone here.
+      //
+      // **Stamp with `turnStartedAt`, NOT `Date.now()`.** The pruner's drift
+      // check stubs a tool-result when `fileVersionAt(file_path) >
+      // messageCreatedAt(msg)`. If we stamped post-stream, a same-turn
+      // `read_file → edit_file` sequence on the same file would produce a
+      // read whose timestamp is *after* the edit's mtime — drift returns
+      // false next turn, the stale read survives, the LLM acts on pre-edit
+      // state. `turnStartedAt` is captured before `streamText` and is
+      // therefore guaranteed strictly less than any file mtime produced
+      // *during* the turn, so the drift check fires correctly.
+      //
+      // Granularity note: this stamps every Phase-2 message with the same
+      // value, which is conservative — a read of file A and an unrelated
+      // edit of file B in the same turn won't cross-invalidate because the
+      // pruner's drift check is per-file (joined via `toolCallId` →
+      // `tool-call.input.file_path`).
+      const restorePhase2 = session.snapshot();
+      session.appendTurn(response.messages, turnStartedAt);
+      try {
+        await sessionStore.save(session);
+      } catch (err) {
+        restorePhase2();
+        const log = await appendCliErrorLog(vaultPath, err, {
+          phase: "session_save_phase2",
+        });
+        const logSuffix = log.ok
+          ? `\nDetails logged to: ${log.path}`
+          : `\nCould not write error log (${log.path}): ${log.error}`;
+        terminal.errorSummary(
+          `\nSession save failed after successful stream: ${formatCliError(err)}${logSuffix}`,
+        );
+      }
 
       if (DEBUG) {
         const usage = await result.totalUsage;
