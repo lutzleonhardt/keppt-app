@@ -10,7 +10,7 @@ import type {
 import { pruneToolResults } from "../tool-result-pruning.js";
 
 const STUB_PREFIX = "[Previous ";
-const STUB_SUFFIX = " result — superseded by current state; re-read if needed]";
+const AGE_STUB_SUFFIX = " result — superseded by current state; re-call if needed]";
 
 function readFileCall(toolCallId: string, filePath: string): AssistantModelMessage {
   const part: ToolCallPart = {
@@ -66,8 +66,29 @@ function isStubbed(msg: ModelMessage): boolean {
     (p) =>
       p.type === "tool-result" &&
       p.output.type === "text" &&
+      p.output.value.startsWith(STUB_PREFIX),
+  );
+}
+
+function isAgeStubbed(msg: ModelMessage): boolean {
+  if (msg.role !== "tool") return false;
+  return msg.content.some(
+    (p) =>
+      p.type === "tool-result" &&
+      p.output.type === "text" &&
+      p.output.value.endsWith(AGE_STUB_SUFFIX),
+  );
+}
+
+function isDriftStubbedFor(msg: ModelMessage, filePath: string): boolean {
+  if (msg.role !== "tool") return false;
+  return msg.content.some(
+    (p) =>
+      p.type === "tool-result" &&
+      p.output.type === "text" &&
       p.output.value.startsWith(STUB_PREFIX) &&
-      p.output.value.endsWith(STUB_SUFFIX),
+      p.output.value.includes(` result for ${filePath} — file has changed since`) &&
+      p.output.value.includes("do not paraphrase your own earlier summaries"),
   );
 }
 
@@ -85,11 +106,11 @@ describe("pruneToolResults", () => {
       messageCreatedAt: () => 500, // newer than fileVersion → no drift
     });
 
-    const toolMessages = result.filter((m) => m.role === "tool");
+    const toolMessages = result.messages.filter((m) => m.role === "tool");
     expect(toolMessages).toHaveLength(10);
-    // Oldest 5 stubbed.
+    // Oldest 5 age-stubbed (the K rule, not drift).
     for (let i = 0; i < 5; i++) {
-      expect(isStubbed(toolMessages[i]!)).toBe(true);
+      expect(isAgeStubbed(toolMessages[i]!)).toBe(true);
     }
     // Newest 5 verbatim.
     for (let i = 5; i < 10; i++) {
@@ -100,6 +121,8 @@ describe("pruneToolResults", () => {
         value: `content of inbox-${i}`,
       });
     }
+    // Age-stubs do NOT count as stale-in-window.
+    expect(result.staleFilesInWindow).toEqual([]);
   });
 
   it("T4.1-AC-02: leaves user and assistant-with-tool-call messages untouched", () => {
@@ -114,10 +137,11 @@ describe("pruneToolResults", () => {
       messageCreatedAt: () => 500,
     });
 
-    expect(result[0]).toBe(userMsg);
-    expect(result[1]).toBe(assistantCall);
+    expect(result.messages[0]).toBe(userMsg);
+    expect(result.messages[1]).toBe(assistantCall);
     // tool-result unchanged when within K and no drift.
-    expect(result[2]).toBe(tr);
+    expect(result.messages[2]).toBe(tr);
+    expect(result.staleFilesInWindow).toEqual([]);
   });
 
   it("T4.1-AC-03: leaves an assistant message with mixed text + tool-call parts unchanged", () => {
@@ -141,7 +165,7 @@ describe("pruneToolResults", () => {
       messageCreatedAt: () => 1,
     });
 
-    expect(result[0]).toBe(assistantMixed);
+    expect(result.messages[0]).toBe(assistantMixed);
   });
 
   it("T4.1-AC-04: preserves tool-error parts (output.type === 'error-text')", () => {
@@ -156,12 +180,13 @@ describe("pruneToolResults", () => {
       messageCreatedAt: () => 1,
     });
 
-    const tr = result[1] as ToolModelMessage;
+    const tr = result.messages[1] as ToolModelMessage;
     const part = tr.content[0] as ToolResultPart;
     expect(part.output).toEqual({
       type: "error-text",
       value: "FileNotFoundError: missing.md",
     });
+    expect(result.staleFilesInWindow).toEqual([]);
   });
 
   it("T4.1-AC-05: stubs a within-K tool-result when fileVersionAt > messageCreatedAt (drift overrides K-keep)", () => {
@@ -176,7 +201,8 @@ describe("pruneToolResults", () => {
       messageCreatedAt: () => 500, // older than fileVersion → drift
     });
 
-    expect(isStubbed(result[1]!)).toBe(true);
+    expect(isDriftStubbedFor(result.messages[1]!, "focus.md")).toBe(true);
+    expect(result.staleFilesInWindow).toEqual(["focus.md"]);
   });
 
   it("T4.1-AC-06: per-file granularity — drift on focus.md stubs that result; inbox.md result stays", () => {
@@ -193,14 +219,15 @@ describe("pruneToolResults", () => {
       messageCreatedAt: () => 500, // < focus version (drift), > inbox version (no drift)
     });
 
-    const inboxResult = result[1] as ToolModelMessage;
-    const focusResult = result[3] as ToolModelMessage;
+    const inboxResult = result.messages[1] as ToolModelMessage;
+    const focusResult = result.messages[3] as ToolModelMessage;
 
     expect((inboxResult.content[0] as ToolResultPart).output).toEqual({
       type: "text",
       value: "inbox content",
     });
-    expect(isStubbed(focusResult)).toBe(true);
+    expect(isDriftStubbedFor(focusResult, "focus.md")).toBe(true);
+    expect(result.staleFilesInWindow).toEqual(["focus.md"]);
   });
 
   it("T4.1-AC-07: list_files / search_files results stay verbatim within K (no file_path to look up); stubbed only when outside K", () => {
@@ -219,8 +246,8 @@ describe("pruneToolResults", () => {
       messageCreatedAt: () => 1,
     });
 
-    const toolMessages = result.filter((m) => m.role === "tool");
-    expect(isStubbed(toolMessages[0]!)).toBe(true); // oldest aged out
+    const toolMessages = result.messages.filter((m) => m.role === "tool");
+    expect(isAgeStubbed(toolMessages[0]!)).toBe(true); // oldest aged out
     for (let i = 1; i < 6; i++) {
       const msg = toolMessages[i] as ToolModelMessage;
       const part = msg.content[0] as ToolResultPart;
@@ -229,6 +256,8 @@ describe("pruneToolResults", () => {
         value: `listing-${i}`,
       });
     }
+    // list_files has no file_path — never appears in staleFilesInWindow.
+    expect(result.staleFilesInWindow).toEqual([]);
   });
 
   it("returns the same array reference shape (does not mutate inputs)", () => {
@@ -243,5 +272,27 @@ describe("pruneToolResults", () => {
       type: "text",
       value: "original",
     });
+  });
+
+  it("T4.2-AC-08: staleFilesInWindow lists drift-stubbed files in first-appearance order, deduped", () => {
+    // Two reads of focus.md (both drift) and one read of inbox.md (drift).
+    // Order in staleFilesInWindow should be insertion order: focus, inbox —
+    // and focus must not appear twice.
+    const messages: ModelMessage[] = [
+      readFileCall("c1", "focus.md"),
+      toolResult("c1", "read_file", "focus v1"),
+      readFileCall("c2", "inbox.md"),
+      toolResult("c2", "read_file", "inbox v1"),
+      readFileCall("c3", "focus.md"),
+      toolResult("c3", "read_file", "focus v2"),
+    ];
+
+    const result = pruneToolResults(messages, {
+      k: 5,
+      fileVersionAt: () => 9999, // every file drifts
+      messageCreatedAt: () => 1,
+    });
+
+    expect(result.staleFilesInWindow).toEqual(["focus.md", "inbox.md"]);
   });
 });

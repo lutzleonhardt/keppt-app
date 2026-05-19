@@ -119,6 +119,7 @@ export function buildSystemPrompt(ctx: BuildSystemPromptContext): string {
     `- **T-C3**  \`out_of_scope\` is by design — the path is permanently unwritable/unreadable under the GTD layout. Do NOT rename/rewrite the path; ask the user or pick an allowed one.  [T-C3]`,
     `- **T-C4**  \`write_file\` is for **create** or **full rewrite** only. For changes to existing files always \`edit_file\`.  [T-C4]`,
     `- **T-C5**  \`search_files\` defaults to \`scope: "active"\`. Use \`archive\` only when the user explicitly asks about old material; \`all\` is rarely right.  [T-C5]`,
+    `- **T-C6**  Tool-result reuse. If a recent non-stubbed \`read_file\` / \`list_files\` / \`search_files\` result for the same target is already in the conversation, answer from it — do not re-call the tool. Re-call only when (a) the prior result was replaced by a \`[Previous … superseded …]\` or \`[Previous … file has changed since …]\` stub, (b) a \`<context-note>\` on the latest user message names that target, or (c) the user explicitly asks for a refresh.  [T-C6]`,
     ``,
   ].join("\n");
 }

@@ -27,6 +27,26 @@ export interface PruneToolResultsOptions {
   messageCreatedAt: (msg: ModelMessage) => number;
 }
 
+export interface PruneToolResultsResult {
+  /** The conversation with stale or aged-out tool-results stubbed. */
+  messages: ModelMessage[];
+  /**
+   * File paths whose tool-results were stubbed due to drift inside the
+   * K-window — i.e. files the LLM still expects to "remember" but whose
+   * content has changed since. The caller turns these into a
+   * `<context-note>` reminding the LLM to re-read and not paraphrase its
+   * own earlier summaries (see Task 4.2 addendum).
+   *
+   * Age-stubbed tool-results are NOT included here: K-aged context is
+   * gone from the LLM's view anyway, and there is no meaningful
+   * "the user just asked about this file" affordance to surface.
+   *
+   * Paths are deduped and appear in the order their tool-result first
+   * appeared in the history.
+   */
+  staleFilesInWindow: string[];
+}
+
 /**
  * Stub aged-out or drift-invalidated tool results in a conversation history.
  *
@@ -52,7 +72,7 @@ export interface PruneToolResultsOptions {
 export function pruneToolResults(
   messages: readonly ModelMessage[],
   opts: PruneToolResultsOptions,
-): ModelMessage[] {
+): PruneToolResultsResult {
   const { k, fileVersionAt, messageCreatedAt } = opts;
 
   // Pre-pass: index every tool-call's file_path by toolCallId. tool-call
@@ -81,7 +101,10 @@ export function pruneToolResults(
       ? toolMessageIndices[toolMessageIndices.length - k]!
       : Number.NEGATIVE_INFINITY;
 
-  return messages.map((msg, idx) => {
+  const staleFilesInWindow: string[] = [];
+  const staleSeen = new Set<string>();
+
+  const next = messages.map((msg, idx) => {
     if (msg.role !== "tool") return msg;
 
     const isAgedOut = idx < ageCutoffIndex;
@@ -90,44 +113,81 @@ export function pruneToolResults(
     let mutated = false;
     const nextContent = msg.content.map((part) => {
       if (part.type !== "tool-result") return part;
-      if (!shouldStub(part, isAgedOut, createdAt, filePathByCallId, fileVersionAt)) {
-        return part;
-      }
+      const decision = classify(
+        part,
+        isAgedOut,
+        createdAt,
+        filePathByCallId,
+        fileVersionAt,
+      );
+      if (decision.kind === "keep") return part;
       mutated = true;
-      return stubPart(part);
+      if (decision.kind === "drift") {
+        if (!staleSeen.has(decision.filePath)) {
+          staleSeen.add(decision.filePath);
+          staleFilesInWindow.push(decision.filePath);
+        }
+        return stubDriftPart(part, decision.filePath);
+      }
+      return stubAgePart(part);
     });
 
     if (!mutated) return msg;
     return { ...msg, content: nextContent };
   });
+
+  return { messages: next, staleFilesInWindow };
 }
 
-function shouldStub(
+type StubDecision =
+  | { kind: "keep" }
+  | { kind: "age" }
+  | { kind: "drift"; filePath: string };
+
+function classify(
   part: ToolResultPart,
   isAgedOut: boolean,
   createdAt: number,
   filePathByCallId: Map<string, string | undefined>,
   fileVersionAt: (filePath: string) => number | undefined,
-): boolean {
+): StubDecision {
   // Errors carry information the LLM needs (e.g. match-failure currentContent
   // payloads). They are never stubbed.
   if (part.output.type === "error-text" || part.output.type === "error-json") {
-    return false;
+    return { kind: "keep" };
   }
-  if (isAgedOut) return true;
+  if (isAgedOut) return { kind: "age" };
   const filePath = filePathByCallId.get(part.toolCallId);
-  if (filePath === undefined) return false; // list_files / search_files / unknown
+  if (filePath === undefined) return { kind: "keep" }; // list_files / search_files / unknown
   const version = fileVersionAt(filePath);
-  if (version === undefined) return false; // file missing or stat failed
-  return version > createdAt;
+  if (version === undefined) return { kind: "keep" }; // file missing or stat failed
+  if (version > createdAt) return { kind: "drift", filePath };
+  return { kind: "keep" };
 }
 
-function stubPart(part: ToolResultPart): ToolResultPart {
+// Drift stub: imperative. The file has CHANGED since this read, so a
+// re-read is the only correct path. Naming the file and explicitly
+// disabling self-citation closes the Haiku-style failure mode where the
+// model paraphrases its own earlier summary instead of re-calling the
+// tool (see Task 4.2 addendum, session 2026-05-19).
+function stubDriftPart(part: ToolResultPart, filePath: string): ToolResultPart {
   return {
     ...part,
     output: {
       type: "text",
-      value: `[Previous ${part.toolName} result — superseded by current state; re-read if needed]`,
+      value: `[Previous ${part.toolName} result for ${filePath} — file has changed since. Call read_file before answering about its current state; do not paraphrase your own earlier summaries of this file in this conversation.]`,
+    },
+  };
+}
+
+// Age stub: looser. The content is gone from the window; the model
+// decides whether re-fetching is worth it for the current intent.
+function stubAgePart(part: ToolResultPart): ToolResultPart {
+  return {
+    ...part,
+    output: {
+      type: "text",
+      value: `[Previous ${part.toolName} result — superseded by current state; re-call if needed]`,
     },
   };
 }

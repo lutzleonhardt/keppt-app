@@ -366,7 +366,7 @@ describe("two-phase save", () => {
     expect(readPart.output).toEqual({
       type: "text",
       value:
-        "[Previous read_file result — superseded by current state; re-read if needed]",
+        "[Previous read_file result for tasks/inbox.md — file has changed since. Call read_file before answering about its current state; do not paraphrase your own earlier summaries of this file in this conversation.]",
     });
 
     // Regression pin: had Phase 2 stamped with `Date.now()` (post-stream),
@@ -387,7 +387,7 @@ describe("two-phase save", () => {
     expect(editPart.output).toEqual({
       type: "text",
       value:
-        "[Previous edit_file result — superseded by current state; re-read if needed]",
+        "[Previous edit_file result for tasks/inbox.md — file has changed since. Call read_file before answering about its current state; do not paraphrase your own earlier summaries of this file in this conversation.]",
     });
   });
 

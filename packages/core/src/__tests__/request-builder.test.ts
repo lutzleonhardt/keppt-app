@@ -118,13 +118,13 @@ describe("buildRequest", () => {
       (m): m is ToolModelMessage => m.role === "tool",
     );
     expect(toolMessages).toHaveLength(6);
-    // Oldest is stubbed.
+    // Oldest is age-stubbed.
     expect(
       (toolMessages[0]!.content[0] as ToolResultPart).output,
     ).toEqual({
       type: "text",
       value:
-        "[Previous read_file result — superseded by current state; re-read if needed]",
+        "[Previous read_file result — superseded by current state; re-call if needed]",
     });
     // Newest 5 are verbatim.
     for (let i = 1; i < 6; i++) {
@@ -133,5 +133,168 @@ describe("buildRequest", () => {
         value: `content-${i}`,
       });
     }
+  });
+
+  it("T4.2-AC-09: appends a <context-note> to the trailing user message when pruner reports stale files", () => {
+    // focus.md was read at t=100; mtime says it changed at t=500 → drift in K.
+    // The builder must surface this as a context-note glued onto the user's
+    // current question so the LLM sees the reminder in its recency window.
+    const callPart: ToolCallPart = {
+      type: "tool-call",
+      toolCallId: "c1",
+      toolName: "read_file",
+      input: { file_path: "tasks/focus.md" },
+    };
+    const assistant: AssistantModelMessage = {
+      role: "assistant",
+      content: [callPart],
+    };
+    const resultPart: ToolResultPart = {
+      type: "tool-result",
+      toolCallId: "c1",
+      toolName: "read_file",
+      output: { type: "text", value: "focus (stale)" },
+    };
+    const tool: ToolModelMessage = { role: "tool", content: [resultPart] };
+    const userMsg: ModelMessage = {
+      role: "user",
+      content: "Was steht im Fokus?",
+    };
+
+    const result = buildRequest({
+      today: TODAY,
+      messages: [assistant, tool, userMsg],
+      fileVersionAt: (p) => (p === "tasks/focus.md" ? 500 : undefined),
+      messageCreatedAt: () => 100, // older than fileVersion → drift
+    });
+
+    const last = result.messages.at(-1)!;
+    expect(last.role).toBe("user");
+    expect(typeof last.content).toBe("string");
+    const content = last.content as string;
+    expect(content).toContain("Was steht im Fokus?");
+    expect(content).toContain("<context-note>");
+    expect(content).toContain("- tasks/focus.md");
+    expect(content).toContain("Do not paraphrase your own earlier summaries");
+    expect(content).toContain("</context-note>");
+  });
+
+  it("T4.2-AC-10: does NOT attach a <context-note> when no drift in the K-window", () => {
+    // Same shape as AC-09 but no drift — file mtime older than read.
+    const callPart: ToolCallPart = {
+      type: "tool-call",
+      toolCallId: "c1",
+      toolName: "read_file",
+      input: { file_path: "tasks/focus.md" },
+    };
+    const assistant: AssistantModelMessage = {
+      role: "assistant",
+      content: [callPart],
+    };
+    const resultPart: ToolResultPart = {
+      type: "tool-result",
+      toolCallId: "c1",
+      toolName: "read_file",
+      output: { type: "text", value: "focus" },
+    };
+    const tool: ToolModelMessage = { role: "tool", content: [resultPart] };
+    const userMsg: ModelMessage = {
+      role: "user",
+      content: "Was steht im Fokus?",
+    };
+
+    const result = buildRequest({
+      today: TODAY,
+      messages: [assistant, tool, userMsg],
+      fileVersionAt: () => 50, // older than read → no drift
+      messageCreatedAt: () => 100,
+    });
+
+    const last = result.messages.at(-1)!;
+    const content = last.content as string;
+    expect(content).toBe("Was steht im Fokus?");
+    expect(content).not.toContain("<context-note>");
+  });
+
+  it("T4.2-AC-11: age-stubbed tool-results do NOT trigger a <context-note>", () => {
+    // 6 reads with K=5 → oldest is age-stubbed; fileVersionAt = undefined so
+    // no drift can be detected. Age stubs are not surfaced as notes.
+    const messages: ModelMessage[] = [];
+    for (let i = 0; i < 6; i++) {
+      const callId = `call-${i}`;
+      messages.push(
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: callId,
+              toolName: "read_file",
+              input: { file_path: `f-${i}.md` },
+            },
+          ],
+        } satisfies AssistantModelMessage,
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: callId,
+              toolName: "read_file",
+              output: { type: "text", value: `content-${i}` },
+            },
+          ],
+        } satisfies ToolModelMessage,
+      );
+    }
+    messages.push({ role: "user", content: "what now?" });
+
+    const result = buildRequest({
+      today: TODAY,
+      messages,
+      fileVersionAt: () => undefined,
+      messageCreatedAt: () => Date.now(),
+    });
+
+    const last = result.messages.at(-1)!;
+    expect((last.content as string)).toBe("what now?");
+  });
+
+  it("T4.2-AC-12: does not mutate the caller's messages array when injecting a note", () => {
+    const callPart: ToolCallPart = {
+      type: "tool-call",
+      toolCallId: "c1",
+      toolName: "read_file",
+      input: { file_path: "tasks/focus.md" },
+    };
+    const userMsg: ModelMessage = {
+      role: "user",
+      content: "Was steht im Fokus?",
+    };
+    const messages: ModelMessage[] = [
+      { role: "assistant", content: [callPart] },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c1",
+            toolName: "read_file",
+            output: { type: "text", value: "focus (stale)" },
+          },
+        ],
+      },
+      userMsg,
+    ];
+
+    buildRequest({
+      today: TODAY,
+      messages,
+      fileVersionAt: () => 500,
+      messageCreatedAt: () => 100,
+    });
+
+    // The session-owned user message is unchanged.
+    expect(userMsg.content).toBe("Was steht im Fokus?");
   });
 });

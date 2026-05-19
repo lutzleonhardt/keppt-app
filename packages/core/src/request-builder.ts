@@ -1,8 +1,17 @@
-import type { ModelMessage } from "ai";
+import type { ModelMessage, UserModelMessage } from "ai";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { pruneToolResults } from "./tool-result-pruning.js";
 
 const PRUNE_K = 5;
+
+/**
+ * A piece of out-of-band context attached to the current user turn as a
+ * `<context-note>` block on the last user message. Generic so future
+ * sources can flow through the same channel (session-start hint, day
+ * rollover mid-session, budget warning, …) — today only `stale-files`
+ * is produced, by the pruner.
+ */
+type ContextNote = { kind: "stale-files"; files: string[] };
 
 export interface BuildRequestInput {
   today: Date;
@@ -63,14 +72,83 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   }
   const system = systemParts.join("\n");
 
-  const prunedMessages = pruneToolResults(messages, {
+  const pruned = pruneToolResults(messages, {
     k: PRUNE_K,
     fileVersionAt,
     messageCreatedAt,
   });
 
+  const notes: ContextNote[] = [];
+  if (pruned.staleFilesInWindow.length > 0) {
+    notes.push({ kind: "stale-files", files: pruned.staleFilesInWindow });
+  }
+
+  const withNotes =
+    notes.length > 0
+      ? attachContextNotes(pruned.messages, notes)
+      : pruned.messages;
+
   return {
     system,
-    messages: prunedMessages,
+    messages: withNotes,
   };
+}
+
+// Render the active context notes as a single `<context-note>` block and
+// append it to the trailing user message's text. Anthropic disallows two
+// consecutive user messages, and the trailing user message is the one
+// the model is about to answer — appending here puts the note in the
+// model's recency window without changing message roles or breaking the
+// alternation contract. Phase-1 of the CLI's two-phase save guarantees
+// `messages.at(-1)?.role === "user"` whenever `buildRequest` runs.
+function attachContextNotes(
+  messages: readonly ModelMessage[],
+  notes: readonly ContextNote[],
+): ModelMessage[] {
+  const block = renderNotes(notes);
+  const out = messages.slice();
+  for (let i = out.length - 1; i >= 0; i--) {
+    const msg = out[i]!;
+    if (msg.role !== "user") continue;
+    out[i] = withAppendedText(msg, block);
+    return out;
+  }
+  // No user message in history — extremely defensive; in practice the CLI's
+  // two-phase save guarantees a trailing user turn. Fall through to a new
+  // synthesized user message so the note never silently vanishes.
+  out.push({ role: "user", content: block });
+  return out;
+}
+
+function withAppendedText(
+  msg: UserModelMessage,
+  appended: string,
+): UserModelMessage {
+  if (typeof msg.content === "string") {
+    return { ...msg, content: `${msg.content}\n\n${appended}` };
+  }
+  // Array content: append a fresh text part. We do not splice into an
+  // existing text part because UserContent parts can be of mixed types
+  // (text/image/file) and we want the note to be the last thing the
+  // model sees regardless of ordering.
+  return {
+    ...msg,
+    content: [...msg.content, { type: "text", text: appended }],
+  };
+}
+
+function renderNotes(notes: readonly ContextNote[]): string {
+  const lines: string[] = ["<context-note>"];
+  for (const note of notes) {
+    if (note.kind === "stale-files") {
+      lines.push(
+        "Files modified since you last read them this session:",
+        ...note.files.map((f) => `- ${f}`),
+        "",
+        "If the user is asking about their current contents, call read_file again before answering. Do not paraphrase your own earlier summaries of these files in this conversation — those summaries reflect a stale read.",
+      );
+    }
+  }
+  lines.push("</context-note>");
+  return lines.join("\n");
 }

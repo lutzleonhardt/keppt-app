@@ -68,6 +68,7 @@ export {
 export {
   pruneToolResults,
   type PruneToolResultsOptions,
+  type PruneToolResultsResult,
 } from "./tool-result-pruning.js";
 export { Session, type SessionStore } from "./sessions.js";
 export {

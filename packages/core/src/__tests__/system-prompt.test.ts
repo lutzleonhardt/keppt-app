@@ -19,11 +19,11 @@ describe("buildSystemPrompt", () => {
   // T4-AC-01b: the separate "## Tool conventions" section with five anchors.
   // Reinforces the tool-description-level rules and keeps GTD rules (R1–R13)
   // free of tool-protocol guidance.
-  it("contains a '## Tool conventions' section with five T-C anchors", () => {
+  it("contains a '## Tool conventions' section with all T-C anchors", () => {
     const prompt = buildSystemPrompt({ today: new Date("2026-04-24") });
 
     expect(prompt).toContain("## Tool conventions");
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 6; i++) {
       expect(prompt).toContain(`[T-C${i}]`);
     }
   });
