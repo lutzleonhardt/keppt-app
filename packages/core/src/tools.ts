@@ -299,6 +299,20 @@ export function buildTools(
   const logger = safeLog(options.logger ?? new NoopLogger());
   const today = (): string => formatToday(now());
   const failures: EditFailuresByFilePath = new Map();
+  // Open question — per-file size budget on read_file / edit_file / write_file.
+  // Three surfaces here are currently unbounded by design (Phase 1 single-user
+  // vault, worst case is one expensive turn, not data loss):
+  //   - read_file returns full file content verbatim.
+  //   - edit_file consumes the model-composed edits[] payload AND returns the
+  //     full currentContent on match-failure / retry_budget_exhausted.
+  //   - write_file consumes the full new-content payload as model-supplied input.
+  // Tracked in docs/specs/architecture.md → "Open question: Per-file size
+  // budget on read_file / edit_file / write_file" with explicit trigger
+  // conditions (real-vault read over ~8K tokens, Phase 2 backend, payload over
+  // ~16K chars) and a partial-read design sketch (grep_file + read_file
+  // offset/limit, à la Claude Code grep/head/tail but as first-class tools).
+  // Natural execution slot is Task 6 hardening or earlier if a trigger fires.
+  // Do not speculatively add a cap here — the spec is the source of truth.
   return {
     read_file: tool({
       description:

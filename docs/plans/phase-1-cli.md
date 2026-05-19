@@ -761,12 +761,11 @@ The "productization pass" over Task 3 (part 1). The inline code from Task 3 gets
 - Keep prompt length in mind (~1K tokens target, hard <2K)
 
 **`packages/core/src/request-builder.ts`:**
-- Export `buildRequest(opts: { repo, today, profile, messages, userMessage })` → `{ system, messages, tools, ... }`
-- Loads active files synchronously: `tasks/*.md` + `daily/YYYY-MM-DD.md` (if present)
-- Builds either a single "active state" system addendum message or injects the files as initial-context prefix in `system` — decision based on prompt caching (see below)
-- Calls `buildSystemPrompt` + appends profile + active files
+- Export `buildRequest(opts: { today, profile, messages, userMessage })` → `{ system, messages }`
+- Calls `buildSystemPrompt` + appends profile to `system`
 - Passes `messages` through verbatim — Task 4.1 inserts the `pruneToolResults` call here. Reserve the seam: comment in code that this is the pruning insertion point and the function-signature contract (`messages: ModelMessage[]`) is stable across the 4 → 4.1 boundary.
 - Appends the new user message
+- **No active-state pre-load.** The architecture-spec Request Block (`docs/specs/architecture.md` → "Request Architecture: How Each Message Is Built") explicitly drops the "Current GTD Files" block. The LLM reads vault files on demand via `read_file`; pruning (Task 4.1) keeps recent reads as the LLM's working snapshot. Rationale captured in the spec under "Why no pre-loaded current-files block" (resolves Codex review findings 1 + 2 from 2026-05-19: trust-boundary on user-editable content and missing size cap). `buildRequest` therefore does not take a `repo` parameter — it's a pure transform over `today`/`profile`/`messages`/`userMessage`.
 
 **Model selection:** *(deferred.)* The CLI keeps Task 3's hardcoded `anthropic("claude-haiku-4-5")` call. No `packages/core/src/model-router.ts` is introduced. See the Router-removal note above for the architectural reasoning. If Phase-1 smoke (Task 6) surfaces request classes where Haiku is materially worse, that's the trigger to revisit — not a green vitest on four phrases.
 
@@ -817,6 +816,7 @@ Vitest suite green:
 - **R12 session-start suggestion** is a text response in Phase 1 (no generative UI). The system prompt contains the state table from R12; the LLM decides which suggestion to make on the first turn of a new session.
 - **The input heuristic must not be too aggressive.** A task like "Write code review for PR #42" contains special chars but not in the proportions the heuristic rejects. Test cases cover honest edge cases.
 - **The pruning seam stays a no-op in Task 4.** `request-builder.ts` passes `messages` through verbatim so the public function signature `buildRequest({ ..., messages: ModelMessage[] })` is the contract Task 4.1 extends. No `pruneToolResults` import in Task 4 — leaving it out keeps the diff minimal and avoids a half-finished implementation in tree.
+- **No active-state pre-load (architecture amendment 2026-05-19).** The original Task 4 design loaded `tasks/*.md` + today's daily as a leading system-role message every turn. A post-implementation Codex review surfaced two no-ship findings: (1) elevating user-editable vault content to system-role authority opens a prompt-injection path against R1–R13 / tool rules, and (2) the per-turn vault snapshot had no size cap. Resolution: drop the pre-load entirely and rely on `read_file` + Task-4.1 pruning. Architecture spec updated in the same change. The per-tool size budget concern migrates to the spec's "Open question: Per-file size budget on read_file / edit_file / write_file" with trigger conditions for revisit and a partial-read design sketch (offset/limit + a new `grep_file` tool — Claude-Code-style but first-class, not bash).
 
 ---
 

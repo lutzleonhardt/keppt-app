@@ -1330,30 +1330,25 @@ Every user message triggers a fresh LLM request with this structure:
 │ User Profile (~500 tokens)                  │
 │ - Goals, context, preferences               │
 ├─────────────────────────────────────────────┤
-│ Current GTD Files (~2-3K tokens)            │
-│ - tasks/inbox.md                            │
-│ - tasks/focus.md                            │
-│ - tasks/next-actions.md                     │
-│ - tasks/waiting.md                          │
-│ - tasks/someday-maybe.md                    │
-│ - daily/YYYY-MM-DD.md (today's note)        │
-│ (loaded fresh per request — R4)             │
-│ Archive (on-demand, not in routine load):   │
-│ - archive/daily/*.md                        │
-├─────────────────────────────────────────────┤
 │ Conversation History (all text messages,    │
-│ old tool-results pruned to stubs)          │
+│ tool-calls preserved, old tool-results      │
+│ pruned to stubs)                            │
 │ - "Should I move it to Friday or Monday?"   │
 │ - "Friday" ← must know context              │
+│ - read_file("tasks/focus.md") tool-call     │
 │ - [pruned read_file result — re-read]       │
 │ - recent tool-results (last K msgs) intact  │
+│   ← LLM's working snapshot of vault state   │
 ├─────────────────────────────────────────────┤
 │ New User Message                            │
 └─────────────────────────────────────────────┘
-Total: ~6-8K input tokens (predictable, constant)
+Total: ~3-5K input tokens at session start,
+       grows with history (capped by pruning)
 ```
 
-**Key insight:** The GTD files are the real state, not the chat history. The files are re-read from Supabase on every request, so the LLM always operates on the current truth. The chat history is only needed for conversational context (follow-up questions, confirmations, follow-ups). Old tool-results are pruned to stubs (see "Context Management: Tool-Result Pruning") — text messages are preserved verbatim.
+**Key insight:** The GTD files are the real state, not the chat history. The LLM reads them via tool calls (R4 step 1 → `read_file`); recent tool-results (within the K-window and not drift-invalidated) survive in the conversation history and serve as the LLM's working snapshot. Pruning forces re-reads when content drifts or the snapshot ages out, so the LLM cannot operate on stale data. The chat history holds conversational context (follow-up questions, confirmations) verbatim — text messages are preserved 1:1; only old tool-result blocks become stubs. See "Context Management: Tool-Result Pruning".
+
+**Why no pre-loaded "current files" block:** An earlier draft pre-loaded the five task files + today's daily note as a leading message every turn. Removed because (a) it elevated user-editable vault content to system-role authority, opening a prompt-injection path against R1–R13 + tool rules; (b) it forced ~2–3K tokens of vault content into every turn outside the cache window, with no size cap; (c) it duplicated what `read_file` already does on demand, and the pruner already protects against stale snapshots in history. Pruning-only is strictly less surface for the same outcome — the LLM reads what it needs, snapshots survive K turns of working memory, and a drift or aged-out read forces a fresh tool call.
 
 ## Context Management: Tool-Result Pruning (instead of compaction)
 
@@ -1371,7 +1366,7 @@ Total: ~6-8K input tokens (predictable, constant)
    - **Version drift:** the file the block referenced has been modified since the block was produced — i.e. `file.updated_at > message.created_at`. Protects against stale snapshots when the user (or a later tool call in the conversation) changed the file outside the still-cached context. This is what catches the "user manually edits `inbox.md` in the web-app file editor between two chat messages" case.
 3. Stub format: `[Previous read_file("tasks/next-actions.md") result — superseded by current state; re-read if needed]`. `toolCallId` and `toolName` are preserved so the LLM still sees the call shape.
 4. Recent tool-results (within the last K messages **and** with no version drift) remain complete — relevant for ongoing multi-step operations and follow-up questions ("did I cover the milk task?").
-5. Active files are loaded fresh at the beginning of each request as before (implied by R4) — pruning operates on the **history**, not on the live state.
+5. No pre-loaded active-state block. The LLM reads vault files on demand via `read_file` (R4 step 1). The combination of "recent tool-results survive in history" + "old or drift-invalidated ones become stubs" is what gives the LLM a working snapshot without ever shipping a stale one. The first turn of a session pays one extra `read_file` round-trip; subsequent turns within K reuse the cached read for free.
 
 **Why both conditions, not just one:**
 - K alone leaves a window for stale snapshots when the user edits files between turns. The cached read survives the K-window and the LLM can quietly operate on outdated content.
@@ -1402,6 +1397,33 @@ Total: ~6-8K input tokens (predictable, constant)
 The `in_context` field is reinterpreted: `false` no longer means "was summarized away", but "is so far back that not even the tool call/text is in context anymore" (hard limit at e.g. 100 messages as a hard upper bound). `sessions.summary` is dropped in MVP.
 
 **Archive access unchanged:** When the user asks "What did I do last week about the VW call?", that triggers `search_files(..., scope: "archive")` or `read_file("archive/daily/2026-04-08.md")` — the archived daily notes and `file_history` are the source, not the chat messages.
+
+### Open question: Per-file size budget on read_file / edit_file / write_file
+
+Pruning bounds the **history** but does not bound any **single** tool round-trip. Three surfaces are currently unbounded:
+
+- `read_file` returns the full file content verbatim.
+- `edit_file` consumes the model-composed `edits[]` array (each `search`/`replace` is model-supplied) **and** — on match failure or retry-budget exhaustion — returns the full `currentContent` of the target file in the tool-result so the LLM can re-plan.
+- `write_file` consumes the full new-content payload as model-supplied input.
+
+A pathologically large daily note or task file (50K+ chars) makes every read or failed-edit round-trip proportionally expensive; a runaway model-composed payload (write_file or a giant edit_file edits[]) has no upper bound either. In Phase 1 the user owns their vault and the realistic worst case is a single expensive turn — not data loss. Not addressed in Phase 1; revisit when one of these triggers fires:
+
+- **A real Phase-1 vault produces a `read_file` result or `edit_file` `currentContent` return over ~8K tokens** in operational logs (the tools would emit a structured size warning so this is observable).
+- **Phase 2 backend lands**, where multi-user storage makes "user pastes huge file in editor" a routine input source.
+- **A `write_file` or `edit_file` payload exceeds a sane threshold** (~16K chars) — likely a sign the LLM is composing instead of editing.
+
+Sketch of the eventual design (not a commitment):
+
+- **Read path — partial reads instead of cap-and-truncate.** Instead of returning a truncated head when a file is too large, expose richer read affordances similar to Claude Code's `grep` + `head`/`tail` pattern, but as first-class tools (not bash):
+  - `read_file({ file_path, offset, limit })` — bounded slice read (line- or byte-based). Becomes the standard read with sensible defaults; full-file reads under the budget remain trivial.
+  - `grep_file({ file_path, pattern, context })` — regex-scoped read returning only matching lines + N lines of context. Lets the LLM ask "find the `next-actions` items mentioning VW" against a 200KB file without ever materializing the whole thing in context.
+  - When the underlying file exceeds the budget, `read_file` without `offset`/`limit` returns the first N chars plus an explicit `[truncated: file is X chars, showing first N — use offset/limit or grep_file to read the rest]` marker. The CLI surfaces a one-line user notice ("`tasks/inbox.md` is getting large — consider archiving completed items"). The LLM gets a usable head of the file and a structured signal that more exists.
+  - This generalises beyond just "the file is too big": partial reads are also the cheap path for "show me the focus header" or "give me the last 20 lines of the daily note" — useful even for normally-sized files.
+- **`edit_file` `currentContent` return.** Same head-cap + partial-read fallback. Important: the LLM uses `currentContent` to re-plan an edit, so the truncation marker must point it at `grep_file` or `read_file({ offset, limit })` for the region it actually needs — not just leave it stuck.
+- **Write path — structured rejection, not silent truncation.** `edit_file` / `write_file` reject payloads above a hard cap with a structured error (`reason: "payload_too_large"`, includes the cap), so the LLM either edits smaller or asks the user before overwriting. No silent truncation on writes — that would be data loss.
+- **User-facing.** Large-file notices ride the same surface as other operational warnings (Task-3.9 `cliLogger.warn` + a terse stderr line). Not a blocking error — the turn still completes.
+
+Captured here rather than implemented now per the "deterministic safety net + acceptable worst-case bound → document, don't speculatively harden" pattern. The natural execution slot is Task 6 (hardening) or earlier if a trigger fires. New-tool additions (`grep_file`, `read_file` offset/limit) are also a small surface expansion to the system-prompt / tool-conventions block — that update lands with the same change.
 
 ## LLM Provider Architecture: Vercel AI SDK
 

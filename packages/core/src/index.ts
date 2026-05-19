@@ -56,3 +56,18 @@ export {
   type Logger,
   type MemoryLogEntry,
 } from "./logging.js";
+export {
+  buildSystemPrompt,
+  type BuildSystemPromptContext,
+} from "./system-prompt.js";
+export {
+  buildRequest,
+  type BuildRequestInput,
+  type BuildRequestResult,
+} from "./request-builder.js";
+export {
+  MAX_INPUT_CHARS,
+  REJECTION_MESSAGE,
+  validateUserInput,
+  type InputValidationResult,
+} from "./input-validation.js";

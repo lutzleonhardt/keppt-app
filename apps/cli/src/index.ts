@@ -3,18 +3,22 @@ import { createInterface } from "node:readline";
 import { stdin, stdout } from "node:process";
 import { anthropic } from "@ai-sdk/anthropic";
 import { isStepCount, streamText, type ModelMessage } from "ai";
-import { buildTools, LocalFileRepository } from "@gtd/core";
+import {
+  buildRequest,
+  buildTools,
+  LocalFileRepository,
+  MAX_INPUT_CHARS,
+} from "@gtd/core";
 import { appendCliErrorLog } from "./cli-error-log.js";
 import { createCliLogger } from "./cli-logger.js";
 import { formatCliError } from "./cli-errors.js";
-import { buildMinimalSystemPrompt } from "./minimal-prompt.js";
 import {
   createStdTerminalOutput,
   type TerminalOutput,
 } from "./terminal-output.js";
 
-const MAX_INPUT_CHARS = 2000;
 const MAX_STEPS = 10;
+const DEBUG = process.env.DEBUG === "1";
 
 function requireEnv(name: string, terminal: TerminalOutput): string {
   const value = process.env[name];
@@ -73,6 +77,18 @@ async function main(): Promise<void> {
       rl.prompt();
       continue;
     }
+
+    // This CLI is a single-user internal testballoon — the "untrusted user
+    // repurposes the LLM" threat model does not apply here, so the full
+    // pre-LLM gate (validateUserInput) is intentionally NOT wired in. It
+    // also could not work correctly from readline anyway: a real multi-line
+    // paste arrives as separate line events, so the code-paste heuristic
+    // can never see the whole paste. That gate belongs at the WebUI / HTTP
+    // boundary where a submit delivers the complete payload at once.
+    //
+    // The hard length cap is kept as a cheap accidental-paste guard
+    // (token cost, cache-marker stability). It is not load-bearing — feel
+    // free to drop if it ever gets in the way.
     if (line.length > MAX_INPUT_CHARS) {
       terminal.errorSummary(
         `Input is ${line.length} characters; max ${MAX_INPUT_CHARS}. Break it up or summarize.`,
@@ -84,7 +100,6 @@ async function main(): Promise<void> {
     rl.pause();
     const controller = new AbortController();
     activeAbort = controller;
-    const pendingUser: ModelMessage = { role: "user", content: line };
 
     // Snapshot the turn clock so the system prompt and every tool call this
     // turn agree on "today" — see the tools' { now } closure below. Rebuild
@@ -93,25 +108,36 @@ async function main(): Promise<void> {
     // this turn must not block edits in the next turn.
     turnNow = new Date();
     const tools = buildTools(repo, { now: () => turnNow, logger: cliLogger });
-    const system = buildMinimalSystemPrompt(turnNow);
 
     try {
+      const { system, messages: requestMessages } = buildRequest({
+        today: turnNow,
+        messages,
+        userMessage: line,
+      });
+
       const result = streamText({
         model: anthropic("claude-haiku-4-5"),
         system,
-        messages: [...messages, pendingUser],
+        messages: requestMessages,
         tools,
         stopWhen: isStepCount(MAX_STEPS),
         abortSignal: controller.signal,
-        // Force the model to emit at most one tool call per step. The
-        // edit_file retry budget is a plain per-turn Map keyed by
-        // filePath, and the simplest correct counter assumes calls
-        // within a turn are sequential. With parallel tool use disabled
-        // the counter race goes away by construction (no in-flight
-        // queue, no abort-after-queue cancellation hazard, no
-        // false-block on concurrent successes). Multi-edit batches use
-        // edit_file's own edits[] array — atomic, single-call.
-        providerOptions: { anthropic: { disableParallelToolUse: true } },
+        // anthropic.disableParallelToolUse: true — force one tool call per
+        // step so the edit_file retry budget's per-turn Map (keyed by
+        // filePath) is race-free by construction. Pinned to first-key
+        // position by the workspace-wiring static check.
+        // anthropic.cacheControl: { type: "ephemeral" } — single marker
+        // covers the system prompt + tool definitions (the stable head of
+        // the request). Vault content arrives only via tool-results inside
+        // `messages` (architecture amendment 2026-05-19 — no active-state
+        // pre-load), so day-to-day edits don't invalidate the cached head.
+        providerOptions: {
+          anthropic: {
+            disableParallelToolUse: true,
+            cacheControl: { type: "ephemeral" },
+          },
+        },
         // The SDK default logs raw stream errors to stderr. The CLI logs the
         // raw diagnostic record to .keppt/logs and prints a stable summary.
         onError: () => {},
@@ -141,7 +167,21 @@ async function main(): Promise<void> {
 
       terminal.endStream();
       const response = await result.response;
-      messages.push(pendingUser, ...response.messages);
+      messages.push({ role: "user", content: line }, ...response.messages);
+
+      if (DEBUG) {
+        const usage = await result.totalUsage;
+        cliLogger.debug({
+          message: "prompt cache usage",
+          code: "prompt.cache_usage",
+          meta: {
+            cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+            cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+            noCacheTokens: usage.inputTokenDetails?.noCacheTokens,
+            outputTokens: usage.outputTokens,
+          },
+        });
+      }
     } catch (err) {
       if (controller.signal.aborted) {
         terminal.info("(stream aborted)");
