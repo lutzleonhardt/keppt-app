@@ -38,10 +38,12 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 4. System prompt R1-R13 + request builder + input heuristic + prompt caching (model routing deferred — see Task 4 block)
 4.1. Tool-result pruning + session persistence — Task-4 follow-up, split out 2026-05-18 during `/start-task 4` because the original Task 4 exceeded the `/plan` "diff + tests fit one commit" sizing rule. Task 4 ships the prompt/router/input/caching pipeline with the existing in-memory message array; Task 4.1 swaps that array for on-disk sessions and adds `pruneToolResults` to the request-builder. Reverse dependency forced: Task 4.1 edits `request-builder.ts` and `apps/cli/src/index.ts`, which Task 4 creates/rewrites. **Pre-commit redesign 2026-05-19:** a Codex adversarial review of the in-flight 4.1 diff flagged three concrete bugs (Phase-2-save rollback gap, UTC day-rollover contamination, non-atomic write) plus a layering smell (core writing through `node:fs` directly, unusable from the Phase-2a web/Supabase target). All four folded into 4.1 before commit — they sit inside 4.1's own artifacts. Result: `Session` reshaped from passive record into a class with encapsulated invariants + injectable `SessionStore`.
 4.2. Per-turn debug logging (request/response artifacts) — Task-4 follow-up, post-created 2026-05-19. Task 4 wired prompt caching and Task 4.1 wired tool-result pruning, but both are invisible at runtime. Adds a `TurnLogRecord` shape + `TurnLogger` interface in core (anchors a Phase-2a `SupabaseTurnLogger` for support/bug-report workflows — "user reports broken behaviour, support pulls the matching turn artifact" — without schema break) and a `DEBUG=1`-gated `FsTurnLogger` writing `<vault>/.keppt/logs/sessions/<date>/turn-NNN.json` artifacts containing the post-pruning request, per-step response breakdown, and `totalUsage`. Empirical-validation surface for `feedback_phase1_pragmatism` and a precondition for Task 6's real-API acceptance run.
+4.3. Tool-result reminder + GTD-prompt sharpening (R2/R9 + R14–R16) — Task-4 follow-up, post-created 2026-05-19 from a dogfooding session (`<vault>/.keppt/logs/sessions/2026-05-19/turn-003.json`) where Haiku, after three writes to `tasks/{inbox,next-actions,focus}.md`, never ran the R4 crosscheck and left the same three task strings in all three lists (R2 violation on Inbox). The same turn then surfaced a reflex-correction failure: when the user asked "ist das richtig?" about a compliant Daily-Plan state (R3+R9 allow checkbox copies), Haiku reverted to a non-checkbox bullet list and apologised — sycophancy under skeptical user pressure. Adds an optional `reminder` string on `WriteFileResult` / `EditFileResult` for canonical task-file and daily-note writes (low-cost salience boost, not a deterministic enforcement layer — model choice does the heavy lifting on compliance, see Task 4.3 Discoveries), plus five prompt edits closing the rule gaps the turn exposed: R2 carves Inbox down to unspecified/idea capture only (Haiku routed three obviously-NA tasks via Inbox because R2's "new → Inbox" implied otherwise), R9 makes Daily-Plan checkbox copies explicit (so a "correction" that strips checkboxes is no longer ambiguous), R14 acknowledges voice-dictated input (the user uses Whisper; "BuzzForex" earlier in this very thread was a homophone confusion), R15 blocks reflex-correction under skeptical questioning, R16 forbids GTD evangelism and explicit anchor-token citations in user-facing text (Haiku wrote "lass mich R3 nochmal erklären" — surfacing an internal marker as if it were product vocabulary). Opening line of the system prompt softens from "GTD assistant" to "task and note assistant" to stop priming the model into tutorial mode.
 5. Daily-note lifecycle (R5) + clock injection
 5.5. Vault readiness on turn start (`ensureVaultReady`: first-run task-file init + day rollover) — Task-5 follow-up, post-created after planning. Closes the gap that the original Task 5 left first-run task files non-existent and pre-created empty daily notes the user may never use, **and** closes the Task-3.5 follow-up Codex finding (medium): without rollover, the new `canRead` gate makes a stale `daily/<yesterday>.md` unreachable to `list_files`/`search_files`/`read_file` until rollover runs. See `docs/task-log/task-5.5-vault-readiness.md`.
 5.6. Future daily notes (today + future drafts) — Task-5.5 follow-up, post-created 2026-05-10 after a manual smoke-test surfaced that the LLM cannot read/write/list/search a user-pre-created `daily/<future>.md`. Relaxes the GTD layout gate from "exactly today" to "any `daily/YYYY-MM-DD.md` with `date >= today`", changes the rollover criterion to `date < today`, and patches a `search_files(scope: "all")` hole where future dailies fell through both active and archive scopes. Driven by the GTD ruleset (Active-Sync covers "today's/tomorrow's Daily Note plan", Weekly-Review step 8 prepares the next workday's note). See `docs/task-log/task-5.6-future-dailies.md`.
 6. End-to-end acceptance against real Claude API + vault
+7. Weekly Review interactive workflow (deferred placeholder) — post-created 2026-05-19. Captures the intent to port the richer Weekly-Review flow from the user's personal vault `CLAUDE.md` (group-by-theme Waiting with one question per cluster, propose-don't-walk for Next Actions, end-of-review self-reflection check) into the keppt-app system prompt. Deferred because the content is ~200 prompt tokens that only matters during an actual Weekly Review session — putting it in the always-on R1–R13 block would bloat the cached system head for negligible benefit on the 99% of turns that are not reviews. Open design question: how the review-mode content gets delivered (dedicated `weekly_review` tool that returns the protocol on call; intent-detected context-note injection like the `crosscheck-due` plumbing discussed under Task 4.3; or a separate review-mode session header). To be decided when scheduled — not blocking Phase 1.
 
 ---
 
@@ -1105,6 +1107,115 @@ Vitest suite green:
 
 ---
 
+## Task 4.3: Tool-result reminder + GTD-prompt sharpening (R2/R9 + R14–R16)
+
+> **Post-created 2026-05-19.** Dogfooding session `<vault>/.keppt/logs/sessions/2026-05-19/turn-003.json` exposed two parallel failures with Haiku 4.5: (1) state drift — after three task-file writes the R4 crosscheck never ran, leaving "Gassi gehen / Wäsche waschen / Wäsche bügeln" duplicated across `inbox.md`, `next-actions.md`, and `focus.md`; (2) reflex-correction — on the user's follow-up "ist das richtig?" about a Daily-Plan state that was actually R3/R9-compliant, Haiku reverted to a non-checkbox bullet list and apologised. Diagnosis after design discussion: deterministic enforcement (engine-side crosscheck, semantic ops, hidden synthetic messages, restricted tool sets) was deliberately rejected as over-engineering for Phase 1 — model choice (Sonnet 4.6 or DeepSeek V4 as candidate replacements for Haiku) is the realistic compliance lever, and the engine adds only a minimal salience hint. Five prompt edits close rule gaps the same turn exposed.
+>
+> Scope is deliberately tight — one code-side change plus targeted prompt edits. The richer Weekly-Review content from the user's personal vault `CLAUDE.md` is split out into Task 7 (deferred placeholder), because it only matters during review sessions and would bloat the always-cached system head.
+
+### Instructions
+
+**`packages/core/src/gtd-layout.ts` (modified):**
+- Export `isCanonicalTaskFile(filePath: string, today: string): boolean` — returns `true` for the five `TASK_FILES` entries and for `daily/${today}.md`, `false` otherwise. Shape mirrors `canWrite`'s decision but without throwing on invalid paths (the helper runs on already-validated paths from the tool layer and must not change the tool's error surface). Single source of truth so `writeFileTool` and `editFileTool` cannot drift from each other or from the existing write allowlist.
+
+**`packages/core/src/tools.ts` (modified):**
+- Extend `WriteFileResult.ok` variant: `{ ok: true; reminder?: string }`. `reminder` is set only when the write succeeds AND `isCanonicalTaskFile(filePath, today)` returns true.
+- Extend `EditFileResult.ok` variant: `{ ok: true; reminder?: string }`. Same condition.
+- Reminder text (constant, byte-stable for snapshot testing — define once at module scope, do not template per call):
+
+  ```
+  Task-relevant file modified. Before producing your final response,
+  verify R2/R3 invariants across the affected lists.
+  ```
+
+- Place the reminder set on the success-path return only, after `repo.write` / `repo.edit` resolves. Error paths return unchanged — the reminder is meaningless if the write didn't land.
+- No change to the failure variants. No change to `ReadFileResult`. No change to `searchFilesTool` / `listFilesTool`.
+- The Vercel AI SDK's tool-result serializer passes the full `EditFileResult` / `WriteFileResult` to the model. No additional wiring needed: the new `reminder` field shows up in the tool-result block automatically.
+
+**`packages/core/src/system-prompt.ts` (modified):**
+
+- **Opening line** — change from:
+
+  > `You are the user's GTD assistant for an Obsidian vault. The tools (read_file, edit_file, write_file, list_files, search_files) are your only access to it. Follow R1–R13.`
+
+  to:
+
+  > `You are the user's task and note assistant working in an Obsidian vault. The vault follows a structured method (R1–R16 below) — apply it silently. Most users do not know GTD; do not introduce the method, its terminology, or rule names unless asked. The tools (read_file, edit_file, write_file, list_files, search_files) are your only access to the vault.`
+
+- **R2 — Inbox semantics**: prepend a sentence before the existing Flow line clarifying that Inbox is *not* the default capture target. Final shape:
+
+  > `## R2 — Single-location invariant  [R2]`
+  > `A task lives in exactly one place. Move, don't copy. **Exception:** Focus and Next Actions may carry the same task (Focus is the weekly prioritization of a Next-Actions item) — mirror any change in one to the other.`
+  > ``
+  > `**Inbox is for unclear or half-formed capture only** — ideas, "muss ich noch sortieren", things that need processing before they're actionable. Specific, actionable tasks with a clear category go directly to Next Actions; skip Inbox. Flow only applies when the task starts unspecified: new (unclear) → Inbox; processed → Next Actions; prioritized → also Focus; blocked → Waiting (remove from Focus + Next Actions); no time pressure → Someday Maybe; done → check off / remove everywhere.`
+
+- **R4 — Slim**: replace the five-step protocol with a one-paragraph version that delegates the operational mechanics to the tool result's `reminder` field. Final shape:
+
+  > `## R4 — Crosscheck on task operations  [R4]`
+  > `Read affected lists before any create/complete/move/status change — never work from memory. Successful writes/edits to canonical task files (the five `tasks/*.md` and today's `daily/YYYY-MM-DD.md`) return a `reminder` in the tool result; honour it before producing your final text. The crosscheck verifies: task in exactly one place (Focus↔Next-Actions exception aside); Waiting removes from Focus + Next Actions; Done removes from Focus + Next Actions + Waiting; change in one of Focus/Next-Actions mirrors into the other; Inbox + Someday Maybe NOT checked here. Report deviations to the user — better over-report than let drift slip through.`
+
+- **R9 — Daily-Plan checkbox clarity**: extend the Plan-section description so the format is unambiguous. Final shape:
+
+  > `## R9 — Daily note format  [R9]`
+  > `Three sections: **Plan** (today's intent — items pulled from Focus/Next Actions + transient daily tasks; same checkbox format as the source lists, `- [ ]` / `- [x]`; the Plan's checkbox state is the day's provisional view, canonical status lives in Focus/Next Actions and is reconciled on sync), **Log** (chronological, timestamped), **Notes** (free).`
+
+- **R14 — Voice input** (new, append after R13):
+
+  > `## R14 — Voice input tolerance  [R14]`
+  > `User messages may be dictated via speech-to-text (Whisper et al.). Tolerate typos, missing punctuation, run-on sentences, and homophone confusions. When a task name, project reference, or wikilink target seems ambiguous or possibly misheard, ask one short clarifying question before committing to a file write — better to confirm than to invent.`
+
+- **R15 — User skepticism ≠ correction mandate** (new):
+
+  > `## R15 — User skepticism is a question  [R15]`
+  > `When the user asks "is X right?" / "stimmt das?" about a state you just produced, re-check against R1–R14 before changing anything. If the state is compliant, explain the rule briefly; do not "fix" a compliant state. If non-compliant, fix and acknowledge explicitly.`
+
+- **R16 — No method evangelism, no anchor citations** (new):
+
+  > `## R16 — No method evangelism  [R16]`
+  > `Behave like a task assistant, not a tutorial. Don't volunteer explanations of the system, GTD vocabulary, or rule names. **Never surface the internal anchors `[R1]`–`[R16]` or `[T-C1]`–`[T-C6]` in user-facing text** — they are for engineering only. When referring to lists, use them as plain nouns ("Focus", "Next Actions") without framing them as method concepts. Explain the system only when the user explicitly asks ("how does this work?", "warum landet das in Inbox?").`
+
+- Recompute the R-anchor sweep test (see Acceptance below): the loop bound moves from `i <= 13` to `i <= 16`.
+
+### Acceptance
+
+Vitest suite green:
+
+- **T4.3-AC-01:** `writeFileTool` against `tasks/inbox.md` (within `canWrite`) returns `{ ok: true, reminder: "Task-relevant file modified. Before producing your final response, verify R2/R3 invariants across the affected lists." }`. The reminder string is byte-identical to a constant exported from (or pinned to) `tools.ts`.
+- **T4.3-AC-02:** `writeFileTool` against each of `tasks/focus.md`, `tasks/next-actions.md`, `tasks/waiting.md`, `tasks/someday-maybe.md`, and `daily/${today}.md` returns the same reminder.
+- **T4.3-AC-03:** `editFileTool` returning `{ ok: true }` for the same paths attaches the same reminder string.
+- **T4.3-AC-04:** `writeFileTool` against an archive path (e.g. `archive/daily/2026-05-01.md`) returns `out_of_scope` unchanged — the reminder concept doesn't apply because the write didn't land.
+- **T4.3-AC-05:** `writeFileTool` against a future daily note (e.g. `daily/${today+1}.md` once Task 5.6 lands) attaches no reminder — the helper matches only today's daily note, mirroring `canWrite`'s "today only" predicate.
+- **T4.3-AC-06:** Error variants of both tools (`out_of_scope`, `invalid_path`, `match`, `retry_budget_exhausted`) carry no `reminder` field — the field is success-path-only.
+- **T4.3-AC-07:** `isCanonicalTaskFile` unit tests: returns true for the five `TASK_FILES` entries and for `daily/${today}.md`; false for `archive/daily/...`, `notes/foo.md`, future daily notes, and any path outside the GTD allowlist. Does not throw on inputs `canRead`/`canWrite` would reject (it never sees them — the helper runs on validated paths).
+- **T4.3-AC-08:** System prompt contains all 16 R-rule anchors (`[R1]` through `[R16]`) and still all 6 T-C anchors. The existing `for (let i = 1; i <= 13; i++)` test bound moves to 16; the T-C loop is unchanged.
+- **T4.3-AC-09:** System prompt opening line contains the phrase `"task and note assistant"` and does **not** contain `"GTD assistant"`.
+- **T4.3-AC-10:** System prompt contains the phrase `"Inbox is for unclear or half-formed capture only"` (R2 sentinel), `"same checkbox format as the source lists"` (R9 sentinel), `"may be dictated via speech-to-text"` (R14 sentinel), `"User skepticism is a question"` (R15 sentinel), and `"Never surface the internal anchors"` (R16 sentinel). These pin the rule bodies against accidental future deletion.
+- **T4.3-AC-11:** System prompt stays under the existing 8000-char hard cap (`expect(prompt.length).toBeLessThan(8000)`). The five new/expanded rules plus the softened opening add roughly +800–1000 chars; ample headroom remains.
+- **T4.3-AC-12:** No regression in T4-AC-01, T4-AC-01b, T4-AC-02, T4-AC-03 of the existing `system-prompt.test.ts` — all four pass after the edits, only the `R*` loop bound changes.
+
+### Key Locations
+
+- `packages/core/src/gtd-layout.ts` (modified — export `isCanonicalTaskFile(filePath, today): boolean`)
+- `packages/core/src/__tests__/gtd-layout.test.ts` (modified or new — unit tests for `isCanonicalTaskFile`)
+- `packages/core/src/tools.ts` (modified — `WriteFileResult`/`EditFileResult` `ok` variant gains `reminder?: string`; `writeFileTool`/`editFileTool` set it on canonical paths; reminder constant defined at module scope)
+- `packages/core/src/__tests__/tools.test.ts` (modified — `reminder` present/absent across success paths and across path classes; absent on all error paths)
+- `packages/core/src/system-prompt.ts` (modified — opening line, R2 expansion, R4 slim-down, R9 expansion, R14/R15/R16 added)
+- `packages/core/src/__tests__/system-prompt.test.ts` (modified — `for (let i = 1; i <= 13; i++)` becomes `i <= 16`; new sentinel-string assertions for R2/R9/R14/R15/R16 bodies; opening-line assertion)
+- `packages/core/src/index.ts` (modified — if `isCanonicalTaskFile` is re-exported alongside `canRead`/`canWrite`)
+- `docs/task-log/task-4.3-tool-reminder-and-prompt-sharpening.md` (post-implementation wrap-up)
+
+### Key Discoveries
+
+- **Reminder is a salience boost, not a determinism layer.** The design discussion explored deterministic alternatives (engine-side crosscheck with structured findings, hidden synthetic user messages, restricted-tool-set crosscheck tool, semantic ops replacing raw file primitives). All were rejected for Phase 1 because (a) the user's real task lists are large enough that Haiku-class compliance is likely the binding constraint regardless of engine guardrails, making model choice (Sonnet 4.6 / DeepSeek V4 candidates) the realistic lever, and (b) the deterministic options that survive scrutiny require solving task identity — string-match detection produces false positives on legitimately distinct same-text tasks ("Gassi gehen" at 06:00 vs. "Gassi gehen" at 18:00 are not necessarily duplicates). Reminder is the honest minimum that fits Phase-1 sizing.
+- **R16 keeps the `[R*]` bracket anchors rather than renaming to XML.** Renaming to `<R1>...</R1>` would have been a stronger structural signal to the model that anchors are framing, not vocabulary, but it would force a sweeping test rewrite (every snapshot, every loop bound, every grep target) for a behavioural delta that R16's explicit prohibition is expected to cover. If empirical sessions after this task land still show anchors leaking into user-facing text, rename in a follow-up — not pre-emptively per `feedback_phase1_pragmatism`.
+- **R2 framing was wrong, not just incomplete.** Pre-4.3, R2 said "Flow: new → Inbox; processed → Next Actions". In turn-003 Haiku followed that literally and routed three obviously-actionable tasks ("Gassi gehen", "Wäsche waschen", "Wäsche bügeln") through Inbox first, then forgot to clear it on the move. The fix isn't a stricter Inbox-cleanup rule; the fix is recognising that Inbox is the wrong destination for specific tasks in the first place. R2 now distinguishes "unclear capture (Inbox)" from "actionable capture (Next Actions directly)" — closes the rule gap rather than papering over the symptom.
+- **R4 slim-down depends on the reminder existing.** Pre-4.3 R4 was a five-step prose protocol; post-4.3 it leans on the tool result to surface the obligation at the right moment. If the reminder gets pulled in a future refactor, R4 will lose its operational anchor and need to be re-expanded. The two changes are mechanically coupled even though they sit in different files — the tool result and the prompt rule reference the same word ("reminder") deliberately.
+- **Sentinel-string assertions in tests, not full snapshots.** The plan deliberately avoids `toMatchSnapshot` against the full system prompt because every prompt iteration would regenerate the snapshot and lose the assertion power. Instead each new/changed rule gets one short sentinel substring (e.g. `"Inbox is for unclear or half-formed capture only"`) that pins the rule body against accidental deletion without locking the surrounding phrasing.
+- **Opening-line framing matters more than rule body.** In turn-003 Haiku used phrases like "Excellent question!" and "lass mich R3 nochmal erklären" — both signatures of a model primed to perform tutorial competence. The pre-4.3 opening line "You are the user's GTD assistant" reinforces that priming. The post-4.3 opening ("task and note assistant ... apply it silently ... most users do not know GTD") rewires the persona before any rule fires. R16 catches the residual cases; the opening line catches the default tendency.
+- **Why not also port the Vault's Weekly-Review detail here.** The user's personal vault `CLAUDE.md` carries ~200 prompt tokens of richer Weekly-Review choreography (group Waiting by theme, propose-don't-walk for Next Actions, end-of-review self-reflection). Folding it into R7 here would inflate the always-cached system head for content that matters in ~1% of turns. Split into Task 7 with an open delivery question (dedicated `weekly_review` tool returning the protocol on call vs. context-note injection vs. mode-specific header).
+
+---
+
 ## Task 5: Daily-note lifecycle (R5) + clock injection
 
 ### Instructions
@@ -1419,6 +1530,47 @@ daily/{today}.md: (empty)
 - **Lost-task detector:** the sum of all unique task strings across all lists (incl. archived and done) is monotonically non-decreasing. If this invariant breaks, the system has lost a task — that is the core trust risk from the product spec.
 - **Scenario 6 (day change) only works thanks to Task 5 clock injection.** Without `GTD_NOW_OVERRIDE`, day change would not be reproducibly testable.
 - **The tests must be robust against model updates.** If Haiku answers differently in 6 months, the tests should still pass — hence property assertions instead of text matches.
+
+---
+
+## Task 7: Weekly Review interactive workflow (deferred placeholder)
+
+> **Post-created 2026-05-19. Placeholder — not yet specced.** Captures the intent to port the richer Weekly-Review choreography from the user's personal vault `CLAUDE.md` into the keppt-app product so review sessions actually feel like a review and not a passive list-walk. Held out of Task 4.3 because the content is ~200 prompt tokens that only matter in ~1% of turns, and putting it in the always-cached R1–R16 head would bloat every regular turn for no benefit. To be designed and scheduled when Phase 1 acceptance (Task 6) is green and real-session feedback indicates the simpler Weekly-Review behaviour from current R7 is insufficient.
+
+### What needs to land (content)
+
+The Vault `CLAUDE.md`'s Weekly-Review section (see `/home/lutz/Dokumente/Lutz Vault/CLAUDE.md` "Weekly Review" — Schritte 1–9 plus the Pflicht-Hinweis) carries three behaviours that the current R7 collapses to a single sentence:
+
+1. **Group-by-theme Waiting review.** Cluster Waiting entries thematically (Outreach, Geld/Carrier, Haus/Handwerker, Behörden, etc.) and ask **one** status question per cluster rather than walking each entry. User responds in a block; assistant executes the consequences (check off, move to Next Actions, generate nag-task, keep waiting).
+2. **Propose-don't-walk for Next Actions → Focus.** Assistant reads Next Actions and surfaces a concrete proposal: 3–5 items for the new Focus plus a Leitmotiv for the week, derived from cash pressure, deadlines, and stale-but-stubborn items, with a one- to two-line justification each. User reacts with veto/swap/addition — assistant does **not** walk every NA entry.
+3. **End-of-review self-reflection.** After the review steps, assistant explicitly reflects whether steps 2 and 5 (Waiting group review, Focus proposal) actually happened interactively or only as passive listing. If passive, the review was not complete — surface that.
+
+Also worth folding in: the Vault's "PFLICHT: Token-Kosten sind akzeptabel"-framing, since Weekly Review is the one workflow where the user has explicitly authorised extra tokens for thoroughness.
+
+### Open design question — how the content gets delivered
+
+The keppt-app prompt budget is ~1K tokens target / <2K hard cap (cf. `system-prompt.test.ts` AC). Permanently embedding ~200 review-only tokens in R1–R16 would push the head toward the cap and dilute salience on every non-review turn. Three candidate mechanisms, no decision yet:
+
+- **(a) Dedicated `weekly_review` tool that returns the protocol on call.** Model recognises "Weekly Review" intent (R10), calls the tool, gets the full multi-step protocol as the tool result, follows it. Pros: zero impact on the cached system head; the protocol only enters context when needed. Cons: introduces a tool whose only purpose is to return a string, which is structurally odd (tools are normally for side effects); model must remember to call it; an intent-mismatch (user said "review" colloquially without meaning Weekly Review) might fire the tool needlessly.
+- **(b) Context-note injection on intent detection.** Same plumbing as the `stale-files` context-note (`packages/core/src/request-builder.ts:104` `attachContextNotes`) — extend the `ContextNote` union with `{ kind: "weekly-review-mode"; ... }`, fire it when the engine detects "Weekly Review"-class intent in the user message (Friday + relevant phrasing + R7 marker stale), and the rendered block carries the protocol. Pros: reuses an already-proven channel; detection logic stays in code, not LLM; salience peaks at the right turn. Cons: intent detection is a separate piece of code with its own correctness surface; the union starts to do many things.
+- **(c) Mode-specific session header.** A user-typed command (or detected intent) flips the session into "weekly-review mode" for that session; the engine prepends an extra system block carrying the protocol. Pros: explicit, opt-in. Cons: new mode concept, new session field; user has to remember the command.
+
+Decision deferred to the task itself. Likely (b) wins on consistency with the existing plumbing, but (a) wins on cache stability — the empirical answer depends on how often Weekly Review is invoked relative to ordinary turns.
+
+### Open question — R7 R11/R12 reconciliation
+
+Current R7 (current shape, pre- and post-Task-4.3) already carries the Marker-Date-Logic for "skip proposal inside current ISO week, propose if marker > 8 days old or missing". R11/R12 reference it. Adding the deeper protocol means deciding whether the protocol text replaces R7 entirely (it grows from one paragraph to ten) or sits alongside as a separately-triggered surface. The marker logic almost certainly stays in R7 because it's a date computation R11/R12 reference, but the step-by-step protocol probably moves to the new delivery channel.
+
+### Out of scope for this placeholder
+
+- The actual implementation of any of (a)/(b)/(c).
+- The protocol's exact wording — port-then-tighten from the Vault, but the wording lives in the eventual task plan, not here.
+- Any code changes. This is intent-capture only.
+- LinkedIn-Posts integration from the Vault — that's vault-specific user content, not product behaviour.
+
+### When to schedule
+
+After Task 6 (real-API acceptance) lands and one or two real Weekly-Review sessions have been run against the current R7 — if those sessions feel passive/list-walking rather than interactive, this task takes priority over the next planned feature. If the simpler R7 actually feels adequate in real use, this task can be deprioritised or merged into a future "review polish" pass.
 
 ---
 
