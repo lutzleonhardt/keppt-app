@@ -1486,6 +1486,8 @@ The app pays for every LLM call. One user pasting code, essays, or entire docume
 - **Content heuristic**: If the input looks like code (brackets, semicolons, indentation patterns), a full document, or a long paste — reject with a friendly message: "That doesn't look like a task request. I'm your GTD assistant — what can I do for your tasks?"
 - **File content stays server-side**: The LLM reads the user's GTD files from Supabase. The user never needs to paste file content into the chat.
 
+**Where the gate lives.** `validateUserInput` (in `@gtd/core/input-validation`, `packages/core/src/input-validation.ts`) is a *transport-boundary* function — invoke it once per **complete** user submission (WebUI `<textarea>` submit, HTTP endpoint), **not** per readline line. The code-paste heuristic only works when it sees the whole paste in one call; a per-line caller misses multi-line pastes that arrive pre-split. Run the gate before `buildRequest` / `streamText`; on reject, skip the LLM call entirely and return `REJECTION_MESSAGE` to the user. The Phase-1 CLI deliberately bypasses the heuristic (single-user testballoon, no "untrusted user repurposes the LLM" threat model) and uses only the `MAX_INPUT_CHARS` length cap inline.
+
 **Rate Limiting (per user, per tier):**
 
 |Tier|Messages/Day|Messages/Hour|Max Input Length|
@@ -1653,7 +1655,7 @@ Validate the core hypothesis: do the prompts work? Is the GTD system usable via 
 - Crosscheck engine (R4: after every operation, diff reporting in the chat)
 - Daily Note lifecycle (R5: active vs. archive, cleanup of past notes)
 - Daily plan generation
-- Input validation (content heuristic against abuse)
+- Input-validation module (`@gtd/core/input-validation`) — implemented and unit-tested, but **deliberately not wired into the CLI** (single-user testballoon scope; see "Abuse Protection & Rate Limiting" for the call-site contract). Activated at the HTTP boundary from Phase 2a onward. The CLI keeps only an inline `MAX_INPUT_CHARS` length cap.
 
 **Deliverable:** A CLI that does everything the later app can do, minus UI. Daily dogfooding against the own Obsidian vault.
 
@@ -1800,7 +1802,7 @@ Only when the app is feature-complete and beta-tested does payment and the App S
 
 **2c.4: Abuse protection (production-grade)**
 
-- Input validation (content heuristic, max character length)
+- Input validation — production hardening of the existing `@gtd/core/input-validation` module (tier-specific length caps from the rate-limit table, telemetry on rejects, anomaly counters). The function and heuristic already exist from Phase 1; new here are the tier-specific limits and observability.
 - Per-user rate limiting (tier-based)
 - Token budget tracking + alerting
 - Anomaly detection (user consumes 10x average)
