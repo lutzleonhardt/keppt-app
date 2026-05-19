@@ -37,6 +37,7 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 3.9. Shared logging abstraction — Task-3 follow-up, post-created 2026-05-09 from the operational logging architecture decision. Introduces a runtime-neutral `Logger`/`LogEvent` contract, keeps `packages/core` free of `console.*`, and moves CLI terminal output vs. diagnostics behind explicit adapters.
 4. System prompt R1-R13 + request builder + input heuristic + prompt caching (model routing deferred — see Task 4 block)
 4.1. Tool-result pruning + session persistence — Task-4 follow-up, split out 2026-05-18 during `/start-task 4` because the original Task 4 exceeded the `/plan` "diff + tests fit one commit" sizing rule. Task 4 ships the prompt/router/input/caching pipeline with the existing in-memory message array; Task 4.1 swaps that array for on-disk sessions and adds `pruneToolResults` to the request-builder. Reverse dependency forced: Task 4.1 edits `request-builder.ts` and `apps/cli/src/index.ts`, which Task 4 creates/rewrites. **Pre-commit redesign 2026-05-19:** a Codex adversarial review of the in-flight 4.1 diff flagged three concrete bugs (Phase-2-save rollback gap, UTC day-rollover contamination, non-atomic write) plus a layering smell (core writing through `node:fs` directly, unusable from the Phase-2a web/Supabase target). All four folded into 4.1 before commit — they sit inside 4.1's own artifacts. Result: `Session` reshaped from passive record into a class with encapsulated invariants + injectable `SessionStore`.
+4.2. Per-turn debug logging (request/response artifacts) — Task-4 follow-up, post-created 2026-05-19. Task 4 wired prompt caching and Task 4.1 wired tool-result pruning, but both are invisible at runtime. Adds a `TurnLogRecord` shape + `TurnLogger` interface in core (anchors a Phase-2a `SupabaseTurnLogger` for support/bug-report workflows — "user reports broken behaviour, support pulls the matching turn artifact" — without schema break) and a `DEBUG=1`-gated `FsTurnLogger` writing `<vault>/.keppt/logs/sessions/<date>/turn-NNN.json` artifacts containing the post-pruning request, per-step response breakdown, and `totalUsage`. Empirical-validation surface for `feedback_phase1_pragmatism` and a precondition for Task 6's real-API acceptance run.
 5. Daily-note lifecycle (R5) + clock injection
 5.5. Vault readiness on turn start (`ensureVaultReady`: first-run task-file init + day rollover) — Task-5 follow-up, post-created after planning. Closes the gap that the original Task 5 left first-run task files non-existent and pre-created empty daily notes the user may never use, **and** closes the Task-3.5 follow-up Codex finding (medium): without rollover, the new `canRead` gate makes a stale `daily/<yesterday>.md` unreachable to `list_files`/`search_files`/`read_file` until rollover runs. See `docs/task-log/task-5.5-vault-readiness.md`.
 5.6. Future daily notes (today + future drafts) — Task-5.5 follow-up, post-created 2026-05-10 after a manual smoke-test surfaced that the LLM cannot read/write/list/search a user-pre-created `daily/<future>.md`. Relaxes the GTD layout gate from "exactly today" to "any `daily/YYYY-MM-DD.md` with `date >= today`", changes the rollover criterion to `date < today`, and patches a `search_files(scope: "all")` hole where future dailies fell through both active and archive scopes. Driven by the GTD ruleset (Active-Sync covers "today's/tomorrow's Daily Note plan", Weekly-Review step 8 prepares the next workday's note). See `docs/task-log/task-5.6-future-dailies.md`.
@@ -984,6 +985,123 @@ Vitest suite green:
 - **Logging split for session-save failures.** Session-save errors land in `cli-error-log.ts` with `phase: "session_save_phase1" | "session_save_phase2"`, distinct from `phase: "stream"`. A `streamText` exception means the model failed; a save exception means the model succeeded but we couldn't persist the answer. Conflating them in the JSONL defeats post-mortem.
 - **Phase-2 timestamps use `turnStartedAt`, not `Date.now()` (added 2026-05-19, second Codex pass).** A second adversarial review flagged a high-severity drift bug: `Date.now()` was being captured *after* `await result.response`, which is after any same-turn `edit_file` had already bumped the file's mtime. The pruner's drift check (`fileVersionAt > messageCreatedAt`) would then return false next turn for the prior `read_file` tool-result, letting the LLM act on pre-edit state. Fix: stamp Phase-2 response messages with the `turnStartedAt` value captured immediately before `streamText` — guaranteed strictly less than any mtime produced during the turn, so the drift check fires correctly on read-then-edit-of-same-file. Granularity stays "all response messages share one stamp" — drift is per-file in the pruner (joined via `toolCallId → tool-call.input.file_path`), so a read of file A + unrelated edit of file B in the same turn does not cross-invalidate. Per-message stamping (capture during `for await (const part of result.fullStream)`) would be more precise but adds no correctness for this contract. See `apps/cli/src/index.ts` Phase-2 block comment.
 - **Multi-instance same-session concurrency is out of scope for Phase 1 (added 2026-05-19, second Codex pass).** A second adversarial review flagged that whole-session atomic replace still loses turns under concurrent CLI processes. Reframed after discussion: this is not primarily a persistence bug — it's an unhandled use case. Running two CLIs (or two future-Phase-2a clients) against the same `<vault>/<date>` simultaneously would produce *semantically incoherent LLM context* even with perfect persistence: each `streamText` call would see a stale snapshot of `session.messages`, each turn's answer would be generated without knowledge of the parallel turn, and the merged on-disk history would interleave two unrelated threads. Persistence-level locking would fix data-loss but not the semantic incoherence. The Phase 1 CLI is a **single-user single-instance testballoon**; the assumption is documented in `apps/cli/src/fs-session-store.ts` block comment on `save`. Phase 2a addresses both layers structurally — append-only `messages` rows (no load-modify-save) + `sessions.in_flight_turn_id` with SSE-broadcast turn-locking (one in-flight turn per session enforced at the API boundary). For Phase 1, a cheap pidfile-guard could be added if the use case ever materializes pre-Phase-2a; not done now because the use case does not exist.
+
+---
+
+## Task 4.2: Per-turn debug logging (request/response artifacts)
+
+> **Post-created task.** Added 2026-05-19 from a Phase-1 dogfooding gap. Task 4 wired prompt caching, Task 4.1 wired tool-result pruning — both are invisible at runtime. The existing `cliLogger.debug` with `code: "prompt.cache_usage"` (`apps/cli/src/index.ts`) emits the `totalUsage` breakdown to `cli-errors.jsonl` per turn, but the *post-pruning request* the LLM actually saw and the per-step response breakdown land nowhere. Without that the empirical-validation tradeoff documented under [[feedback_phase1_pragmatism]] can't be exercised — we'd have to trust the pruner instead of reading what was sent. This is also a precondition for the Task 6 acceptance run, which needs concrete artifacts to spot-check against expected prompt-cache hits and pruning stubs.
+>
+> Phase 1 ships only the CLI's `FsTurnLogger`, gated by `DEBUG=1` and vault-local. The `TurnLogRecord` shape and `TurnLogger` contract land in **core** anyway — Phase 2a needs the same artifact for the always-on backend support/bug-report path (user reports broken output, support pulls the matching turn artifact by `turnId`). Doing it now avoids a Phase-2a schema break. Allowlist serialization is sufficient at this seam regardless of runtime: the Anthropic API key is read from env by the SDK and never reaches our local request object, so there is no secret to redact. Phase-2a-specific concerns (cross-user content boundaries, GDPR retention/erasure, storage choice) are explicitly deferred to the `SupabaseTurnLogger` task.
+
+### Instructions
+
+**`packages/core/src/turn-log.ts` (new — runtime-neutral interface + types):**
+- Export `interface TurnLogRecord` — the canonical artifact shape (see definition below). Single source of truth across CLI and Phase-2a backend.
+- Export `interface TurnLogger { writeTurn(record: TurnLogRecord): Promise<void> }` — minimal **write-only** contract. No read API in Phase 1: Phase-2a's "user requests log" workflow is server-side (backend persists for all users continuously, support pulls by `turnId`), not client-export, so the interface stays a sink. If a client-export workflow ever materializes (offline Capacitor edge cases), it lands behind a separate `TurnLogReader` interface — not pre-emptively.
+- Export `class NoopTurnLogger implements TurnLogger` — `writeTurn` resolves immediately, no I/O. Used by tests that don't care about the artifact.
+- Export `class MemoryTurnLogger implements TurnLogger` — `writeTurn` appends to a public `records: TurnLogRecord[]` array. Used by tests asserting on emitted artifacts (analogous to `MemoryLogger`).
+- No `node:fs` import. No `console.*`. Same hygiene rule as `packages/core/src/sessions.ts` (Task 4.1 layering finding).
+
+**`apps/cli/src/fs-turn-logger.ts` (new — `class FsTurnLogger implements TurnLogger`):**
+- Constructor `(vaultPath: string, sessionDate: string)`.
+- Implements the core `TurnLogger` interface — `writeTurn(record): Promise<void>`.
+- Stores artifacts at `<vaultPath>/.keppt/logs/sessions/<sessionDate>/turn-NNN.json` (zero-padded three-digit counter).
+- Constructor reads the subdirectory listing (if any) to find the max existing `turn-NNN` and seeds the in-memory counter. ENOENT means "first turn this day" — start at 1.
+- Exposes `nextTurnId(): string` returning `"turn-001"`, `"turn-002"`, … so callers can stamp the artifact filename consistently with the in-memory state.
+- Exposes `writeTurn(turnId: string, record: TurnLogRecord): Promise<void>` — **atomic write** via tmp + rename, same shape as `FsSessionStore.save` (mirrors T4.1-AC-15 and its Key Discovery on atomic write). `mkdir(..., { recursive: true })` before the first write each day.
+- Constructed once per session and again on day-rollover, mirroring the `FsSessionStore` reload. Lives only in `apps/cli` — no core interface, since Phase 2a's debug story is structurally different (per-request Pino logs + Sentry breadcrumbs around `/api/chat`).
+
+**`TurnLogRecord` shape (allowlist serialization — never `JSON.stringify` raw SDK objects):**
+
+```ts
+interface TurnLogRecord {
+  turnId: string;
+  startedAt: string;           // ISO
+  endedAt: string;             // ISO
+  durationMs: number;
+  model: string;               // e.g. "claude-haiku-4-5"
+  outcome: "ok" | "stream_error" | "aborted";
+  initialRequest: {
+    system: string;            // exactly what buildRequest returned
+    messages: ModelMessage[];  // post-pruning, the wire-shape sent to streamText
+    providerOptions: unknown;  // shallow copy of providerOptions.anthropic
+  };
+  steps?: Array<{              // present on outcome === "ok"
+    stepIndex: number;
+    finishReason: string;
+    text: string;
+    toolCalls: unknown[];
+    toolResults: unknown[];
+    usage: unknown;
+    warnings?: unknown[];
+  }>;
+  totalUsage?: unknown;        // present on outcome === "ok" — incl. inputTokenDetails for cache visibility
+  responseMessages?: ModelMessage[]; // exactly what got persisted in Phase 2
+  error?: { name: string; message: string };  // present on outcome !== "ok"
+}
+```
+
+- Build the record explicitly field-by-field; do not pass the raw `streamText` options object through `JSON.stringify`. Same ethos as [[feedback_audit_all_seams]]: build the output shape, don't trust the input shape.
+- `messages` in `initialRequest` is the **pruned** array — the output of `buildRequest`'s `pruneToolResults` call. Opening a turn-NNN.json and searching for `"[Previous read_file result — superseded"` is the empirical test that 4.1's pruner ran.
+
+**Integration in `apps/cli/src/index.ts`:**
+
+- Instantiate `const turnLogger: TurnLogger = DEBUG ? new FsTurnLogger(vaultPath, session.date) : new NoopTurnLogger()` after `session` is loaded; reinstantiate the same way inside the day-rollover guard alongside `sessionStore.loadOrCreate`. (`DEBUG` is the existing constant at `apps/cli/src/index.ts:25`.)
+- The DEBUG check still wraps the per-turn record assembly — `NoopTurnLogger` exists for the interface contract and for tests, not as a runtime cost-saver. Building a `TurnLogRecord` involves shallow field copies that aren't free across hot REPL turns, so skip the construction outright when `DEBUG` is off rather than building it and dispatching to a noop.
+- Per turn (only when `DEBUG` is on):
+  - `turnId = turnLogger.nextTurnId()`; capture `turnStartedAt` (already captured at `index.ts:192`).
+  - Initialize a partial `TurnLogRecord` carrying `initialRequest` immediately after `buildRequest` returns — *before* `streamText` — so the request shape is computed even on later failure paths.
+  - On successful completion (after Phase 2 save): fill `outcome: "ok"`, `steps` (from `result.steps`), `totalUsage` (from `result.totalUsage`), `responseMessages` (from `result.response.messages`), `endedAt`, `durationMs`. Call `turnLogger.writeTurn(turnId, record)`.
+  - On stream error (catch block, non-abort branch): fill `outcome: "stream_error"`, `error: { name, message }`, `endedAt`, `durationMs`. Call `writeTurn`.
+  - On abort (catch block, `controller.signal.aborted` branch): fill `outcome: "aborted"`, `endedAt`, `durationMs`. Call `writeTurn`.
+- `writeTurn` failures route through `cliLogger.warn` with `code: "turn_log.write_failed"`. Never abort the turn — debug logging must not gate the REPL.
+- The existing `cliLogger.debug({ code: "prompt.cache_usage", ... })` block stays as-is: it's the searchable JSONL summary in `cli-errors.jsonl`. The per-turn artifact is the structured deep-dive; the JSONL entry is the index.
+
+**Vault layout:**
+- `.keppt/logs/` already exists from Task 3.6 (the `cli-errors.jsonl` parent). The new `sessions/<date>/turn-NNN.json` artifacts sit under the same `.keppt/logs/` root. Whatever ignores `.keppt/` for the test vault already covers them.
+- Manual cleanup only. No rotation, no TTL, no automatic prune. Documented in the wrap-up: if the directory becomes unwieldy, `rm -rf <vault>/.keppt/logs/sessions/`.
+
+### Acceptance
+
+Vitest suite green:
+
+- **T4.2-AC-01:** With `DEBUG=1` and `MockLanguageModelV4`, one successful turn produces `<vault>/.keppt/logs/sessions/<today>/turn-001.json` with `outcome: "ok"`, a non-empty `initialRequest.system`, the user message in `initialRequest.messages`, and `responseMessages` matching what was appended to the session in Phase 2.
+- **T4.2-AC-02:** With `DEBUG=0` (or unset), running the same turn produces **no** files under `<vault>/.keppt/logs/sessions/`.
+- **T4.2-AC-03:** Atomic write: spy on `node:fs/promises.rename`; assert each `turn-NNN.json` reaches its final path through a rename of a same-directory tmp file (mirrors T4.1-AC-15).
+- **T4.2-AC-04:** Counter resumes across CLI restarts within the same day: pre-seed `<vault>/.keppt/logs/sessions/<today>/turn-003.json` on disk, start the CLI, run one turn → the new artifact is `turn-004.json`, not `turn-001.json`.
+- **T4.2-AC-05:** Day-rollover: simulate two turns at UTC `2026-05-19T23:59:30Z` and `2026-05-20T00:00:30Z` (mirrors T4.1-AC-14); day-2 artifacts land at `<vault>/.keppt/logs/sessions/2026-05-20/turn-001.json` (not under the day-1 subdirectory), and the day-2 counter restarts at 001.
+- **T4.2-AC-06:** Stream-error path: an injected `APICallError` from the mocked model produces a `turn-NNN.json` with `outcome: "stream_error"` and a populated `error.message`. The CLI still writes the existing `cli-errors.jsonl` entry (Task 3.6 contract preserved); the two artifacts coexist.
+- **T4.2-AC-07:** Abort path: `AbortController.abort()` mid-stream produces a `turn-NNN.json` with `outcome: "aborted"` and no `responseMessages` / `steps` / `totalUsage`.
+- **T4.2-AC-08:** Allowlist serialization: when `providerOptions.anthropic` carries an extra unexpected key, the artifact's `initialRequest.providerOptions` reflects that shallow copy faithfully; nothing outside the documented `TurnLogRecord` fields appears at the top level (no incidental passthrough of the raw `streamText` options object).
+- **T4.2-AC-09:** Pruning visibility: after six tool-using turns against a mocked model whose response includes a `read_file` tool-call/result for the same file each turn, `turn-006.json`'s `initialRequest.messages` contains at least one stub string matching the Task 4.1 stub format (`/^\[Previous .* result — superseded/`). Closes the empirical-validation goal motivating this task.
+- **T4.2-AC-10:** Cache-usage visibility: with a mocked usage object containing `inputTokenDetails.cacheReadTokens`, the field is reachable via `totalUsage.inputTokenDetails.cacheReadTokens` in the on-disk artifact. (No assertion against real provider behavior — that lands in Task 6.)
+- **T4.2-AC-11:** Write-failure non-fatal: simulating `rename` rejecting with `EACCES` in `writeTurn` emits a `cliLogger.warn` with `code: "turn_log.write_failed"` (asserted via `MemoryLogger`) and does not throw out of the turn — the REPL continues to the next prompt.
+- **T4.2-AC-12:** Interface contracts: `NoopTurnLogger.writeTurn(record)` resolves without I/O and produces no on-disk artifacts when substituted into a CLI test run. `MemoryTurnLogger` substituted in the same flow exposes a public `records` array with one entry per turn in call order, each entry shape-matching `TurnLogRecord`.
+- **T4.2-AC-13:** Core hygiene: `packages/core/src/turn-log.ts` imports no `node:fs`, no `node:fs/promises`, no `console.*` (asserted alongside the existing T3.9-AC-01/-02 core-hygiene checks).
+
+### Key Locations
+
+- `packages/core/src/turn-log.ts` (new — `TurnLogRecord` interface + `TurnLogger` interface + `NoopTurnLogger` + `MemoryTurnLogger`, no `node:fs`, no `console.*`)
+- `packages/core/src/__tests__/turn-log.test.ts` (new — `NoopTurnLogger` resolves without I/O, `MemoryTurnLogger` records in call order)
+- `packages/core/src/index.ts` (modified — re-exports the new types/classes)
+- `apps/cli/src/fs-turn-logger.ts` (new — `class FsTurnLogger implements TurnLogger`, atomic tmp+rename `writeTurn`, counter seeding from disk)
+- `apps/cli/src/index.ts` (modified — DEBUG-gated `FsTurnLogger`/`NoopTurnLogger` instantiation, day-rollover reinstantiation, per-turn record assembly across ok / stream-error / aborted branches)
+- `apps/cli/test/fs-turn-logger.test.ts` (new — counter seeding from disk, atomic write spy, day-rollover reset, allowlist serialization)
+- `apps/cli/test/turn-logger-integration.test.ts` (new — DEBUG on/off, ok/aborted/stream-error outcomes, pruning visibility across multi-turn flow, NoopTurnLogger transparency)
+- `docs/task-log/task-4.2-debug-turn-logging.md` (post-implementation wrap-up)
+
+### Key Discoveries
+
+- **`result.steps` is the empirical view the artifact needs.** The Vercel AI SDK exposes per-step `request`/`response`/`toolCalls`/`toolResults`/`usage`/`finishReason` after `streamText` completes. Each step corresponds to one HTTP round-trip to Anthropic; prompt-cache hits are *per-step* (the second step typically reads from cache after the first step's stable head established the marker). A single `result.response.messages` blob would hide the per-step structure that makes validating Task-4 caching + Task-4.1 pruning possible.
+- **Allowlist serialization, anchors Phase-2a format.** The Anthropic API key is read from env by the SDK and never appears in our local request object, so Phase 1 has no secret to redact at this seam. The Phase-1 risk is "accidentally serialize an unrelated SDK object that grows new fields in a future minor" — defended by building `TurnLogRecord` field-by-field per [[feedback_audit_all_seams]]. For Phase 2a the allowlist becomes load-bearing: because `TurnLogRecord` is defined in core, the same field set ships to the backend logger, and whatever fields aren't in the record can't accidentally leak across user boundaries. Cross-user content redaction (multi-user backend writes one user's prompt that another user later reads in support context) is a separate Phase-2a concern handled at the `SupabaseTurnLogger` impl layer.
+- **Core interface, not CLI-leaf concern (revised 2026-05-19).** The original draft kept `TurnLogger` as a CLI-only class on the grounds that Phase 2a's debug story is structurally different (Pino + Sentry). Reframed during planning discussion: the support/bug-report workflow ("user reports broken behaviour, support pulls the matching turn artifact") IS a Phase-2a use case, and the artifact shape — system prompt, post-pruning messages, per-step usage including cache hits — is genuinely runtime-neutral. Defining `TurnLogRecord` + `TurnLogger` in core now, with `FsTurnLogger` as the Phase-1 impl and `SupabaseTurnLogger` as the Phase-2a impl, mirrors the `SessionStore` / `FsSessionStore` shape from Task 4.1 and avoids a Phase-2a schema break. Pino + Sentry remain orthogonal — they handle *event* logging (one structured line per occurrence); `TurnLogger` handles *payload* logging (one full artifact per LLM turn). Both are needed; neither replaces the other.
+- **Write-only contract, no read API in Phase 1.** Phase 2a's "user submits a bug report" UX is server-side by design: the backend persists turn artifacts continuously for emergencies/support queries, and a support tool pulls the matching `turnId` against the user's session. The user is never the one packaging logs client-side. So `TurnLogger` stays a write-only sink — no `listTurns()` / `readTurn()` in core. If a client-export workflow ever materializes (offline Capacitor edge cases, paranoid-user "show me what you logged" surface), it lands behind a separate `TurnLogReader` interface added at that point — not pre-emptively per [[feedback_phase1_pragmatism]].
+- **Retention/cleanup deferred to `SupabaseTurnLogger`.** Always-on backend logging means artifact volume grows unbounded over time. A retention/cleanup policy (TTL? size cap? per-user quota? GDPR right-to-erasure?) is a real concern but explicitly **out of scope for Task 4.2** — it depends on Phase-2a storage choice (Supabase table rows vs. S3 vs. signed-URL handoff) and regulatory regime, neither of which is settled. Tracked here as a deferred open issue; revisit when `SupabaseTurnLogger` lands. For Phase 1 the CLI grows the `.keppt/logs/sessions/` directory until the user manually `rm -rf`s it — acceptable because the user IS the developer.
+- **Counter resumes from disk, not from `session.messages.length`.** A user may continue a session that already has on-disk turn artifacts from a prior CLI run on the same date. Deriving the next turn number from the existing `turn-NNN.json` filenames is more robust than counting messages: the `messages` count is post-pruning and may diverge from the HTTP-turn count once future tasks add turns that don't enter the persistent message log (system messages, future tool-only auto-runs).
+- **Failure during artifact write is non-fatal.** The artifact is debug-only; a write failure must not bubble into the REPL. Fire-and-forget shape consistent with `cli-logger.ts`: log the failure via `cliLogger.warn({ code: "turn_log.write_failed" })` and move on. Closes the "debug instrumentation must not become its own outage" trap.
+- **Single artifact per turn, written at end.** A two-file scheme (`turn-NNN.request.json` pre-stream + `turn-NNN.response.json` post-stream) was considered but rejected: it doubles inode count and makes spot-inspection awkward (open two files to see one turn). The trade-off accepted: a hard process crash mid-stream loses that turn's artifact entirely. That's acceptable because `cli-errors.jsonl` independently captures the crash itself — a missing turn artifact next to a crash entry in `cli-errors.jsonl` is itself a signal, and the alternative (partial artifact written pre-stream) risks misleading a reader into thinking the request actually went out as recorded.
+- **Reusing the `DEBUG=1` env var.** `DEBUG === "1"` at `apps/cli/src/index.ts:25` already gates the `prompt.cache_usage` debug emission. A second env var (`KEPPT_DEBUG_REQUESTS=1`) would split control over what is conceptually one toggle ("developer-visibility mode"). Reused for symmetry. If the artifact ever needs an independent toggle (e.g. cache-usage stays on but artifacts get noisy in a long session), split then — not pre-emptively, per [[feedback_phase1_pragmatism]].
 
 ---
 
