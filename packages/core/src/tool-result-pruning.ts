@@ -157,8 +157,16 @@ function classify(
     return { kind: "keep" };
   }
   if (isAgedOut) return { kind: "age" };
+  // Drift only fires on read_file: that tool's result IS a snapshot of the
+  // file content, which a later write can invalidate. edit_file and
+  // write_file return acks; their content does not go stale, and the
+  // model just performed the write — treating its own write as "drift"
+  // forces a needless re-read on the next turn and pollutes the
+  // context-note channel for several turns until the write-result ages
+  // out of K. (Session 2026-05-19 turns 4–6 surfaced this.)
+  if (part.toolName !== "read_file") return { kind: "keep" };
   const filePath = filePathByCallId.get(part.toolCallId);
-  if (filePath === undefined) return { kind: "keep" }; // list_files / search_files / unknown
+  if (filePath === undefined) return { kind: "keep" };
   const version = fileVersionAt(filePath);
   if (version === undefined) return { kind: "keep" }; // file missing or stat failed
   if (version > createdAt) return { kind: "drift", filePath };

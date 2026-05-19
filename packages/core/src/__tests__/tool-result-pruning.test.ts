@@ -274,6 +274,80 @@ describe("pruneToolResults", () => {
     });
   });
 
+  it("T4.2-AC-13: write_file / edit_file results are NOT drift-stubbed and do not appear in staleFilesInWindow", () => {
+    // Regression for session 2026-05-19 turns 4–6: write_file results
+    // stamped with turnStartedAt vs file mtime set during the same turn
+    // means `version > createdAt` is always true for self-writes. If we
+    // drift-classified them, every following turn would see those files
+    // in the context-note and force a needless re-read until K
+    // age-rotation cleared them.
+    const writeCall: AssistantModelMessage = {
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: "w1",
+          toolName: "write_file",
+          input: { file_path: "tasks/focus.md", content: "..." },
+        } satisfies ToolCallPart,
+      ],
+    };
+    const editCall: AssistantModelMessage = {
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: "e1",
+          toolName: "edit_file",
+          input: { file_path: "tasks/focus.md" },
+        } satisfies ToolCallPart,
+      ],
+    };
+    const writeOk: ToolModelMessage = {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "w1",
+          toolName: "write_file",
+          output: { type: "text", value: "ok" },
+        } satisfies ToolResultPart,
+      ],
+    };
+    const editOk: ToolModelMessage = {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "e1",
+          toolName: "edit_file",
+          output: { type: "text", value: "ok" },
+        } satisfies ToolResultPart,
+      ],
+    };
+    const messages: ModelMessage[] = [writeCall, writeOk, editCall, editOk];
+
+    const result = pruneToolResults(messages, {
+      k: 5,
+      fileVersionAt: () => 9999, // mtime newer than any stamp → drift if checked
+      messageCreatedAt: () => 1,
+    });
+
+    // Both ack results survive verbatim.
+    const writeResult = result.messages[1] as ToolModelMessage;
+    const editResult = result.messages[3] as ToolModelMessage;
+    expect((writeResult.content[0] as ToolResultPart).output).toEqual({
+      type: "text",
+      value: "ok",
+    });
+    expect((editResult.content[0] as ToolResultPart).output).toEqual({
+      type: "text",
+      value: "ok",
+    });
+    // And the file is not surfaced as "stale" to the caller.
+    expect(result.staleFilesInWindow).toEqual([]);
+  });
+
   it("T4.2-AC-08: staleFilesInWindow lists drift-stubbed files in first-appearance order, deduped", () => {
     // Two reads of focus.md (both drift) and one read of inbox.md (drift).
     // Order in staleFilesInWindow should be insertion order: focus, inbox —

@@ -381,14 +381,13 @@ describe("two-phase save", () => {
     );
     expect(editToolMsg).toBeDefined();
     const editPart = editToolMsg!.content[0] as ToolResultPart;
-    // The edit_file result also stamps with turnStartedAt < mtime, so it
-    // gets stubbed too. That's the conservative-bound trade-off documented
-    // in the code comment — same-turn results all share one timestamp.
-    expect(editPart.output).toEqual({
-      type: "text",
-      value:
-        "[Previous edit_file result for tasks/inbox.md — file has changed since. Call read_file before answering about its current state; do not paraphrase your own earlier summaries of this file in this conversation.]",
-    });
+    // edit_file's result is an ack ("ok"), not a snapshot of file content
+    // — drift does not apply. The pruner leaves it verbatim. The read's
+    // drift-stub above is the load-bearing signal that proves the
+    // turnStartedAt stamping is correct; the edit assertion just pins
+    // that we are NOT over-stubbing writes (which previously polluted
+    // staleFilesInWindow for several turns — see session 2026-05-19).
+    expect(editPart.output).toEqual({ type: "text", value: "ok" });
   });
 
   it("T4.1-AC-14: day-rollover — two turns across UTC midnight land in separate per-day session files", async () => {
