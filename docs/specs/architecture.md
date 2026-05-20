@@ -1427,6 +1427,30 @@ Sketch of the eventual design (not a commitment):
 
 Captured here rather than implemented now per the "deterministic safety net + acceptable worst-case bound → document, don't speculatively harden" pattern. The natural execution slot is Task 6 (hardening) or earlier if a trigger fires. New-tool additions (`grep_file`, `read_file` offset/limit) are also a small surface expansion to the system-prompt / tool-conventions block — that update lands with the same change.
 
+### Open question: Daily-folder scaling — tool-scope limitation post-archive-merge
+
+Background: the Phase-1 Task-5 redesign (2026-05-20, `docs/plans/phase-1-cli.md`) dropped the `daily/` ↔ `archive/daily/` split. Past, today, and future daily notes now all live in a single `daily/` directory with one gate rule. That simplification removed a whole class of complexity (no `move` primitive, no per-turn rollover, no archive-scope predicate split, no past-daily editability follow-up), but at the cost of unbounded growth in one namespace: after a year of daily use, ~365 files; after three years, ~1100.
+
+Three tool surfaces feel that growth:
+
+- `list_files("daily/")` — returns every daily note. Token cost grows linearly with vault age. Each turn that lists the daily folder pays for it.
+- `search_files(scope: "active")` — scans every daily's content. Runtime + result-token cost grow linearly. Pruned matches still pay scan cost.
+- `read_file` — unaffected (still O(1) per call, individual file size addressed by the per-file-size open question above).
+
+In Phase 1 (single-user dev vault, weeks of history) the cost is invisible — the trade was worth it. By Phase 2a (Supabase backend, real users, months/years of history) the cost is real and needs a deliberate fix. Three candidate mechanisms, no decision yet:
+
+- **(a) Date-window parameter on the affected tools.** `list_files("daily/", { since, until })`, `search_files(query, { scope, since, until })`. The LLM (or a system-injected default) sets the window per call. Generalises beyond dailies — any time-keyed file family benefits. Cons: every consumer has to remember to pass the window; absence of a default-filter risks unbounded results again on every forgotten call.
+- **(b) Tool-side soft cap with explicit truncation marker.** Same shape as the per-file-size open question above: `list_files` returns the most recent N entries plus `[truncated: X older entries — pass since/until to widen]`. Cheap interim that doesn't change any caller-side semantics. Cons: arbitrary N picks an implicit date; the LLM must opt into seeing older.
+- **(c) Database-shape semantics from the start.** Treat `daily/` as a logical time-keyed *collection* where bare `list_files("daily/")` returns only the recent window by default and older access is explicit (`since`). Reflects how the Phase-2a Supabase schema will work anyway (paginated queries, not full directory listings) — fewer semantic surprises at the Phase-2a boundary. Cons: changes Phase-1 tool semantics now for a Phase-2 benefit; harder to reason about in dev tooling.
+
+Triggers to revisit:
+
+- A Phase-1 vault produces a `list_files("daily/")` result over ~2K tokens in operational logs (today's deterministic threshold: ≈100 daily notes).
+- Phase-2a backend lands and a real user vault has >180 daily notes — at that point any of the three needs to be in place before that user's first session.
+- `search_files` scan latency on a real Phase-1 vault crosses ~500ms locally.
+
+Captured here per the same "document, don't speculatively harden" pattern. Likely (a) wins on flexibility, (c) wins on Phase-2a-alignment, (b) is the cheapest interim. Same execution slot as the per-file-size budget — both are tool-surface scaling decisions that naturally co-land.
+
 ## LLM Provider Architecture: Vercel AI SDK
 
 **MVP: Claude only. Architecture: provider-agnostic via Vercel AI SDK.**
