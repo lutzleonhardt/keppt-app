@@ -1214,6 +1214,27 @@ Vitest suite green:
 - **Opening-line framing matters more than rule body.** In turn-003 Haiku used phrases like "Excellent question!" and "lass mich R3 nochmal erklären" — both signatures of a model primed to perform tutorial competence. The pre-4.3 opening line "You are the user's GTD assistant" reinforces that priming. The post-4.3 opening ("task and note assistant ... apply it silently ... most users do not know GTD") rewires the persona before any rule fires. R16 catches the residual cases; the opening line catches the default tendency.
 - **Why not also port the Vault's Weekly-Review detail here.** The user's personal vault `CLAUDE.md` carries ~200 prompt tokens of richer Weekly-Review choreography (group Waiting by theme, propose-don't-walk for Next Actions, end-of-review self-reflection). Folding it into R7 here would inflate the always-cached system head for content that matters in ~1% of turns. Split into Task 7 with an open delivery question (dedicated `weekly_review` tool returning the protocol on call vs. context-note injection vs. mode-specific header).
 
+### Open question — `session-gap` context note (deferred; Task-6 trigger)
+
+> **Captured 2026-05-20** from a chat-side design discussion. Not implemented. Captured here so Task-6 dogfooding can decide empirically per [[feedback_phase1_pragmatism]].
+
+**The question.** Should the engine annotate user messages (or the current turn) with a note when the wall-clock gap to the previous user turn is large enough that the model would otherwise treat a stale conversation as still-fresh? E.g. *"Letzter Turn: 2026-05-18 21:14 (vor 2 Tagen)."*
+
+**Why this is a real question for GTD specifically.** Time is load-bearing in this product ("push das auf Freitag", "wir haben das vorgestern besprochen", weekly-review marker logic). `today: Date` in the system prompt (`packages/core/src/system-prompt.ts:41`) covers same-day usage, which is ~95% of expected turns in single-user Phase 1. The residual case is sessions that span days or have multi-hour gaps mid-session — there the model can't distinguish "vor 2 Minuten gesagt" from "Montag gesagt, jetzt ist Donnerstag" from the history alone. Whether this actually bites is unknown until dogfooding evidence exists.
+
+**Default position: don't ship now.** Industry norm (Claude.ai, ChatGPT, Cursor) is *not* to per-message-stamp. Adding it speculatively would burn the [[feedback_phase1_pragmatism]] budget — the symmetric counterpart to the Task-4.3 reminder, which was *triggered* by a concrete `turn-003.json` failure, not by hypothesis.
+
+**Design sketch (if Task 6 surfaces evidence).** Extend the `ContextNote` union in `packages/core/src/request-builder.ts:14` with `kind: "session-gap"`, fire it from inside `buildRequest` when the gap between the trailing user message's `messageCreatedAt` and "now" exceeds a threshold, render via `renderNotes` alongside `stale-files`. The existing `<context-note>` channel already attaches to the trailing user message and survives the prompt-cache contract — no new plumbing.
+
+**Open sub-decisions to settle at task time.**
+- **Threshold.** Any UTC day change? `> N hours`? Both OR-combined? ("Day change" aligns with the day-rollover concept already in `Session`; pure hour-threshold may matter more for an evening-resume-next-morning pattern.)
+- **`now` parameter.** `buildRequest` currently takes `today: Date` (conceptually start-of-day UTC, see `system-prompt.ts:48`). Gap detection needs the wall-clock `turnNow` from `turn-loop.ts:63`. Either thread `now: Date` as a new field on `BuildRequestInput` (cleanest, mirrors what Phase-2a's `/api/chat` route would need anyway) or aliase `today` to mean both. The first is preferred — keeps `today` semantically unambiguous.
+- **Rendering granularity.** Absolute timestamp + relative phrasing? Relative only? Localised to the user's TZ or kept UTC like the rest of the engine? (R14 already acknowledges voice-dictated input — natural-language phrasing on the gap note matches the rest of the prompt's voice.)
+
+**Realistic sizing if it lands.** ~40 LOC code (union + detection + render + threading `now`) + ~50 LOC tests (gap-present, gap-absent, combined-with-stale-files cases). Roughly a Task-4.4-shaped follow-up — small but real, not a drive-by.
+
+**Revisit trigger.** Watch Task-6 acceptance + the first one or two real multi-day or paused-and-resumed sessions. Concrete evidence shape that would justify implementation: a turn log where the model treated a stale prior turn as fresh and produced a wrong scheduling/Daily-Plan answer because of it (the GTD-equivalent of the `turn-003.json` finding that drove Task 4.3). Without that, leave deferred.
+
 ---
 
 ## Task 5: Daily-note lifecycle (R5) + clock injection
