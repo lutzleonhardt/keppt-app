@@ -2,6 +2,7 @@
 import { createInterface } from "node:readline";
 import { stdin, stdout } from "node:process";
 import {
+  ensureGtdTaskFiles,
   formatToday,
   LocalFileRepository,
   MAX_INPUT_CHARS,
@@ -65,6 +66,21 @@ async function main(): Promise<void> {
     now: () => refs.turnNow,
     logger: cliLogger,
   });
+
+  // First-run task-file initialization (Task 5). The five canonical
+  // `tasks/*.md` files need to exist before the first turn touches them;
+  // otherwise the model's first `edit_file` lands on a missing file and
+  // has to fall back to `write_file` through the T-C1 protocol — slow and
+  // visible. A parallel repo handle with `changedBy: "system"` ensures the
+  // per-file history reflects "created by the CLI on first run", not by
+  // the LLM. Idempotent: the second startup is a no-op.
+  const systemRepo = new LocalFileRepository(vaultPath, {
+    now: () => refs.turnNow,
+    logger: cliLogger,
+    changedBy: "system",
+  });
+  await ensureGtdTaskFiles(systemRepo);
+
   const deps: TurnDeps = {
     vaultPath,
     repo,

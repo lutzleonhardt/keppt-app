@@ -322,25 +322,25 @@ describe("buildTools — GTD layout gate", () => {
       { query: "anything", scope: "all" },
     )) as SearchResult[];
 
+    // After Task 5 redesign: archive/daily/* is no longer canReadable, so
+    // even a date-formatted archive entry is dropped by the tool postfilter.
+    // The leak-blocking guarantee for the other out-of-scope paths still
+    // holds.
     expect(output.map((h) => h.filePath).sort()).toEqual([
-      "archive/daily/2026-04-30.md",
       "tasks/inbox.md",
     ]);
   });
 
   // Regression for the third Codex review round: even after the gate uses
-  // an injected clock, search_files can still drift if the underlying
-  // repository computes "today" itself with a *different* clock. This test
-  // simulates a session that started before UTC midnight: the tool clock
-  // points at 2026-05-08T23:59:00Z (the turn's snapshot), but the
-  // repository's internal clock has already advanced past midnight to
-  // 2026-05-09T00:01:00Z (e.g. the user paused mid-turn, or the repo's
-  // clock was constructed at a slightly different moment). The repo's
-  // scope filter would, on its own, drop daily/2026-05-08.md from
-  // active-scope hits — producing a silent false negative for the very
-  // file the prompt told the model is "today's." With `today` threaded
-  // through repo.search, the repo and the tool agree by construction.
-  it("search_files does not drop the turn day's daily across a UTC rollover", async () => {
+  // an injected clock, search_files must not drift across a UTC midnight
+  // rollover. After the Task 5 redesign the gate accepts any date-formatted
+  // daily, so both 2026-05-08 and 2026-05-09 now sit in active scope no
+  // matter which clock is in the lead. The test purpose mutates from
+  // "the gate keeps the turn-day daily visible" to "neither daily is
+  // dropped by repo/tool clock disagreement" — i.e. the threaded `today`
+  // still prevents silent false negatives from a repo that picks a
+  // different reference date than the tool layer.
+  it("search_files does not drop date-formatted dailies across a UTC rollover", async () => {
     const turnDate = new Date("2026-05-08T23:59:00Z"); // turn's snapshot
     const repoClock = new Date("2026-05-09T00:01:00Z"); // repo "today" drifts
     const repo = new InMemoryFileRepository({ now: () => repoClock });
@@ -354,99 +354,108 @@ describe("buildTools — GTD layout gate", () => {
       () => turnDate,
     )) as SearchResult[];
 
-    // Without the fix, the repo would scope to daily/2026-05-09.md (its own
-    // today) and the tool postfilter would also reject 2026-05-09 (because
-    // canRead's today is 2026-05-08), producing zero hits — a silent false
-    // negative on the very note the prompt is pointing at.
-    expect(output.map((h) => h.filePath)).toEqual(["daily/2026-05-08.md"]);
+    expect(output.map((h) => h.filePath).sort()).toEqual([
+      "daily/2026-05-08.md",
+      "daily/2026-05-09.md",
+    ]);
   });
 
-  // Regression for the second Codex review round: prompt date and gate date
-  // must come from the same source. The CLI captures `turnNow` per turn and
-  // passes `() => turnNow` to buildTools; the test asserts that injection
-  // works — when the clock says day N, the gate gates day N regardless of
-  // wall time.
-  it("buildTools honors the injected clock for the daily-note gate", async () => {
-    // Pretend "today" is 2026-05-08 even though the wall clock could be any
-    // date. The CLI's turn clock points at exactly this moment.
+  // Regression for the second Codex review round, redirected after the
+  // Task 5 redesign: the daily-note gate no longer filters by date — past,
+  // today, and future dailies are all readable through canRead. The
+  // clock-injection contract now manifests via `isCanonicalTaskFile` (the
+  // reminder gate, still today-only): the same write lands on disk for any
+  // valid daily date, but only the one matching the injected clock receives
+  // the canonical-task-file reminder. This pins that the injected clock
+  // still flows through buildTools to the today-sensitive surface.
+  it("buildTools honors the injected clock for the today-reminder gate", async () => {
     const sessionDate = new Date("2026-05-08T23:59:00Z");
     const repo = new InMemoryFileRepository({ now: () => sessionDate });
-    await repo.write("daily/2026-05-08.md", "session note", "seed");
-    await repo.write("daily/2026-05-09.md", "tomorrow", "seed");
 
-    const model = sequencedMockModel([
-      streamResult(
-        toolCallChunks("read_file", "call-1", { file_path: "daily/2026-05-08.md" }),
-      ),
-      streamResult(textChunks("done")),
-    ]);
-    const result = streamText({
-      model,
+    // Today's daily — gets the reminder.
+    const todayWrite = streamText({
+      model: sequencedMockModel([
+        streamResult(
+          toolCallChunks("write_file", "call-1", {
+            file_path: "daily/2026-05-08.md",
+            content: "Plan",
+            change_summary: "draft plan",
+          }),
+        ),
+        streamResult(textChunks("done")),
+      ]),
       tools: buildTools(repo, { now: () => sessionDate }),
       stopWhen: isStepCount(3),
       messages: [{ role: "user", content: "go" }],
     });
-    let output: unknown;
-    for await (const part of result.fullStream) {
-      if (part.type === "tool-result") output = part.output;
+    let todayOutput: unknown;
+    for await (const part of todayWrite.fullStream) {
+      if (part.type === "tool-result") todayOutput = part.output;
       else if (part.type === "error") throw part.error;
     }
-    expect(output).toMatchObject({ ok: true, content: "session note" });
+    expect(todayOutput).toMatchObject({ ok: true });
+    expect((todayOutput as { reminder?: string }).reminder).toBeDefined();
 
-    // Same repo, but now the injected clock has rolled over to the next day —
-    // the gate should deny yesterday's daily, simulating what happens at the
-    // start of a new turn after midnight (the CLI rebuilds the prompt for the
-    // new day, so the model would not request the old date in practice).
-    const nextDay = new Date("2026-05-09T00:01:00Z");
-    const model2 = sequencedMockModel([
-      streamResult(
-        toolCallChunks("read_file", "call-1", { file_path: "daily/2026-05-08.md" }),
-      ),
-      streamResult(textChunks("done")),
-    ]);
-    const result2 = streamText({
-      model: model2,
-      tools: buildTools(repo, { now: () => nextDay }),
+    // Past daily — write_file is hard-blocked by the R6 carve-out, so the
+    // clock-flow assertion runs through edit_file instead (which remains
+    // open for narrow corrections). The reminder still does NOT fire because
+    // isCanonicalTaskFile remains today-only.
+    await repo.write("daily/2026-05-07.md", "before\n", "seed");
+    const pastEdit = streamText({
+      model: sequencedMockModel([
+        streamResult(
+          toolCallChunks("edit_file", "call-2", {
+            file_path: "daily/2026-05-07.md",
+            edits: [{ search: "before\n", replace: "after\n" }],
+            change_summary: "correct yesterday",
+          }),
+        ),
+        streamResult(textChunks("done")),
+      ]),
+      tools: buildTools(repo, { now: () => sessionDate }),
       stopWhen: isStepCount(3),
       messages: [{ role: "user", content: "go" }],
     });
-    let output2: unknown;
-    for await (const part of result2.fullStream) {
-      if (part.type === "tool-result") output2 = part.output;
+    let pastOutput: unknown;
+    for await (const part of pastEdit.fullStream) {
+      if (part.type === "tool-result") pastOutput = part.output;
       else if (part.type === "error") throw part.error;
     }
-    expect(output2).toMatchObject({
-      ok: false,
-      error: { reason: "out_of_scope" },
-    });
+    expect(pastOutput).toMatchObject({ ok: true });
+    expect(pastOutput as object).not.toHaveProperty("reminder");
   });
 
-  // Regression for the Codex review of Task 3.5: list_files must not enumerate
-  // paths the LLM cannot read. Seeds a vault containing both allowed and
-  // out-of-scope markdown files and asserts the gate filters them out.
-  it("list_files returns only paths permitted by canRead", async () => {
+  // Regression for the Codex review of Task 3.5, updated for Task 5: list_files
+  // must not enumerate paths the LLM cannot read. After the redesign, past
+  // and future dailies join the active surface, and archive/daily/* leaves
+  // it. Seeds a vault containing both allowed and out-of-scope markdown
+  // files and asserts the gate filters them out. (T5-AC-04)
+  it("list_files returns past, today, and future dailies; denies archive + non-allowlisted", async () => {
     const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
     await repo.write("tasks/inbox.md", "ok", "seed");
     await repo.write("tasks/random.md", "denied", "seed"); // out of scope
-    await repo.write("daily/2026-05-08.md", "ok", "seed"); // matches FIXED_NOW
-    await repo.write("daily/2026-05-07.md", "denied", "seed"); // not today
-    await repo.write("archive/daily/2026-05-01.md", "ok", "seed");
+    await repo.write("daily/2026-05-08.md", "ok", "seed"); // today (FIXED_NOW)
+    await repo.write("daily/2026-05-07.md", "ok", "seed"); // past — now allowed
+    await repo.write("daily/2026-06-01.md", "ok", "seed"); // future — now allowed
+    await repo.write("daily/notes.md", "denied", "seed"); // non-date
+    await repo.write("archive/daily/2026-05-01.md", "denied", "seed"); // archive dead surface
     await repo.write("archive/daily/note.md", "denied", "seed"); // not date
     await repo.write("notes.md", "denied", "seed");
 
     const output = await runSingleToolCall(repo, "list_files", {});
     const paths = output as string[];
     expect(paths.sort()).toEqual([
-      "archive/daily/2026-05-01.md",
+      "daily/2026-05-07.md",
       "daily/2026-05-08.md",
+      "daily/2026-06-01.md",
       "tasks/inbox.md",
     ]);
 
-    // even with an out-of-scope prefix, no leak
+    // even with an out-of-scope prefix, no leak — archive/ is fully filtered
     const archiveOnly = (await runSingleToolCall(repo, "list_files", {
       prefix: "archive/",
     })) as string[];
-    expect(archiveOnly).toEqual(["archive/daily/2026-05-01.md"]);
+    expect(archiveOnly).toEqual([]);
   });
 });
 
@@ -742,18 +751,46 @@ describe("buildTools — Task 4.3 reminder field", () => {
     expect(trap.writes).toEqual([]);
   });
 
-  // T4.3-AC-05: future daily notes are not canonical even if (post-Task 5.6)
-  // they might become writable. The helper-level test in gtd-layout.test.ts
-  // pins this for the predicate; here we pin it at the tool layer through
-  // the canWrite "today only" path (out_of_scope, no reminder).
-  it("write_file against a future daily note carries no reminder", async () => {
+  // R6 hard guard: write_file (full rewrite) on a past daily returns
+  // out_of_scope without touching the repo, while edit_file remains open
+  // for narrow corrections per R6's carve-out.
+  it("write_file against a past daily is blocked, edit_file still works", async () => {
     const trap = new TrapRepository();
-    const output = await runSingleToolCall(trap, "write_file", {
-      file_path: "daily/2026-05-09.md", // FIXED_NOW + 1 day
-      content: "x",
+    const blocked = await runSingleToolCall(trap, "write_file", {
+      file_path: "daily/2026-05-07.md", // FIXED_NOW - 1 day
+      content: "rewritten",
       change_summary: "blocked",
     });
-    expect(output).toMatchObject({ ok: false, error: { reason: "out_of_scope" } });
+    expect(blocked).toMatchObject({
+      ok: false,
+      error: { reason: "out_of_scope" },
+    });
+    expect(blocked as object).not.toHaveProperty("reminder");
+    expect(trap.writes).toEqual([]);
+
+    const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+    await repo.write("daily/2026-05-07.md", "before\n", "seed");
+    const corrected = await runSingleToolCall(repo, "edit_file", {
+      file_path: "daily/2026-05-07.md",
+      edits: [{ search: "before\n", replace: "after\n" }],
+      change_summary: "narrow correction",
+    });
+    expect(corrected).toMatchObject({ ok: true });
+    expect(corrected as object).not.toHaveProperty("reminder");
+  });
+
+  // T4.3-AC-05 (revised under Task 5 redesign): future daily notes are now
+  // writable through canWrite, but the reminder is still today-only because
+  // isCanonicalTaskFile remains today-bound. The write lands, the reminder
+  // does not fire. The helper-level pin lives in gtd-layout.test.ts.
+  it("write_file against a future daily note succeeds without a reminder", async () => {
+    const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+    const output = await runSingleToolCall(repo, "write_file", {
+      file_path: "daily/2026-05-09.md", // FIXED_NOW + 1 day
+      content: "x",
+      change_summary: "draft future plan",
+    });
+    expect(output).toMatchObject({ ok: true });
     expect(output as object).not.toHaveProperty("reminder");
   });
 

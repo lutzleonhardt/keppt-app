@@ -49,6 +49,11 @@ export {
   isInArchiveScope,
 } from "./gtd-layout.js";
 export {
+  ensureGtdTaskFiles,
+  GTD_TASK_FILES,
+  type EnsureGtdTaskFilesResult,
+} from "./vault-readiness.js";
+export {
   MemoryLogger,
   NoopLogger,
   redactSensitiveHeaders,

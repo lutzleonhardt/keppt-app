@@ -88,9 +88,12 @@ export function runFileRepositoryContract(
       expect(() => new Date(first.changedAt).toISOString()).not.toThrow();
     });
 
-    it("search respects active/archive/all scope and today's daily note", async () => {
+    it("search respects active/archive/all scope across any date-formatted daily", async () => {
       const { repo } = await makeHarness();
-      // "today" is injected by the harness via a fixed clock (see factories).
+      // Task 5 redesign: active scope covers any `daily/YYYY-MM-DD.md`,
+      // regardless of date. archive/daily/* is preserved at the
+      // isInArchiveScope predicate so the scope plumbing still has a shape
+      // for future non-daily archive subpaths.
       await repo.write("tasks/inbox.md", "call vet about cat\nbuy milk", "");
       await repo.write("daily/2026-04-24.md", "cat nap at 15:00", "");
       await repo.write("daily/2026-04-23.md", "yesterday cat visit", "");
@@ -98,6 +101,7 @@ export function runFileRepositoryContract(
 
       const active = await repo.search("cat", "active");
       expect(active.map((r) => r.filePath).sort()).toEqual([
+        "daily/2026-04-23.md",
         "daily/2026-04-24.md",
         "tasks/inbox.md",
       ]);
@@ -108,12 +112,10 @@ export function runFileRepositoryContract(
       const all = await repo.search("cat", "all");
       expect(all.map((r) => r.filePath).sort()).toEqual([
         "archive/daily/2026-04-01.md",
+        "daily/2026-04-23.md",
         "daily/2026-04-24.md",
         "tasks/inbox.md",
       ]);
-
-      // yesterday's daily note is not "active"
-      expect(active.find((r) => r.filePath === "daily/2026-04-23.md")).toBeUndefined();
     });
 
     it("search returns 1-based line numbers and snippet around the match", async () => {
@@ -148,6 +150,15 @@ export function runFileRepositoryContract(
         "archive/daily/note.md", // non-date archive entry
         "archive/tasks/old.md",
       ];
+      // Note: this is a *repo-level* contract test. After the Task 5 redesign
+      // archive/daily/<date>.md still falls inside the repo's archive scope
+      // (isInArchiveScope still matches by regex), but canRead now denies it.
+      // The repo-level guarantee covered here is "the repo's scope filter
+      // matches canRead for the paths it claims" — paths where the two
+      // diverge are deliberately handled by the tool-layer postfilter
+      // (`searchFilesTool > allowedByCanRead`). The tools.test.ts
+      // "search_files filters hits from paths denied by canRead" suite is
+      // the contract test for the cross-layer leak guarantee.
       for (const p of denied) {
         await repo.write(p, "secret-token-xyz", "seed");
         // sanity: each seeded path must indeed be denied by canRead

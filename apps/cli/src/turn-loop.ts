@@ -66,6 +66,25 @@ export interface TurnRefs {
   turnNow: Date;
 }
 
+// Task 5: env-override for the turn clock. Set `GTD_NOW_OVERRIDE` to an ISO
+// timestamp (e.g. `2026-05-21T09:00:00Z`) to pin "now" for this process's
+// whole lifetime — required for Task 8's day-rollover reproducibility
+// (otherwise the test would either wait for actual midnight or rely on
+// system-clock manipulation). When the env var is unset or malformed the
+// wall clock is used. The override is read fresh per turn so a developer
+// can `unset GTD_NOW_OVERRIDE` mid-session and the next turn returns to
+// the wall clock without restarting the CLI.
+//
+// Exported so the unit test in `test/turn-loop.test.ts` can pin behaviour
+// directly without spinning up the whole `handleTurn` pipeline.
+export function readTurnClock(): Date {
+  const raw = process.env.GTD_NOW_OVERRIDE;
+  if (raw === undefined || raw === "") return new Date();
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return new Date();
+  return parsed;
+}
+
 type StreamHandle = ReturnType<typeof streamText>;
 
 export async function handleTurn(
@@ -79,7 +98,10 @@ export async function handleTurn(
   // tools per turn so the edit_file retry budget (held in the buildTools
   // closure) is scoped to the current turn: a failed third attempt in
   // this turn must not block edits in the next turn.
-  refs.turnNow = new Date();
+  //
+  // `readTurnClock` honours `GTD_NOW_OVERRIDE` for Task 8 day-rollover
+  // reproducibility. When the env var is unset, `new Date()`.
+  refs.turnNow = readTurnClock();
   const tools = buildTools(deps.repo, {
     now: () => refs.turnNow,
     logger: deps.cliLogger,

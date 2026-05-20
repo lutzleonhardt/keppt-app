@@ -6,7 +6,7 @@ import {
   InvalidPathError,
   type FileRepository,
 } from "./file-repository.js";
-import { canRead, canWrite, isCanonicalTaskFile } from "./gtd-layout.js";
+import { canRead, canWrite, isCanonicalTaskFile, isPastDaily } from "./gtd-layout.js";
 import { type Logger, NoopLogger, safeLog } from "./logging.js";
 import { formatToday } from "./search.js";
 import type { SearchResult } from "./file-repository.js";
@@ -126,6 +126,18 @@ async function writeFileTool(
         error: {
           reason: "out_of_scope",
           message: `Path '${filePath}' is not writable under the GTD layout.`,
+        },
+      };
+    }
+    // R6 hard guard: full rewrites of past dailies are blocked at the tool
+    // layer so a mistaken model call cannot reshape historical plans.
+    // edit_file remains open for the narrow correction carve-out.
+    if (isPastDaily(filePath, today)) {
+      return {
+        ok: false,
+        error: {
+          reason: "out_of_scope",
+          message: `Past daily '${filePath}' cannot be rewritten via write_file; use edit_file for narrow corrections (R6).`,
         },
       };
     }
@@ -389,14 +401,16 @@ export function buildTools(
     list_files: tool({
       description:
         "Lists paths, optionally filtered by prefix. Results are restricted " +
-        "to the GTD layout (5 task files, today's daily note, archived dailies).",
+        "to the GTD layout (5 task files, any date-formatted daily note under daily/).",
       inputSchema: z.object({ prefix: z.string().optional() }),
       execute: async ({ prefix }) => listFilesTool(repo, prefix, today()),
     }),
     search_files: tool({
       description:
-        "Full-text search. scope=active (default), archive, or all. " +
-        "Results are restricted to the GTD layout — snippets from out-of-scope paths are filtered out.",
+        "Full-text search across the active GTD layout (5 task files + any date-formatted daily). " +
+        "scope=active (default) covers that surface; archive is reserved for future non-daily " +
+        "archived paths and is currently empty; all is the union. " +
+        "Snippets from out-of-scope paths are filtered out.",
       inputSchema: z.object({
         query: z.string(),
         scope: scopeSchema,
