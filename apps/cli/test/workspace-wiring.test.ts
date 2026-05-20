@@ -1,6 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -9,7 +6,7 @@ import {
   InvalidPathError,
 } from "@gtd/core";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
+import { PROVIDER, providerOptions } from "../src/model-provider.js";
 
 describe("@gtd/cli — workspace wiring", () => {
   it("imports public surface from @gtd/core and exercises it", async () => {
@@ -25,23 +22,30 @@ describe("@gtd/cli — workspace wiring", () => {
     );
   });
 
-  it("forces sequential tool execution via providerOptions.anthropic.disableParallelToolUse", async () => {
+  it("pins the sequential-tool-use contract for the active provider", () => {
     // Architecture anchor for Task 3.7: the edit_file retry budget assumes
     // edit_file calls within a single user turn are sequential — a plain
-    // Map mutation under that assumption is race-free. The CLI enforces
-    // sequentiality at the provider boundary by setting Anthropic's
-    // disable_parallel_tool_use flag on streamText. If the flag is ever
-    // removed, the budget's counter regresses to the racy
-    // read-then-await-then-increment hazard. This static source check
-    // makes that invariant unmissable in code review. The `streamText`
-    // call site moved from `index.ts` to `turn-loop.ts` when the per-turn
-    // body was extracted (Task 4.2 follow-up); the regex follows it.
-    const source = await readFile(
-      path.resolve(here, "../src/turn-loop.ts"),
-      "utf8",
-    );
-    expect(source).toMatch(
-      /providerOptions:\s*\{\s*anthropic:\s*\{\s*disableParallelToolUse:\s*true\b/,
-    );
+    // Map mutation under that assumption is race-free.
+    //
+    // Anthropic: enforced at the provider boundary by
+    //   providerOptions.anthropic.disableParallelToolUse = true. Removing
+    //   that flag regresses the budget to a racy
+    //   read-then-await-then-increment hazard.
+    //
+    // DeepSeek: the AI SDK provider exposes no equivalent flag (only
+    //   `thinking` and `reasoningEffort`), so the invariant is best-effort
+    //   at the provider layer. Worst case is one extra retry attempt
+    //   burned under exactly concurrent same-file edits — documented in
+    //   model-provider.ts and packages/core/src/tools.ts. The assertion
+    //   here pins the *shape* per provider so a silent regression (e.g.
+    //   accidentally dropping the anthropic flag, or adding a stray key
+    //   on the deepseek branch that the SDK ignores) is caught.
+    if (PROVIDER === "anthropic") {
+      expect(providerOptions()).toEqual({
+        anthropic: { disableParallelToolUse: true },
+      });
+    } else {
+      expect(providerOptions()).toEqual({ deepseek: {} });
+    }
   });
 });

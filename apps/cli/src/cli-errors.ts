@@ -10,7 +10,7 @@ import { APICallError } from "ai";
 // + the two `provider*` helpers below. Adding a new provider = extend the
 // switch in those three functions; no adapter interface needed.
 
-type Provider = "anthropic" | "openai" | "unknown";
+type Provider = "anthropic" | "openai" | "deepseek" | "unknown";
 
 export function formatCliError(err: unknown): string {
   if (APICallError.isInstance(err)) {
@@ -46,6 +46,7 @@ function formatApiCallError(err: APICallError): string {
 function detectProvider(url: string): Provider {
   if (url.includes("anthropic.com")) return "anthropic";
   if (url.includes("openai.com")) return "openai";
+  if (url.includes("deepseek.com")) return "deepseek";
   return "unknown";
 }
 
@@ -58,6 +59,10 @@ function providerRequestId(
     case "anthropic":
       return headers["request-id"];
     case "openai":
+      return headers["x-request-id"];
+    case "deepseek":
+      // DeepSeek's API is OpenAI-compatible at the wire level and surfaces
+      // the request id under the same header name.
       return headers["x-request-id"];
     case "unknown":
       return (
@@ -87,6 +92,11 @@ function providerActionableHint(
       // No OpenAI-specific hints yet. Add when we actually route through
       // OpenAI and see which messages warrant a CTA the generic fallback
       // can't deliver (e.g. `insufficient_quota` → billing portal link).
+      return undefined;
+    case "deepseek":
+      // No DeepSeek-specific hints yet. The DeepSeek API returns
+      // OpenAI-compatible error envelopes; add hints here when a
+      // distinctive failure mode shows up in production logs.
       return undefined;
     case "unknown":
       return undefined;

@@ -219,11 +219,13 @@ async function editFileTool(
     // counter, but the CLI sets providerOptions.anthropic.disableParallel
     // ToolUse=true on streamText so Anthropic emits at most one tool call
     // per step — calls within a buildTools instance are sequential.
-    // workspace-wiring.test.ts pins that flag in place; do not add a
-    // mutex here without first removing the flag (every prior in-tool
-    // locking attempt introduced its own bug — slot-reservation false-
-    // blocked concurrent successes, per-file queues ignored the abort
-    // signal). Callers using buildTools outside the CLI must guarantee
+    // workspace-wiring.test.ts pins that flag in place on Anthropic; do
+    // not add a mutex here without first removing the flag (every prior
+    // in-tool locking attempt introduced its own bug — slot-reservation
+    // false-blocked concurrent successes, per-file queues ignored the
+    // abort signal). On DeepSeek the same flag does not exist on the AI
+    // SDK provider; the worst-case bound is documented on `buildTools`
+    // above. Callers using buildTools outside the CLI must guarantee
     // the same sequential-dispatch invariant themselves.
     const count = failures.get(filePath) ?? 0;
     if (count >= MAX_EDIT_FAILURES_PER_FILE) {
@@ -301,10 +303,19 @@ export interface BuildToolsOptions {
  *
  * 2. **Sequential `edit_file` dispatch within one instance.** The
  *    retry budget mutates a plain `Map` without synchronization. The
- *    CLI guarantees this via Anthropic's `disableParallelToolUse=true`
- *    on `streamText`. Any other caller (server entry point, direct
- *    tests of `tools.edit_file.execute`, alternate provider) must
- *    enforce the same invariant or the budget races.
+ *    CLI guarantees this on Anthropic via `disableParallelToolUse=true`
+ *    on `streamText`. On DeepSeek the AI SDK provider exposes no
+ *    equivalent flag (only `thinking` and `reasoningEffort`), so the
+ *    invariant is best-effort there. Worst case: under exactly
+ *    concurrent same-file `edit_file` calls within one turn, two
+ *    callers can both observe the same `count`, race the
+ *    `failures.set`, and burn one extra retry attempt before the
+ *    budget catches up. Accepted bound per the project's empirical-
+ *    over-speculative-hardening preference; revisit if production
+ *    DeepSeek runs show frequent parallel `edit_file` emissions.
+ *    Any other caller (server entry point, direct tests of
+ *    `tools.edit_file.execute`) must enforce sequential dispatch
+ *    itself.
  */
 export function buildTools(
   repo: FileRepository,

@@ -13,8 +13,12 @@
 
 import { statSync } from "node:fs";
 import path from "node:path";
-import { anthropic } from "@ai-sdk/anthropic";
 import { isStepCount, streamText, type ModelMessage } from "ai";
+import {
+  MODEL_ID as PROVIDER_MODEL_ID,
+  model,
+  providerOptions,
+} from "./model-provider.js";
 import {
   buildRequest,
   buildTools,
@@ -37,11 +41,10 @@ import { announceSessionBoundary } from "./session-boundary.js";
 const MAX_STEPS = 10;
 const DEBUG = process.env.DEBUG === "1";
 
-// Single source of truth for the model identifier — used both as the
-// `streamText` model wiring and as the `model` field on per-turn debug
-// artifacts. Changing this in one place keeps the artifact, the SDK call,
-// and any future routing-aware code in sync.
-export const MODEL_ID = "claude-sonnet-4-6";
+// Re-export so callers that imported `MODEL_ID` from turn-loop continue to
+// work. The actual selection logic — including the anthropic/deepseek
+// branch driven by the GTD_PROVIDER env var — lives in model-provider.ts.
+export const MODEL_ID = PROVIDER_MODEL_ID;
 
 export interface TurnDeps {
   vaultPath: string;
@@ -120,24 +123,24 @@ export async function handleTurn(
         model: MODEL_ID,
         system: systemText,
         messages: requestMessages,
-        providerOptions: {
-          disableParallelToolUse: true,
-        },
+        providerOptions: providerOptions(),
         cliLogger: deps.cliLogger,
       };
     }
 
     const result = streamText({
-      model: anthropic(MODEL_ID),
+      model: model(),
       system,
       messages: requestMessages,
       tools,
       stopWhen: isStepCount(MAX_STEPS),
       abortSignal: controller.signal,
-      // anthropic.disableParallelToolUse: true — force one tool call per
-      // step so the edit_file retry budget's per-turn Map (keyed by
-      // filePath) is race-free by construction. Pinned to first-key
-      // position by the workspace-wiring static check.
+      // Anthropic: `disableParallelToolUse: true` — force one tool call
+      // per step so the edit_file retry budget's per-turn Map (keyed by
+      // filePath) is race-free by construction. DeepSeek: the AI SDK
+      // provider exposes no equivalent flag, so this is best-effort
+      // there; see model-provider.ts and the buildTools doc in
+      // packages/core/src/tools.ts for the documented worst-case bound.
       //
       // Cache markers (cacheControl) are NOT set top-level here. They
       // live on:
@@ -148,12 +151,9 @@ export async function handleTurn(
       // Top-level `providerOptions.anthropic.cacheControl` on streamText
       // is undocumented in the AI SDK and was silently failing — session
       // 2026-05-20 turn 9 onward showed cacheRead=0 despite byte-
-      // identical prefixes.
-      providerOptions: {
-        anthropic: {
-          disableParallelToolUse: true,
-        },
-      },
+      // identical prefixes. On DeepSeek the anthropic-scoped marker is
+      // a no-op (DeepSeek does server-side automatic prefix caching).
+      providerOptions: providerOptions(),
       // The SDK default logs raw stream errors to stderr. The CLI logs the
       // raw diagnostic record to .keppt/logs and prints a stable summary.
       onError: () => {},
