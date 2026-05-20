@@ -10,7 +10,8 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "dev": "pnpm -C packages/core build && pnpm --filter @gtd/cli dev --debug"
+    "dev": "pnpm -C packages/core build && pnpm --filter @gtd/cli dev --debug",
+    "cost": "pnpm --filter @gtd/cli exec tsx ../../scripts/cost.ts"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
