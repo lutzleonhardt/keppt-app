@@ -93,7 +93,7 @@ export interface BuildRequestResult {
 /**
  * Assemble the per-turn request payload for `streamText`.
  *
- * - `system` is the cacheable block: R1–R17 + tool conventions + (optional)
+ * - `system` is the cacheable block: R1–R19 + tool conventions + (optional)
  *   profile. It stays byte-identical across turns within a session.
  *   Returned as a `SystemModelMessage` (NOT a plain string) so the
  *   Anthropic cache-marker on its `providerOptions` actually rides along to
