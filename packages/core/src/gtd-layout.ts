@@ -47,3 +47,14 @@ export function isInActiveScope(filePath: string, today: string): boolean {
 export function isInArchiveScope(filePath: string): boolean {
   return ARCHIVE_DAILY_RE.test(filePath);
 }
+
+// Canonical task-file predicate. Shape mirrors canWrite's decision (five task
+// files + today's daily note) but without throwing on invalid paths — this
+// helper runs on already-validated paths from the tool layer and must not
+// alter the tool's error surface. Single source of truth so writeFileTool
+// and editFileTool cannot drift from each other or from canWrite.
+export function isCanonicalTaskFile(filePath: string, today: string): boolean {
+  if (TASK_FILES.has(filePath)) return true;
+  if (filePath === `daily/${today}.md`) return true;
+  return false;
+}

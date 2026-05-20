@@ -6,7 +6,7 @@ import {
   InvalidPathError,
   type FileRepository,
 } from "./file-repository.js";
-import { canRead, canWrite } from "./gtd-layout.js";
+import { canRead, canWrite, isCanonicalTaskFile } from "./gtd-layout.js";
 import { type Logger, NoopLogger, safeLog } from "./logging.js";
 import { formatToday } from "./search.js";
 import type { SearchResult } from "./file-repository.js";
@@ -25,6 +25,18 @@ const editsSchema = z
 
 const scopeSchema = z.enum(["active", "archive", "all"]).optional();
 
+// Salience hint attached to successful writes/edits on canonical task files
+// (the five tasks/*.md plus today's daily note). Byte-stable on purpose: tests
+// pin equality against this exported constant rather than re-stating the
+// literal. Not a determinism layer — the R5 crosscheck still depends on the
+// model honouring it. See docs/plans/phase-1-cli.md Task 4.3 Key Discoveries.
+export const TASK_FILE_REMINDER =
+  "Task-relevant file modified. Before your final response, complete R5 crosscheck:\n" +
+  "- Read tasks/focus.md, tasks/next-actions.md, tasks/waiting.md, and today's daily/ — never from memory.\n" +
+  "- Mirror Focus↔Next-Actions on every status toggle.\n" +
+  "- Done removes from Focus + Next Actions + Waiting. Waiting removes from Focus + Next Actions.\n" +
+  "- Report any drift.";
+
 export type ReadFileResult =
   | { ok: true; content: string }
   | {
@@ -36,7 +48,7 @@ export type ReadFileResult =
     };
 
 export type WriteFileResult =
-  | { ok: true }
+  | { ok: true; reminder?: string }
   | {
       ok: false;
       error: {
@@ -51,7 +63,7 @@ export type EditFileError =
   | { reason: "retry_budget_exhausted"; currentContent: string };
 
 export type EditFileResult =
-  | { ok: true }
+  | { ok: true; reminder?: string }
   | { ok: false; error: EditFileError };
 
 // Two attempts: first round-trips currentContent, second is the legitimate
@@ -118,6 +130,9 @@ async function writeFileTool(
       };
     }
     await repo.write(filePath, content, changeSummary);
+    if (isCanonicalTaskFile(filePath, today)) {
+      return { ok: true, reminder: TASK_FILE_REMINDER };
+    }
     return { ok: true };
   } catch (err) {
     if (err instanceof InvalidPathError) {
@@ -224,7 +239,12 @@ async function editFileTool(
       };
     }
     const result: EditResult = await repo.edit(filePath, edits, changeSummary);
-    if (result.ok) return { ok: true };
+    if (result.ok) {
+      if (isCanonicalTaskFile(filePath, today)) {
+        return { ok: true, reminder: TASK_FILE_REMINDER };
+      }
+      return { ok: true };
+    }
     failures.set(filePath, count + 1);
     // Bounded diagnostics only — `EditError.currentContent` is the entire
     // target file and `failedSearch` is a model-supplied verbatim slice.

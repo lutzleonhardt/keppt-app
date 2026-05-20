@@ -4,6 +4,7 @@ import { InvalidPathError } from "../file-repository.js";
 import {
   canRead,
   canWrite,
+  isCanonicalTaskFile,
   isInActiveScope,
   isInArchiveScope,
 } from "../gtd-layout.js";
@@ -116,5 +117,51 @@ describe("gtd-layout — isInActiveScope / isInArchiveScope", () => {
     expect(isInArchiveScope("archive/tasks/old.md")).toBe(false);
     expect(isInArchiveScope("tasks/inbox.md")).toBe(false);
     expect(isInArchiveScope("daily/2026-05-08.md")).toBe(false);
+  });
+});
+
+describe("gtd-layout — isCanonicalTaskFile", () => {
+  // Pure predicate: the five task files plus today's daily note. Shape
+  // mirrors canWrite's decision without throwing on invalid input — the
+  // tool layer only calls it after canWrite/canRead has already validated.
+
+  it("returns true for each of the 5 GTD task files", () => {
+    for (const f of [
+      "tasks/inbox.md",
+      "tasks/focus.md",
+      "tasks/next-actions.md",
+      "tasks/waiting.md",
+      "tasks/someday-maybe.md",
+    ]) {
+      expect(isCanonicalTaskFile(f, TODAY)).toBe(true);
+    }
+  });
+
+  it("returns true for today's daily note only", () => {
+    expect(isCanonicalTaskFile(`daily/${TODAY}.md`, TODAY)).toBe(true);
+    expect(isCanonicalTaskFile("daily/2026-05-07.md", TODAY)).toBe(false);
+    expect(isCanonicalTaskFile("daily/2026-05-09.md", TODAY)).toBe(false);
+  });
+
+  it("returns false for archive paths and non-allowlisted files", () => {
+    expect(isCanonicalTaskFile("archive/daily/2026-05-01.md", TODAY)).toBe(false);
+    expect(isCanonicalTaskFile("archive/tasks/old.md", TODAY)).toBe(false);
+    expect(isCanonicalTaskFile("tasks/random.md", TODAY)).toBe(false);
+    expect(isCanonicalTaskFile("tasks/projects/work.md", TODAY)).toBe(false);
+    expect(isCanonicalTaskFile("notes.md", TODAY)).toBe(false);
+    expect(isCanonicalTaskFile("README.md", TODAY)).toBe(false);
+  });
+
+  it("does not throw on inputs canRead/canWrite would reject", () => {
+    // canRead/canWrite would throw InvalidPathError on these. The canonical
+    // helper is tolerant by design — its callers never pass such paths, but
+    // the predicate must remain non-throwing so the tool-layer error shape
+    // stays under outer-catch control. AC-07.
+    expect(() => isCanonicalTaskFile("../escape.md", TODAY)).not.toThrow();
+    expect(isCanonicalTaskFile("../escape.md", TODAY)).toBe(false);
+    expect(() => isCanonicalTaskFile(".keppt/foo.md", TODAY)).not.toThrow();
+    expect(isCanonicalTaskFile(".keppt/foo.md", TODAY)).toBe(false);
+    expect(() => isCanonicalTaskFile("/abs/path.md", TODAY)).not.toThrow();
+    expect(isCanonicalTaskFile("/abs/path.md", TODAY)).toBe(false);
   });
 });

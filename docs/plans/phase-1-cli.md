@@ -1295,6 +1295,23 @@ Vitest suite against `InMemoryFileRepository` + a mocked clock:
 - **A new `move` primitive in the interface is cleaner than read+write+(missing delete).** Without `move`, the repo would not know it needs a second history line (one for delete of the source, one for create of the target). With `move` it's one semantically atomic entry.
 - **Clock injection is more than test infrastructure.** The `GTD_NOW_OVERRIDE` env var also enables manual dogfooding tests ("what happens on Friday?") without changing the system date.
 
+### Follow-up requirement: past-daily editability (deferred to this task's implementation)
+
+Once archive/ exists, the prompt currently forbids edits to it (R6 "Past notes are read-only" + T-C3 `out_of_scope`). That conflicts with a realistic UX:
+
+> User-Workflow: "Heute morgen schließe ich gestern Abend ab — ich habe Gassi gehen erst um 22 Uhr gemacht, das müsste in gestrigem Plan noch von `[ ]` auf `[x]` und einen Log-Eintrag bekommen."
+
+Opus' reference rule (Lutz' personal `CLAUDE.md` Zeile 84) explicitly allows this: *"Wenn eine Daily Note eines vergangenen oder laufenden Tages objektiv falsche Kästchen/Einträge enthält, darf und soll Claude diese korrigieren."*
+
+Enabling that requires four coordinated changes (do as part of this task or a follow-up slice):
+
+1. **gtd-layout relaxation:** `archive/daily/YYYY-MM-DD.md` becomes writable. Other archive subdirectories (if added later) stay read-only. The layout predicate gets a per-subdirectory carve-out, not a blanket archive-write.
+2. **Tool convention:** T-C3 wording loosens — `out_of_scope` is still by design, but `archive/daily/*` is no longer a permanent unwritable path; it's selectively writable.
+3. **System-prompt rule:** R6 ("Past notes are read-only") needs to soften to "Past daily notes are read-only by default; explicit corrections are allowed when the past note is factually wrong (e.g. a task done late in the day was not checked off, an event happened that was not logged)." Consider whether this becomes a new R-rule or extends R6 — phrasing should make clear this is for *correction*, not for arbitrary edits.
+4. **Crosscheck implication:** if a corrected past task `[x]` reflects something now actually done, R5 still applies — Focus/Next-Actions may need to be updated retroactively. The crosscheck should run after a past-daily correction the same way it runs after a today-daily edit.
+
+Captured here so this task's archive mechanics don't accidentally lock out the editability story. Not in scope to *implement* in Task 5's core acceptance suite unless explicitly extended; the AC above (T5-AC-01..05) covers the archive-write path itself, which is the structural prerequisite.
+
 ---
 
 ## Task 5.5: Vault readiness on turn start (`ensureVaultReady`)

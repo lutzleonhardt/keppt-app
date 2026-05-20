@@ -10,7 +10,7 @@ import type { FileRepository, SearchResult, SearchScope } from "../file-reposito
 import type { EditResult, SearchReplaceEdit } from "../edit.js";
 import { InMemoryFileRepository } from "../in-memory-file-repository.js";
 import { MemoryLogger, type LogEvent, type Logger } from "../logging.js";
-import { buildTools } from "../tools.js";
+import { buildTools, TASK_FILE_REMINDER } from "../tools.js";
 
 class TrapRepository implements FileRepository {
   reads: string[] = [];
@@ -658,5 +658,216 @@ describe("buildTools — Logger seams", () => {
       meta: { filePath: "tasks/../secrets.md" },
     });
     expect(typeof invalid[0]?.meta?.reason).toBe("string");
+  });
+});
+
+// Task 4.3: the `reminder` field on the success-path return of write_file
+// and edit_file. Salience hint for the R5 crosscheck; attached only when
+// the write lands on a canonical task file (the five tasks/*.md plus
+// today's daily note). Absent on every error path and on non-canonical
+// success paths.
+describe("buildTools — Task 4.3 reminder field", () => {
+  const TODAY_STR = "2026-05-08"; // matches FIXED_NOW's UTC date
+  const CANONICAL_PATHS = [
+    "tasks/inbox.md",
+    "tasks/focus.md",
+    "tasks/next-actions.md",
+    "tasks/waiting.md",
+    "tasks/someday-maybe.md",
+    `daily/${TODAY_STR}.md`,
+  ] as const;
+
+  async function runSingleToolCall(
+    repo: FileRepository,
+    toolName: string,
+    input: Record<string, unknown>,
+    now: () => Date = () => FIXED_NOW,
+  ): Promise<unknown> {
+    const model = sequencedMockModel([
+      streamResult(toolCallChunks(toolName, "call-1", input)),
+      streamResult(textChunks("done")),
+    ]);
+    const result = streamText({
+      model,
+      tools: buildTools(repo, { now }),
+      stopWhen: isStepCount(3),
+      messages: [{ role: "user", content: "go" }],
+    });
+    let output: unknown = undefined;
+    for await (const part of result.fullStream) {
+      if (part.type === "tool-result") output = part.output;
+      else if (part.type === "error") throw part.error;
+    }
+    return output;
+  }
+
+  // T4.3-AC-01 + T4.3-AC-02
+  it("write_file attaches the byte-stable reminder on every canonical path", async () => {
+    for (const filePath of CANONICAL_PATHS) {
+      const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+      const output = await runSingleToolCall(repo, "write_file", {
+        file_path: filePath,
+        content: "x",
+        change_summary: "seed",
+      });
+      expect(output).toEqual({ ok: true, reminder: TASK_FILE_REMINDER });
+    }
+  });
+
+  // T4.3-AC-03
+  it("edit_file attaches the byte-stable reminder on every canonical path", async () => {
+    for (const filePath of CANONICAL_PATHS) {
+      const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+      await repo.write(filePath, "before\n", "seed");
+      const output = await runSingleToolCall(repo, "edit_file", {
+        file_path: filePath,
+        edits: [{ search: "before\n", replace: "after\n" }],
+        change_summary: "swap",
+      });
+      expect(output).toEqual({ ok: true, reminder: TASK_FILE_REMINDER });
+    }
+  });
+
+  // T4.3-AC-04: archive writes never land — out_of_scope carries no reminder
+  // because the field is success-path-only and the write didn't happen.
+  it("write_file against an archive path returns out_of_scope with no reminder", async () => {
+    const trap = new TrapRepository();
+    const output = await runSingleToolCall(trap, "write_file", {
+      file_path: "archive/daily/2026-05-01.md",
+      content: "x",
+      change_summary: "blocked",
+    });
+    expect(output).toMatchObject({ ok: false, error: { reason: "out_of_scope" } });
+    expect(output as object).not.toHaveProperty("reminder");
+    expect(trap.writes).toEqual([]);
+  });
+
+  // T4.3-AC-05: future daily notes are not canonical even if (post-Task 5.6)
+  // they might become writable. The helper-level test in gtd-layout.test.ts
+  // pins this for the predicate; here we pin it at the tool layer through
+  // the canWrite "today only" path (out_of_scope, no reminder).
+  it("write_file against a future daily note carries no reminder", async () => {
+    const trap = new TrapRepository();
+    const output = await runSingleToolCall(trap, "write_file", {
+      file_path: "daily/2026-05-09.md", // FIXED_NOW + 1 day
+      content: "x",
+      change_summary: "blocked",
+    });
+    expect(output).toMatchObject({ ok: false, error: { reason: "out_of_scope" } });
+    expect(output as object).not.toHaveProperty("reminder");
+  });
+
+  // T4.3-AC-06: every documented error variant carries no reminder.
+  it("error variants never carry a reminder field", async () => {
+    // out_of_scope on write_file
+    {
+      const trap = new TrapRepository();
+      const out = await runSingleToolCall(trap, "write_file", {
+        file_path: "notes.md",
+        content: "x",
+        change_summary: "blocked",
+      });
+      expect(out as object).not.toHaveProperty("reminder");
+    }
+    // invalid_path on write_file
+    {
+      const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+      const out = await runSingleToolCall(repo, "write_file", {
+        file_path: "tasks/../secrets.md",
+        content: "x",
+        change_summary: "blocked",
+      });
+      expect(out).toMatchObject({ ok: false, error: { reason: "invalid_path" } });
+      expect(out as object).not.toHaveProperty("reminder");
+    }
+    // out_of_scope on edit_file
+    {
+      const trap = new TrapRepository();
+      const out = await runSingleToolCall(trap, "edit_file", {
+        file_path: "notes.md",
+        edits: [{ search: "a", replace: "b" }],
+        change_summary: "blocked",
+      });
+      expect(out as object).not.toHaveProperty("reminder");
+    }
+    // invalid_path on edit_file
+    {
+      const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+      const out = await runSingleToolCall(repo, "edit_file", {
+        file_path: "tasks/../secrets.md",
+        edits: [{ search: "a", replace: "b" }],
+        change_summary: "blocked",
+      });
+      expect(out).toMatchObject({ ok: false, error: { reason: "invalid_path" } });
+      expect(out as object).not.toHaveProperty("reminder");
+    }
+    // match failure on edit_file (canonical path, but write didn't land)
+    {
+      const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+      await repo.write(
+        "tasks/inbox.md",
+        "- [ ] buy milk\n- [ ] buy milk\n",
+        "seed",
+      );
+      const out = await runSingleToolCall(repo, "edit_file", {
+        file_path: "tasks/inbox.md",
+        edits: [{ search: "- [ ] buy milk\n", replace: "- [x] buy milk\n" }],
+        change_summary: "ambiguous",
+      });
+      expect(out).toMatchObject({ ok: false, error: { reason: "match" } });
+      expect(out as object).not.toHaveProperty("reminder");
+    }
+    // retry_budget_exhausted on edit_file — needs three calls within one
+    // buildTools instance, so build a dedicated stream rather than going
+    // through runSingleToolCall.
+    {
+      const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+      await repo.write(
+        "tasks/inbox.md",
+        "- [ ] buy milk\n- [ ] buy milk\n",
+        "seed",
+      );
+      const ambiguousEdit = {
+        file_path: "tasks/inbox.md",
+        edits: [{ search: "- [ ] buy milk\n", replace: "- [x] buy milk\n" }],
+        change_summary: "ambiguous",
+      };
+      const model = sequencedMockModel([
+        streamResult(toolCallChunks("edit_file", "call-1", ambiguousEdit)),
+        streamResult(toolCallChunks("edit_file", "call-2", ambiguousEdit)),
+        streamResult(toolCallChunks("edit_file", "call-3", ambiguousEdit)),
+        streamResult(textChunks("done")),
+      ]);
+      const result = streamText({
+        model,
+        tools: buildTools(repo, { now: () => FIXED_NOW }),
+        stopWhen: isStepCount(5),
+        messages: [{ role: "user", content: "go" }],
+      });
+      const toolResults: unknown[] = [];
+      for await (const part of result.fullStream) {
+        if (part.type === "tool-result") toolResults.push(part.output);
+        else if (part.type === "error") throw part.error;
+      }
+      expect(toolResults).toHaveLength(3);
+      const third = toolResults[2];
+      expect(third).toMatchObject({
+        ok: false,
+        error: { reason: "retry_budget_exhausted" },
+      });
+      expect(third as object).not.toHaveProperty("reminder");
+    }
+  });
+
+  // The constant in tools.ts matches the plan-pinned literal (plan line
+  // 1126-1129). Byte-stability across refactors is the contract.
+  it("TASK_FILE_REMINDER matches the plan-pinned literal", () => {
+    expect(TASK_FILE_REMINDER).toBe(
+      "Task-relevant file modified. Before your final response, complete R5 crosscheck:\n" +
+        "- Read tasks/focus.md, tasks/next-actions.md, tasks/waiting.md, and today's daily/ — never from memory.\n" +
+        "- Mirror Focus↔Next-Actions on every status toggle.\n" +
+        "- Done removes from Focus + Next Actions + Waiting. Waiting removes from Focus + Next Actions.\n" +
+        "- Report any drift.",
+    );
   });
 });

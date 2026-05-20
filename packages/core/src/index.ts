@@ -34,6 +34,7 @@ export {
 } from "./history-log.js";
 export {
   buildTools,
+  TASK_FILE_REMINDER,
   type BuildToolsOptions,
   type EditFileError,
   type EditFileResult,
@@ -43,6 +44,7 @@ export {
 export {
   canRead,
   canWrite,
+  isCanonicalTaskFile,
   isInActiveScope,
   isInArchiveScope,
 } from "./gtd-layout.js";
