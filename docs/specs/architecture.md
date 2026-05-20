@@ -953,9 +953,9 @@ Observability is added in layers, not as one large production-hardening task:
 
 ## Archive Layout & Lifecycle
 
-> **Amended after planning** (future-dailies). The original "exactly one active daily note" rule was relaxed: `daily/` now holds today's note **plus zero or more pre-planned future drafts** (`date >= today`). Driven by the GTD ruleset, which both (a) lets the LLM extend "today's/tomorrow's Daily Note plan" when an urgent task lands in Focus, and (b) requires Weekly-Review step 8 to "prepare the next workday's Daily Note". The rollover criterion in the readiness step (Task 5.5) becomes `date < today` so future drafts survive idle days; once a future date *becomes* today, the same `< today` comparison archives the previous note via the existing pipeline — no special-case code. Also closes a latent `search_files` gap: future dailies previously fell through both `isInActiveScope` and `isInArchiveScope`, so even `scope: "all"` could not surface them. See `docs/plans/phase-1-cli.md` Task 5.6.
+> **Amended after planning** (Task-5 redesign, 2026-05-20). The original `daily/` ↔ `archive/daily/` split is dropped. Past, today, and future daily notes all live under `daily/YYYY-MM-DD.md` and share one gate rule. No per-turn rollover, no `- [ ]`-stripping, no `move` primitive. Past-daily editability becomes a prompt-soft rule (R6) rather than a gate split; open-task carry-over moves out of silent file mutation into the explicit Auto-Replan-Opener (Task 7). The historical archive concept survives only for non-daily paths if ever needed later — `isInArchiveScope` stays in the predicate API but returns `false` for `daily/*`. See `docs/plans/phase-1-cli.md` Task 5.
 
-"Archive" in this app means: **outside the active LLM routine context, but accessible on demand**. Nothing is deleted (except completed tasks — see below), but it is moved out of the active path into an archive directory so that the daily context stays lean.
+"Archive" in this app means: **deletion-free retention**. Nothing is deleted (except completed tasks — see below). Past artefacts stay where they were written; "archive" is a semantic property (out of routine LLM working context unless the user asks) rather than a physical directory move for `daily/*`.
 
 ### Three Lifecycle Classes
 
@@ -965,13 +965,15 @@ Completed tasks are removed from the lists during crosscheck / weekly review. No
 - The respective day's daily note log — here the human context is captured ("14:32 sent VW offer").
 Double bookkeeping (a separate archive folder for completed tasks) is deliberately avoided — `file_history` is the trail.
 
-**2. Daily Notes** — **automatically moved to the archive on day rollover.**
-`daily/` holds **today's note plus zero or more pre-planned future drafts** (`date >= today`). When the user opens the app on a new day, the readiness step (see "Vault Readiness on Turn Start") archives every `daily/YYYY-MM-DD.md` whose date is `< today`:
-- Each stale file is moved to `archive/daily/YYYY-MM-DD.md`.
+**2. Daily Notes** — **kept in place, no physical archive move.**
+`daily/` holds past notes, today's note, and zero or more pre-planned future drafts under one directory. The "past vs. today vs. future" distinction is carried by the filename date plus the per-turn `today` value, not by directory location:
 - Today's note is created lazily on the LLM's first `write_file` (or already exists if the user pre-planned it as a future draft that has now become today).
-- The move is recorded as a `file_history` entry with `change_summary = "Archived daily note YYYY-MM-DD"`.
+- Past notes stay at `daily/YYYY-MM-DD.md` indefinitely. They are not relocated, not stripped of open checkboxes, not summarised. The explicit user workflow — "morgens schließe ich gestern noch ab" — depends on yesterday's open boxes still being visible.
+- Open-task carry-over and same-day closeout are handled by the Auto-Replan-Opener (see Task 7 in the phase-1 plan) plus the R17/R18 prompt rules, not by a server-side file mutation.
 
-The LLM never needs to guess which note is "active" — the per-turn `today` string identifies it directly. Future drafts in `daily/` are visible to the LLM (read/write/list/search), so the user can pre-plan tomorrow's vet appointment and the assistant can edit that file by name. Archived notes are in `archive/daily/` and are only read on demand (e.g. "What did I do last Tuesday?" → `read_file("archive/daily/2026-04-14.md")`).
+The LLM never needs to guess which note is "active" — the per-turn `today` string identifies it directly. Past, today, and future dailies are equally visible to the LLM (read/write/list/search) under one gate rule. Past-daily edits are constrained by R6 (default read-only, narrow correction carve-out), not by a separate write predicate.
+
+> **Known Phase-1 limitation:** `daily/` grows unbounded — ~365 files after a year of daily use. Accepted for Phase-1 dev vaults. See "Open question: Daily-folder scaling" below for the candidate fixes and the triggers that would force a decision.
 
 **3. Chat sessions** — **exactly one per day, old sessions remain accessible and writable.**
 Sessions live in the DB, not as files. On day rollover a new `sessions` row for the new day is automatically created; the old session is **not** deleted and **not** moved — it stays exactly where it is. "Archived" here only means: standard context from now on is today's session; the old one is reachable on demand.
@@ -988,17 +990,15 @@ tasks/
   waiting.md
   someday-maybe.md
 daily/
+  2026-04-15.md              ← past
+  2026-04-16.md              ← past
   2026-04-17.md              ← today
-  2026-04-19.md              ← optional pre-planned future draft (date >= today)
-archive/
-  daily/
-    2026-04-16.md
-    2026-04-15.md
-    ... (all past daily notes)
+  2026-04-19.md              ← optional pre-planned future draft
 ```
 
 **What deliberately doesn't exist:**
 - No `projects/` directory. Projects are **not** separate files. The structure of Next Actions is two-level in **one** file `tasks/next-actions.md`: top-level categories (Work, House & Garden, Finances, Personal) and below that optional subheadings for groups/project blocks. See R6.
+- No `archive/daily/`. Past daily notes stay at `daily/YYYY-MM-DD.md` — the Task-5 redesign (2026-05-20) dropped the physical archive move.
 - No `archive/tasks/`. Completed tasks are deleted (see above), not moved.
 - No `archive/sessions/`. Chat sessions remain in the DB, archiving is implicit via `sessions.date`.
 
@@ -1007,55 +1007,55 @@ archive/
 | Area | In routine context? | Accessible on demand? |
 |------|---------------------|-----------------------|
 | `tasks/*.md` | Yes, always | — |
-| `daily/*.md` (today + future drafts, `date >= today`) | Yes | — |
-| `archive/daily/*.md` | No | Yes, via `read_file` or `search_files(scope: "archive")` |
+| `daily/YYYY-MM-DD.md` (any date — past, today, future) | Yes | — |
 | `sessions` today's + `messages` of today's session | Yes | — |
 | past `sessions` + their `messages` | No (only when the user explicitly switches over) | Yes, via session switching in the UI |
 | `file_history` | No | Yes, via `search_files` or History view |
 
 **`search_files(scope)` behavior:**
-- `"active"` (default) → `tasks/*.md` + every `daily/YYYY-MM-DD.md` with `date >= today` (today + future drafts)
-- `"archive"` → `archive/daily/*.md`
-- `"all"` → everything together. Invariant: `active ∪ archive` covers every path `read_file` would accept; nothing falls between the two scopes.
+- `"active"` (default) → `tasks/*.md` + every `daily/YYYY-MM-DD.md` regardless of date (past, today, future all participate)
+- `"archive"` → reserved scope; currently returns empty for `daily/*` because past dailies are not physically archived. Kept in the API for future non-daily archive subpaths.
+- `"all"` → everything `read_file` would accept. With the daily-archive split removed, `"all"` and `"active"` coincide for `daily/*`; `"all"` may diverge later if non-daily archive subpaths are added.
 
 ### Enforcement of the Scope Rules (Two-Layer Model)
 
-The scope rules are deliberately **not** enforced in the `FileRepository`, but in the **LLM tool layer** (see "LLM Tool Definitions"). Reason: the repository is used not only by the LLM, but also by the server-side lifecycle (day rollover/archive move, see next section). A repository-side whitelist of GTD paths would block the lifecycle, because it specifically needs write access to `archive/daily/`.
+The scope rules are deliberately **not** enforced in the `FileRepository`, but in the **LLM tool layer** (see "LLM Tool Definitions"). Reason: the repository is also used by the server-side vault-readiness step (first-run task-file init writes with `changedBy: 'system'`); a repository-side whitelist of LLM-callable paths would block that lifecycle path. The split also keeps the repository swappable (Local/Supabase/InMemory) without leaking GTD semantics into storage.
 
 **Layer 1 — `FileRepository` (low-level):**
 - Accepts arbitrary paths within the `basePath` / `user_id` scope.
 - Only check: **path safety** (no `..` segments, no absolute paths, no symlink escapes). Violation is a bug, not a user error → exception.
-- No knowledge of the GTD structure (`tasks/`, `daily/`, `archive/`).
+- No knowledge of the GTD structure (`tasks/`, `daily/`).
 
 **Layer 2 — LLM tool layer (the 5 tools):**
 - Enforces the scope rules from the table above. Concretely:
-  - `read_file`: `tasks/*.md`, `daily/YYYY-MM-DD.md` with `date >= today` (today + future drafts), `archive/daily/*.md`
-  - `write_file` / `edit_file`: `tasks/*.md`, `daily/YYYY-MM-DD.md` with `date >= today` — **not** `archive/daily/` (lifecycle-managed)
-  - `list_files`: prefix must be `tasks/`, `daily/` or `archive/daily/`
+  - `read_file`: `tasks/*.md`, `daily/YYYY-MM-DD.md` for any valid date
+  - `write_file` / `edit_file`: `tasks/*.md`, `daily/YYYY-MM-DD.md` for any valid date. Past-daily writes are gated by the prompt rule R6 (default read-only, narrow correction carve-out), not by the predicate
+  - `list_files`: prefix must be `tasks/` or `daily/`
   - `search_files`: scope parameter as in the table
 - Violation → structured error as tool result (like `EditResult { ok: false, ... }`), no throw. The LLM receives feedback and can react in the next step.
 
 This way the repository abstraction stays cleanly swappable (Local/Supabase/InMemory) and the GTD semantics live where they belong: at the boundary to the LLM.
 
-### Vault Readiness on Turn Start (Server-Side)
+### Vault Readiness on Startup (Server-Side)
 
-> **Amended after planning** (replaces the original "Automatic Day Rollover" section). First-run task-file initialization and day rollover were originally treated as separate concerns. They share the same trigger (turn start), the same single-clock-per-turn invariant, and the same audit-trail requirement, so they are now one **vault-readiness** step. See `docs/plans/phase-1-cli.md` Task 5.5.
+> **Amended after planning** (Task-5 redesign, 2026-05-20). The original per-turn rollover step is gone with the daily-archive split. What remains is first-run task-file initialization, which doesn't need a per-turn cadence — it's truly once-per-vault. See `docs/plans/phase-1-cli.md` Task 5.
 
-A single, idempotent server-side step runs **before every LLM request** (not just at app start), using the per-turn `today` value the system prompt and the `canRead`/`canWrite` gate already share. Long idle gaps (user away for days) are the exact reason this can't be an app-startup-only hook.
+A single idempotent step runs **once at CLI startup** (before the REPL loop), not per turn. Long idle gaps no longer matter because no daily-file lifecycle work hides behind the readiness step — the LLM's working knowledge of "what day is it" comes from `turnNow` in the system prompt and the per-turn date that flows through `canRead`/`canWrite`/`isInActiveScope`.
 
-**What the readiness step does, in order:**
+**What the readiness step does:**
 
 1. **First-run task-file init.** Ensure each of the 5 GTD task files exists (`tasks/inbox.md`, `tasks/focus.md`, `tasks/next-actions.md`, `tasks/waiting.md`, `tasks/someday-maybe.md`). Missing → create as empty (no heading, no frontmatter — the LLM adds structure on first write). Existing files are untouched.
-2. **Day rollover for daily notes.** For each `daily/YYYY-MM-DD.md` whose date < today: open `- [ ]` checkbox lines are removed, a log line `- Archived on <today>: open items removed (→ replan manually)` is appended if any were removed, and the file is moved to `archive/daily/<that-date>.md`. Recorded as a `file_history` entry with `change_summary = "Archived daily note YYYY-MM-DD"`. Non-date entries in `daily/` (e.g. `daily/notes.md` someone manually dropped) are skipped.
-3. **No pre-create of today's daily note.** `daily/<today>.md` is created lazily by the LLM's first `write_file`. Days the user never opens the app leave no empty archive entry — keeping `archive/daily/` truthful as a record of days actually used.
-4. **Session.** Phase 2+ (Supabase): `INSERT INTO sessions (user_id, date = today)` if no session exists for today. Phase 1 (CLI): equivalent local-file session row in `.keppt/sessions/<today>.json`.
+2. **No pre-create of today's daily note.** `daily/<today>.md` is created lazily by the LLM's first `write_file`. Days the user never opens the app leave no empty entry — keeping `daily/` truthful as a record of days actually used.
+3. **Session.** Phase 2+ (Supabase): `INSERT INTO sessions (user_id, date = today)` if no session exists for today. Phase 1 (CLI): equivalent local-file session row in `.keppt/sessions/<today>.json`.
 
 **Properties:**
 
-- **Idempotent.** A second call within the same turn (or a concurrent CLI session) is a no-op. Archive moves skip when the target already exists.
-- **System-actor audit trail.** All mutations the readiness step performs are logged with `changedBy: 'system'`, never `'llm'` or `'user'`. The audit trail makes the boundary between LLM-driven and lifecycle-driven changes explicit.
-- **Single-clock invariant.** The same `today` value flows into the readiness step, the system prompt, the `canRead`/`canWrite`/`isInActiveScope` predicates in the LLM tool layer, and `FileRepository.search`'s scope filter. Capturing it once per turn is what prevents UTC-midnight drift between "what the prompt told the LLM" and "what the gate enforces."
-- **Server-side, not LLM-side.** The LLM never archives or initializes — it always sees a clean day state and a complete set of task files. The "create a new daily note" example listed under `write_file` is the one place where the LLM may also write `daily/<today>.md`, but only as the lazy first-write of today's note.
+- **Idempotent.** Re-running on an already-initialised vault is a no-op (no new history entries, no mutations).
+- **System-actor audit trail.** Task-file creations are logged with `changedBy: 'system'`, never `'llm'` or `'user'`. The audit trail makes the boundary between LLM-driven and lifecycle-driven changes explicit.
+- **Single-clock invariant.** The per-turn `today` value still flows into the system prompt and the `canRead`/`canWrite`/`isInActiveScope` predicates in the LLM tool layer. With the rollover step gone, no server-side code path mutates dailies based on the date, so there is nothing left to drift against the prompt's notion of "today".
+- **Server-side, not LLM-side.** The LLM never initializes task files — it always sees a complete set on first turn. The "create a new daily note" example listed under `write_file` is the one place where the LLM writes `daily/<today>.md` on the first write of the day.
+
+> **Where the old day-rollover work went:** open-task carry-over from yesterday's daily into today's plan is now handled by the **Auto-Replan-Opener** (Task 7 in the phase-1 plan) — a deterministic system-injected turn at session start that surveys the last few dailies plus next-actions/waiting and proposes chips. Cross-day disposition (past `[ ]` → `[x]` + Log line in today's daily with source-date annotation) is governed by prompt rules R17/R18, not by silent file mutation.
 
 ## How File Versioning Works (No Git Needed)
 
@@ -1227,7 +1227,7 @@ Primary write tool. Applies one or more search/replace edits to an existing file
 
 **`write_file(file_path: string, content: string, change_summary: string): void`** *(fallback for create / full rewrite)*
 Writes the entire content of a file. Used **only** when `edit_file` doesn't fit:
-- Create a new file that doesn't exist yet — most commonly today's `daily/YYYY-MM-DD.md` on the LLM's first daily-note write of the day. The server-side vault-readiness step (see "Vault Readiness on Turn Start") archives stale dailies but deliberately does **not** pre-create today's note, so the first `write_file` to `daily/<today>.md` is the LLM's responsibility.
+- Create a new file that doesn't exist yet — most commonly today's `daily/YYYY-MM-DD.md` on the LLM's first daily-note write of the day. The server-side vault-readiness step (see "Vault Readiness on Startup") seeds the GTD task files but deliberately does **not** pre-create today's daily note, so the first `write_file` to `daily/<today>.md` is the LLM's responsibility. Future drafts (`daily/<future-date>.md` created during planning) follow the same rule.
 - Complete rewrite that replaces the whole file anyway (e.g. weekly review cleanup of a very small file, structural reorganization of a file).
 - Example: `write_file("daily/2026-04-18.md", "...", "Created daily note for 2026-04-18")`
 - For incremental changes to existing files → use `edit_file`.
@@ -1240,9 +1240,9 @@ Lists all of the user's file paths, optionally filtered by prefix.
 - Internally: `fileRepository.list(prefix)`
 
 **`search_files(query: string, scope?: "active" | "archive" | "all"): SearchResult[]`**
-Full-text search across file contents. Default scope: `"active"` (only `tasks/*.md` + current `daily/YYYY-MM-DD.md`). For archive queries ("What did I do last week?") → `scope: "archive"` (only `archive/daily/*.md`) or `"all"` (both). See "Archive Layout & Lifecycle".
+Full-text search across file contents. Default scope: `"active"` (all `tasks/*.md` + every `daily/YYYY-MM-DD.md` regardless of date — past, today, and future). With the Task-5 redesign there is no separate physical archive for dailies, so `"archive"` currently returns empty and `"all"` coincides with `"active"` for `daily/*`. The scope parameter is retained for API stability and possible future non-daily archive subpaths. See "Archive Layout & Lifecycle".
 - Example: `search_files("VW Angebot")` → `[{ filePath: "tasks/next-actions.md", snippet: "...", line: 42 }]`
-- Example: `search_files("DB Followup", scope: "archive")` → searches only past daily notes under `archive/daily/`
+- Example: `search_files("DB Followup")` → matches across every daily, e.g. `[{ filePath: "daily/2026-04-08.md", snippet: "...", line: 17 }]`
 - Internally: `fileRepository.search(query, scope)` — Supabase uses PostgreSQL Full-Text Search, locally string search / ripgrep is sufficient
 
 **Why `edit_file` is the default write tool (instead of full-text `write_file`):**
@@ -1257,9 +1257,9 @@ Full-text search across file contents. Default scope: `"active"` (only `tasks/*.
 - Each tool is a function call = latency + tokens. Fewer tools = faster responses.
 - `read_file` + `edit_file` cover 95% of all operations.
 - `write_file` is the exception for create/full rewrite.
-- `list_files` is rarely needed (the system knows the GTD structure), but necessary for dynamic content (archive browse).
-- `search_files` is the substitute for `grep` / bash search — essential for "Where is X?" and archive queries.
-- **No delete_file tool.** Files are not deleted, but emptied or archived. Prevents data loss through LLM errors.
+- `list_files` is rarely needed (the system knows the GTD structure), but necessary for dynamic content (past-daily browsing, future drafts).
+- `search_files` is the substitute for `grep` / bash search — essential for "Where is X?" and historical queries against past dailies.
+- **No delete_file tool.** Files are not deleted, only emptied or rewritten. Prevents data loss through LLM errors.
 
 ## Context-Aware Session Start (Onboarding + Daily Suggestion = one system)
 
@@ -1311,7 +1311,7 @@ When opening the app / starting a new day, the system reads the current state an
 - Back to today → a button or app restart → automatically back in today's session
 - Say "What did I do last week about the VW call?" → LLM reads daily notes and `file_history`, not the old chat logs
 
-**Auto-creation:** On the first request of a new calendar day, a new session is automatically created (and the previous daily note is moved to the archive — see "Archive Layout & Lifecycle"). No button, no prompt, no user decision.
+**Auto-creation:** On the first request of a new calendar day, a new session is automatically created. No button, no prompt, no user decision. The previous daily note is **not** moved or mutated — past dailies stay in place under `daily/` per the Task-5 redesign (see "Archive Layout & Lifecycle").
 
 **Implication for context loading:** The server always loads the messages of the **currently active session** (the one the user is currently writing in) — regardless of whether that's today's or a past one. Tool-result pruning (see "Context Management") applies equally.
 
@@ -1398,7 +1398,7 @@ Total: ~3-5K input tokens at session start,
 **Messages table:**
 The `in_context` field is reinterpreted: `false` no longer means "was summarized away", but "is so far back that not even the tool call/text is in context anymore" (hard limit at e.g. 100 messages as a hard upper bound). `sessions.summary` is dropped in MVP.
 
-**Archive access unchanged:** When the user asks "What did I do last week about the VW call?", that triggers `search_files(..., scope: "archive")` or `read_file("archive/daily/2026-04-08.md")` — the archived daily notes and `file_history` are the source, not the chat messages.
+**Past-daily access unchanged in principle:** When the user asks "What did I do last week about the VW call?", that triggers `search_files("VW call")` (default `"active"` scope covers every daily regardless of date) or `read_file("daily/2026-04-08.md")` — the daily notes and `file_history` are the source, not the chat messages. With the Task-5 redesign past dailies live at `daily/YYYY-MM-DD.md`, not under a separate archive prefix.
 
 ### Open question: Per-file size budget on read_file / edit_file / write_file
 
@@ -1679,7 +1679,7 @@ Validate the core hypothesis: do the prompts work? Is the GTD system usable via 
 **1.4: GTD Core Logic**
 
 - Crosscheck engine (R4: after every operation, diff reporting in the chat)
-- Daily Note lifecycle (R5: active vs. archive, cleanup of past notes)
+- Daily Note lifecycle (R5: single `daily/` namespace, no physical archive; cross-day disposition via R17/R18 + Auto-Replan-Opener)
 - Daily plan generation
 - Input-validation module (`@gtd/core/input-validation`) — implemented and unit-tested, but **deliberately not wired into the CLI** (single-user testballoon scope; see "Abuse Protection & Rate Limiting" for the call-site contract). Activated at the HTTP boundary from Phase 2a onward. The CLI keeps only an inline `MAX_INPUT_CHARS` length cap.
 
@@ -1780,7 +1780,7 @@ The app gets all the features that distinguish it from a simple chatbot. Hashbro
 - GTD file browser (Inbox, Focus, Next Actions, Waiting, Someday/Maybe)
 - Rendered markdown view (ngx-markdown)
 - Edit mode toggle (textarea for MVP)
-- Archive browser (read-only, past daily notes)
+- Past-daily browser (read-only by default per R6, scoped view over `daily/YYYY-MM-DD.md` with `date < today`)
 
 **2b.3: History + trust**
 
@@ -1907,9 +1907,8 @@ A noted strategic option, **not** an active workstream. Captured here so the arc
 - GTD folder structure (Inbox, Focus, Next Actions, Waiting, Someday/Maybe — **no Projects folder**, projects live as subheadings inside `next-actions.md`)
 - **Archive policy** (see "Archive Layout & Lifecycle"):
   - Completed tasks → **deleted** (no separate archive; trail in `file_history` + daily note log)
-  - Past daily notes → automatically moved to `archive/daily/` on day rollover
+  - Past daily notes → stay in-place at `daily/YYYY-MM-DD.md`, no physical archive move (Task-5 redesign, 2026-05-20). Past-daily editability is governed by prompt rule R6; cross-day disposition via R17/R18.
   - Past chat sessions → remain in-place in the DB, writable on demand via session switching
-- Archive excluded from routine LLM context (only accessed on explicit user request)
 - History view (changelog from file_history table)
 - Abuse protection (input validation, rate limiting, token budgets)
 
@@ -1997,11 +1996,11 @@ System actively reports inconsistencies. Examples:
 
 ### R5: Daily Note Lifecycle
 
-- **Active note (today):** Located at `daily/YYYY-MM-DD.md`. At any point in time, exactly **one** active daily note exists. Read and updated during crosscheck.
-- **Automatic archiving on day rollover:** On the user's first request of a new calendar day, the previous day's daily note (and all other files in `daily/`) is moved **server-side** to `archive/daily/YYYY-MM-DD.md` before the LLM request is built. A new empty `daily/YYYY-MM-DD.md` for today is created. Details: see "Archive Layout & Lifecycle" in the architecture.
-- **Tidy up during this archive move:** Open checkboxes are deleted (not struck through). A "moved" note is added in the log (e.g. "Session prep → Sat 4/18"). Completed tasks `[x]` remain.
-- **Past notes are archive:** Stored in `archive/daily/`. NOT read during the daily crosscheck.
-- **On-demand access:** User can ask about past days at any time — the system reads via `read_file("archive/daily/YYYY-MM-DD.md")` or `search_files(scope: "archive")`.
+- **Today's note:** Located at `daily/YYYY-MM-DD.md`. Read and updated during crosscheck. Identified per turn by the `today` value in the system prompt — no "active" filename marker needed.
+- **Past notes:** Stay at `daily/YYYY-MM-DD.md` indefinitely — no physical archive move, no `- [ ]` stripping (Task-5 redesign, 2026-05-20). NOT pulled into the daily crosscheck. Editability defaults to read-only per R6, with a narrow correction carve-out.
+- **Future drafts:** Pre-planned `daily/YYYY-MM-DD.md` files with `date > today` are allowed (e.g. weekly-review step 8: prepare next workday's daily note; or "Tierarzttermin übermorgen"). Writable for planning; on first write into an empty future draft, add the standard three sections (Plan / Log / Notes).
+- **Cross-day disposition:** Open-task carry-over from past days is handled by the Auto-Replan-Opener and the R17/R18 rules — past `[ ]` becomes `[x]` only via an explicit user-acknowledged disposition; today's Log captures the action with a source-date annotation. See R17/R18.
+- **On-demand access:** User can ask about past days at any time — the system reads via `read_file("daily/YYYY-MM-DD.md")` or `search_files("…")` (default scope covers every daily regardless of date).
 
 ### R6: Next Actions Structure — Two-Level in One File
 
