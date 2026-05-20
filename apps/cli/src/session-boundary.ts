@@ -6,14 +6,15 @@
 // prior user/assistant text plus tool-call status lines.
 //
 // Replay deliberately mirrors what the live REPL prints during a turn:
-// assistant text as-is and tool calls as `[name…]` status lines (the same
-// shape `terminal.toolStatus` writes). Tool-result content and reasoning
-// parts are dropped because they're never shown live — surfacing them only
-// on resume would be more confusing than the gap they leave.
+// assistant text as-is and tool calls as `[name <arg>]` status lines (the
+// same shape `terminal.toolStatus` writes, via `formatToolStatusLabel`).
+// Tool-result content and reasoning parts are dropped because they're
+// never shown live — surfacing them only on resume would be more
+// confusing than the gap they leave.
 
 import type { ModelMessage } from "ai";
 import type { Session } from "@gtd/core";
-import type { TerminalOutput } from "./terminal-output.js";
+import { formatToolStatusLabel, type TerminalOutput } from "./terminal-output.js";
 
 function describeSessionBoundary(
   date: string,
@@ -53,7 +54,8 @@ function renderMessageForReplay(msg: ModelMessage): string[] {
     } else if (partType === "tool-call" && msg.role === "assistant") {
       const toolName = (part as { toolName?: unknown }).toolName;
       if (typeof toolName === "string" && toolName.length > 0) {
-        lines.push(`[${toolName}…]`);
+        const input = (part as { input?: unknown }).input;
+        lines.push(`[${formatToolStatusLabel(toolName, input)}]`);
       }
     }
   }

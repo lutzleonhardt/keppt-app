@@ -312,7 +312,7 @@ async function consumeStream(
         deps.terminal.assistantText(part.text);
         break;
       case "tool-call":
-        deps.terminal.toolStatus(part.toolName);
+        deps.terminal.toolStatus(part.toolName, part.input);
         break;
       case "tool-error":
         deps.terminal.toolError(part.toolName, part.error);

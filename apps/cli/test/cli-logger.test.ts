@@ -16,7 +16,8 @@ function captureTerminal(): CapturedTerminal {
   return {
     events,
     assistantText: (text) => events.push({ kind: "assistantText", payload: text }),
-    toolStatus: (name) => events.push({ kind: "toolStatus", payload: name }),
+    toolStatus: (name, input) =>
+      events.push({ kind: "toolStatus", payload: { name, input } }),
     toolError: (name, err) =>
       events.push({ kind: "toolError", payload: { name, err } }),
     info: (message) => events.push({ kind: "info", payload: message }),
