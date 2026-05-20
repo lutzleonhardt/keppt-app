@@ -348,6 +348,76 @@ describe("pruneToolResults", () => {
     expect(result.staleFilesInWindow).toEqual([]);
   });
 
+  it("idempotent: an already age-stubbed result is not rewritten on the next pass", () => {
+    // Cache-stability invariant (architecture.md 2026-05-20): a tool-result
+    // that already carries a stub text MUST survive a second pruning pass
+    // byte-identical. Without this, msg[22] in session 2026-05-20 turn 9
+    // flipped from drift-stub to age-stub on roll-out and dropped cacheRead
+    // from 6465 tk to 0.
+    const existingStub = "[Previous read_file result — superseded by current state; re-call if needed]";
+    const stubMsg = toolResult("call-old", "read_file", existingStub);
+    // Pad with enough fresh tool-messages to put `stubMsg` outside K=5.
+    const messages: ModelMessage[] = [
+      readFileCall("call-old", "inbox.md"),
+      stubMsg,
+    ];
+    for (let i = 0; i < 5; i++) {
+      messages.push(readFileCall(`fresh-${i}`, `fresh-${i}.md`));
+      messages.push(toolResult(`fresh-${i}`, "read_file", `fresh content ${i}`));
+    }
+
+    const result = pruneToolResults(messages, {
+      k: 5,
+      fileVersionAt: () => 100,
+      messageCreatedAt: () => 500,
+    });
+
+    // Same reference: the pruner must not allocate a new message/part if
+    // nothing about the stub changes.
+    expect(result.messages[1]).toBe(stubMsg);
+    const tr = result.messages[1] as ToolModelMessage;
+    expect((tr.content[0] as ToolResultPart).output).toEqual({
+      type: "text",
+      value: existingStub,
+    });
+  });
+
+  it("idempotent: a drift-stubbed result does NOT mutate to an age-stub when it rolls out of the K-window", () => {
+    // The bug session 2026-05-20 surfaced. The result was drift-stubbed in
+    // an earlier turn (file had changed since the read); on a later turn
+    // it sits outside K=5 and would semantically be age-stubbed. Idempotency
+    // means it keeps its drift stub text verbatim.
+    const driftStub =
+      "[Previous read_file result for tasks/next-actions.md — file has changed since. Call read_file before answering about its current state; do not paraphrase your own earlier summaries of this file in this conversation.]";
+    const stubMsg = toolResult("call-drift", "read_file", driftStub);
+    const messages: ModelMessage[] = [
+      readFileCall("call-drift", "tasks/next-actions.md"),
+      stubMsg,
+    ];
+    // Pad past K=5.
+    for (let i = 0; i < 6; i++) {
+      messages.push(readFileCall(`fresh-${i}`, `fresh-${i}.md`));
+      messages.push(toolResult(`fresh-${i}`, "read_file", `fresh content ${i}`));
+    }
+
+    const result = pruneToolResults(messages, {
+      k: 5,
+      fileVersionAt: (p) =>
+        p === "tasks/next-actions.md" ? 9999 : 100, // still drifting, would also be aged out
+      messageCreatedAt: () => 500,
+    });
+
+    expect(result.messages[1]).toBe(stubMsg);
+    const tr = result.messages[1] as ToolModelMessage;
+    expect((tr.content[0] as ToolResultPart).output).toEqual({
+      type: "text",
+      value: driftStub,
+    });
+    // And the file is NOT re-surfaced as a stale-in-window note, since the
+    // block carries the drift signal in its text already.
+    expect(result.staleFilesInWindow).toEqual([]);
+  });
+
   it("T4.2-AC-08: staleFilesInWindow lists drift-stubbed files in first-appearance order, deduped", () => {
     // Two reads of focus.md (both drift) and one read of inbox.md (drift).
     // Order in staleFilesInWindow should be insertion order: focus, inbox —

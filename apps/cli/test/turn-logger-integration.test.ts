@@ -113,7 +113,11 @@ interface MakeCtxArgs {
   turnLogger: TurnLogger;
   turnId: string;
   startedAtMs: number;
-  system?: string;
+  // After Fix B (2026-05-20) buildRequest returns a SystemModelMessage on
+  // its `system` field. The artifact log still wants a plain string, so
+  // makeCtx accepts both shapes and extracts `.content` when given the
+  // object form — mirrors what turn-loop.ts does in production.
+  system?: string | { content: unknown };
   messages?: readonly ModelMessage[];
   cliLogger?: MemoryLogger;
 }
@@ -123,6 +127,12 @@ function makeCtx(args: MakeCtxArgs): {
   logger: MemoryLogger;
 } {
   const logger = args.cliLogger ?? new MemoryLogger();
+  const systemText: string =
+    typeof args.system === "string"
+      ? args.system
+      : typeof args.system?.content === "string"
+        ? args.system.content
+        : "sys";
   return {
     logger,
     ctx: {
@@ -130,7 +140,7 @@ function makeCtx(args: MakeCtxArgs): {
       turnId: args.turnId,
       startedAtMs: args.startedAtMs,
       model: MODEL_ID,
-      system: args.system ?? "sys",
+      system: systemText,
       messages: args.messages ?? [{ role: "user", content: "hi" }],
       providerOptions: {
         disableParallelToolUse: true,
@@ -203,9 +213,14 @@ describe("turn logger integration", () => {
     expect(raw.outcome).toBe("ok");
     expect(raw.model).toBe(MODEL_ID);
     expect(raw.initialRequest.system).toBeTruthy();
-    expect(raw.initialRequest.messages.at(-1)).toEqual({
-      role: "user",
-      content: "what's in inbox?",
+    // Fix B (2026-05-20): the trailing user message now also carries an
+    // Anthropic cache marker on providerOptions. Match content+role rather
+    // than deep-equality with a bare {role, content} literal.
+    const lastMsg = raw.initialRequest.messages.at(-1);
+    expect(lastMsg.role).toBe("user");
+    expect(lastMsg.content).toBe("what's in inbox?");
+    expect(lastMsg.providerOptions).toEqual({
+      anthropic: { cacheControl: { type: "ephemeral" } },
     });
     expect(raw.responseMessages).toEqual(response.messages);
     expect(logger.events).toHaveLength(0);
@@ -341,20 +356,22 @@ describe("turn logger integration", () => {
     expect(raw.responseMessages).toBeUndefined();
   });
 
-  it("T4.2-AC-09: pruning visibility — after 6 same-file read_file turns, turn-006.json's initialRequest.messages contains the pruner stub", async () => {
+  it("T4.2-AC-09: pruning visibility — after 11 same-file read_file turns, turn-011.json's initialRequest.messages contains the pruner stub", async () => {
     const vault = await makeVault();
     const store = new FsSessionStore(vault);
-    const session = await store.loadOrCreate("2026-05-19");
     const turnLogger = await FsTurnLogger.create(vault, "2026-05-19");
+    const session = await store.loadOrCreate("2026-05-19");
 
-    // K = 5 in the request-builder. We rely on the age cap (not drift) to
-    // do the pruning, so `fileVersionAt` returns 0 (older than every stamp).
+    // K = 10 in the request-builder (bumped 5 → 10 on 2026-05-20 as part
+    // of the cache-stability work). To see one tool-result age out we need
+    // 11 tool messages (oldest leaves the K-window). Rely on the age cap
+    // — `fileVersionAt` returns 0 so drift never fires.
     const messageStamps = new Map<ModelMessage, number>();
     const fileVersionAt = (): number => 0;
     const messageCreatedAt = (m: ModelMessage): number =>
       messageStamps.get(m) ?? Date.now();
 
-    for (let i = 1; i <= 6; i++) {
+    for (let i = 1; i <= 11; i++) {
       const userMsg: ModelMessage = {
         role: "user",
         content: `turn ${i}: re-read inbox`,
@@ -428,7 +445,7 @@ describe("turn logger integration", () => {
 
     const raw = JSON.parse(
       await readFile(
-        path.join(sessionDir(vault, "2026-05-19"), "turn-006.json"),
+        path.join(sessionDir(vault, "2026-05-19"), "turn-011.json"),
         "utf8",
       ),
     );

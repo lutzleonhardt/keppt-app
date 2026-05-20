@@ -104,17 +104,24 @@ export async function handleTurn(
       messageCreatedAt: (msg) =>
         refs.session.createdAtOf(msg) ?? Date.now(),
     });
+    // `system` from buildRequest is a SystemModelMessage carrying the
+    // Anthropic cache marker on its providerOptions. streamText accepts
+    // that object form on its `system` param (see ai@7 streamText typedef
+    // line ~801: `system?: string | SystemModelMessage | Array<...>`).
+    // The turn-log artifact wants a plain string for readability, so we
+    // extract `system.content` for that surface.
+    const systemText =
+      typeof system.content === "string" ? system.content : "";
     if (refs.turnLogger) {
       turnCtx = {
         turnLogger: refs.turnLogger,
         turnId: refs.turnLogger.nextTurnId(),
         startedAtMs: turnStartedAt,
         model: MODEL_ID,
-        system,
+        system: systemText,
         messages: requestMessages,
         providerOptions: {
           disableParallelToolUse: true,
-          cacheControl: { type: "ephemeral" },
         },
         cliLogger: deps.cliLogger,
       };
@@ -131,15 +138,20 @@ export async function handleTurn(
       // step so the edit_file retry budget's per-turn Map (keyed by
       // filePath) is race-free by construction. Pinned to first-key
       // position by the workspace-wiring static check.
-      // anthropic.cacheControl: { type: "ephemeral" } — single marker
-      // covers the system prompt + tool definitions (the stable head of
-      // the request). Vault content arrives only via tool-results inside
-      // `messages` (architecture amendment 2026-05-19 — no active-state
-      // pre-load), so day-to-day edits don't invalidate the cached head.
+      //
+      // Cache markers (cacheControl) are NOT set top-level here. They
+      // live on:
+      //   1. `system.providerOptions.anthropic.cacheControl` — set by
+      //      `buildRequest` on the SystemModelMessage it returns.
+      //   2. `requestMessages.at(-1).providerOptions.anthropic.cache
+      //      Control` — also set by `buildRequest`.
+      // Top-level `providerOptions.anthropic.cacheControl` on streamText
+      // is undocumented in the AI SDK and was silently failing — session
+      // 2026-05-20 turn 9 onward showed cacheRead=0 despite byte-
+      // identical prefixes.
       providerOptions: {
         anthropic: {
           disableParallelToolUse: true,
-          cacheControl: { type: "ephemeral" },
         },
       },
       // The SDK default logs raw stream errors to stderr. The CLI logs the

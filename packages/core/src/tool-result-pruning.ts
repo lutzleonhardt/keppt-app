@@ -7,9 +7,10 @@ import type {
 export interface PruneToolResultsOptions {
   /**
    * Age cap. A tool message that sits before the last `k` tool-role messages
-   * has all its tool-result parts stubbed unconditionally. K=5 is the MVP
-   * value (`docs/specs/architecture.md` → "Context Management: Tool-Result
-   * Pruning").
+   * has all its tool-result parts stubbed unconditionally. The default in
+   * `request-builder.ts` was bumped 5 → 10 after the 2026-05-20 cache
+   * diagnosis (`docs/specs/architecture.md` → "Context Management:
+   * Tool-Result Pruning") — the pruner itself stays K-agnostic.
    */
   k: number;
   /**
@@ -154,6 +155,18 @@ function classify(
   // Errors carry information the LLM needs (e.g. match-failure currentContent
   // payloads). They are never stubbed.
   if (part.output.type === "error-text" || part.output.type === "error-json") {
+    return { kind: "keep" };
+  }
+  // Idempotency: a part that already carries a stub text from a previous
+  // pruning pass MUST be left alone, even if its status would semantically
+  // shift (drift → age when it rolls out of the K-window). Mutating an
+  // already-stubbed cell rewrites a mid-prefix byte and invalidates the
+  // Anthropic prompt cache for the entire conversation prefix — observed
+  // in session 2026-05-20 turn 9, where msg[22]'s drift → age transition
+  // dropped cacheRead from 6465 tk to 0 despite the rest of the prefix
+  // being byte-identical. Both stub variants start with `[Previous ` so a
+  // single startsWith check covers them.
+  if (part.output.type === "text" && part.output.value.startsWith("[Previous ")) {
     return { kind: "keep" };
   }
   if (isAgedOut) return { kind: "age" };

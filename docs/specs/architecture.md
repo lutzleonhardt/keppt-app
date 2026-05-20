@@ -1362,7 +1362,7 @@ Total: ~3-5K input tokens at session start,
 
 1. Iterate over the message history.
 2. For each `tool-result` block, stub it if **either** condition is true:
-   - **Age cap (K):** the block is older than the last `K` messages (MVP: K=5, tunable). Protects long sessions from unbounded context growth.
+   - **Age cap (K):** the block is older than the last `K` messages (K=10 as of 2026-05-20; raised from MVP K=5 to reduce prefix mutations that invalidate the Anthropic prompt cache — see "Cache-stability invariant" below). Protects long sessions from unbounded context growth.
    - **Version drift:** the file the block referenced has been modified since the block was produced — i.e. `file.updated_at > message.created_at`. Protects against stale snapshots when the user (or a later tool call in the conversation) changed the file outside the still-cached context. This is what catches the "user manually edits `inbox.md` in the web-app file editor between two chat messages" case.
 3. Stub format: `[Previous read_file("tasks/next-actions.md") result — superseded by current state; re-read if needed]`. `toolCallId` and `toolName` are preserved so the LLM still sees the call shape.
 4. Recent tool-results (within the last K messages **and** with no version drift) remain complete — relevant for ongoing multi-step operations and follow-up questions ("did I cover the milk task?").
@@ -1384,6 +1384,8 @@ Total: ~3-5K input tokens at session start,
 - Follow-up question context ("Should I move it to Friday or Monday?" → "Friday") stays 100% preserved, because those are assistant and user text messages.
 
 **Important invariant:** Only tool-result blocks are stubbed, never text messages.
+
+**Cache-stability invariant (added 2026-05-20):** Once a tool-result block has been stubbed (drift or age), the stub text is frozen — later pruning passes leave it byte-identical even if its status would semantically shift (drift → age when it rolls out of K). Diagnosis: session 2026-05-20 turn 9 showed cacheRead collapsing from 6465 tk to 0 because `msg[22]` switched from a drift stub to an age stub while the rest of the prefix stayed unchanged. Anthropic's prompt cache keys on exact prefix bytes, so a one-line rewrite mid-history defeats the entire cached prefix. Idempotency in the pruner (`output.value.startsWith("[Previous ")` → keep) closes the gap. The first stubbing event for a given block — when the block leaves full content for a short stub — is still a mutation by construction, but with K=10 it happens at most once per block per session.
 
 **Implementation:** Message transformer in the shared core, runs before the `streamText` call. With the Vercel AI SDK this is a function that iterates over the `messages` array and replaces tool-result content parts. No architecture rebuild.
 
