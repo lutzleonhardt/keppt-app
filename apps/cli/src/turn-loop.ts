@@ -41,7 +41,7 @@ const DEBUG = process.env.DEBUG === "1";
 // `streamText` model wiring and as the `model` field on per-turn debug
 // artifacts. Changing this in one place keeps the artifact, the SDK call,
 // and any future routing-aware code in sync.
-export const MODEL_ID = "claude-haiku-4-5";
+export const MODEL_ID = "claude-sonnet-4-6";
 
 export interface TurnDeps {
   vaultPath: string;
