@@ -38,7 +38,34 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain(
       "Inbox is for unclear or half-formed capture only",
     );
-    expect(prompt).toContain("Today-plan = Focus promotion");
+    // R4 promotion semantics widened from today-only to current ISO
+    // week 2026-05-21 after observing the asymmetry with R4
+    // Plan-Completeness (already week-scoped). The new heading + the
+    // canonical justification sentence are both pinned so neither side
+    // drifts back to today-only by accident.
+    expect(prompt).toContain("Week-plan = Focus promotion");
+    expect(prompt).not.toContain("Today-plan = Focus promotion");
+    // 2026-05-21 (late): R4 Plan-Completeness pulled out of the stale
+    // "today-only" semantics into week-scope (matching R4 Promotion),
+    // and R11 gained the "Was steht diese Woche an?" → Focus mapping
+    // that was the missing lookup half. Both pinned so a future drift
+    // surfaces here, not in another live frustration session.
+    expect(prompt).toContain(
+      "offer open Focus items not yet scheduled into ANY daily plan in the current ISO week",
+    );
+    // 2026-05-21 (Placement-check pass): anti-double-scheduling moved
+    // out of R4 into R2 as a procedural Placement check that covers
+    // both proactive offers and user-initiated adds. Sentinel pins
+    // the new R2 clause; R4 now delegates duplicate detection via
+    // "Duplicate detection runs through R2's Placement check".
+    expect(prompt).toContain("Placement check");
+    expect(prompt).toContain("do not silently double-place");
+    expect(prompt).toContain(
+      "Duplicate detection runs through R2's Placement check",
+    );
+    expect(prompt).not.toContain('Scheduled* currently = "in today\'s plan"');
+    expect(prompt).toContain('"What\'s on this week?"');
+    expect(prompt).toContain("Focus = the week");
     expect(prompt).toContain("same checkbox format as the source lists");
     expect(prompt).toContain("may be dictated via speech-to-text");
     expect(prompt).toContain("User skepticism is a question");
@@ -66,14 +93,24 @@ describe("buildSystemPrompt", () => {
   // T6-AC-08: Task 6 ships the tool, so the R11 wording switches from
   // Task-5's forward-looking "when available" hint to active terminal-tool
   // instructions.
+  //
+  // 2026-05-21 (afternoon): chips moved to a schema-enforced
+  // { question, options } shape — the model can no longer reach the
+  // terminal with chips-only because `question` is required. The prompt
+  // therefore drops the "HARD RULE: prose first" soft constraint and
+  // instead pins (a) the required-question contract and (b) the
+  // informational-listing carve-out that cheap models kept missing.
   it("describes suggest_quick_replies as an active terminal tool (T6-AC-08)", () => {
     const prompt = buildSystemPrompt({ today: new Date("2026-04-24") });
-    expect(prompt).toContain("always call this terminal tool after your prose");
     expect(prompt).toContain("yes/no, accept/decline/defer");
-    expect(prompt).toContain(
-      'Do not end with a bare choice question like "Soll ich das korrigieren?"',
-    );
     expect(prompt).not.toContain("When this tool is available");
+    expect(prompt).toContain(
+      "`question` field is required and becomes the prose line",
+    );
+    expect(prompt).toContain("complete sentence naming the choice you offer");
+    expect(prompt).toContain(
+      'listing questions like "Was steht morgen an?"',
+    );
   });
 
   // T5-AC-11: R20 (Log-section capture) — completion + user-supplied context
@@ -165,6 +202,50 @@ describe("buildSystemPrompt", () => {
     // the cap-raise pattern is the documented norm for prompt-sharpening
     // tasks (see Task 4.3 Open Issue #1). Plan amendment recommended:
     // T5-AC-13 says "target ~1K, hard cap <2K" — both literals stale.
-    expect(prompt.length).toBeLessThan(14400);
+    // 2026-05-21: R11 strengthened with "HARD RULE: prose first, chips
+    // second" + the WHY/HOW/WHETHER carve-out to stop empty-prose chip
+    // calls observed on gpt-5.4-mini @ reasoningEffort=high (+261 chars).
+    // Cap moves 14400 → 14800 with headroom for one more incremental
+    // sharpening before the next consolidation pass.
+    // 2026-05-21 (later same day): R4 promotion widened from today-only
+    // to current ISO week (+233 chars), closing the asymmetry with R4
+    // Plan-Completeness which was already week-scoped. Cap moves
+    // 14800 → 15100. Next sharpening pass should consider an R-rule
+    // consolidation rather than another cap bump.
+    // 2026-05-21 (evening): R11 chip section simplified (–~120 chars
+    // after the schema-enforced { question, options } shape made the
+    // soft "prose first" prose obsolete), R3/R5/R21 reworded so Done =
+    // check off `[x]` in place rather than remove (+~260 chars; closes
+    // the long-standing asymmetry where R3/R5 said "remove on done"
+    // but R8 said "tidy `[x]` at Weekly Review"). Net +~140 chars.
+    // Cap moves 15100 → 15400.
+    // 2026-05-21 (late evening): R4 Plan-Completeness pulled into
+    // week-scope (+~360 chars: full re-statement of the scheduled-in-
+    // any-in-week-daily lookup and the no-double-scheduling carve-out),
+    // R11 examples extended with "Was steht diese Woche an?" →
+    // Focus-canonical mapping (+~110 chars). Net +~470 chars. Cap
+    // moves 15400 → 16000. The R-rule consolidation pass is now
+    // overdue — the prompt has gained ~5000 chars over two weeks of
+    // pain-driven sharpening.
+    // 2026-05-21 (consolidation pass): R16 anchor range bug fixed
+    // ([R19] → [R21] now that R20/R21 exist), Done-clause centralized
+    // to R3 (R5 + R21 step 2 reference it via "(per R3)"), R4
+    // editorializing trimmed (substring-match implementation note,
+    // week-commitment gloss, full DE overflow example), R19 glyph
+    // list reduced to only 🔥 (still pinned). Net -~629 chars (real:
+    // 16000 → 15371). Cap moves 16000 → 15500 with ~129-char
+    // headroom.
+    // 2026-05-21 (Placement-check pass): R2 extended with a
+    // procedural Placement-check counterpart to the single-location
+    // invariant — before any add/move/rename of a task, the model
+    // must substring-search all task lists AND all in-week dailies
+    // and surface duplicates before writing. Triggered by a real
+    // session where the model double-scheduled "Rasen" because R4's
+    // anti-double-scheduling clause only bound the proactive-offer
+    // flow, leaving user-initiated adds uncovered. R4's substring-
+    // match how-to and "do NOT offer ... double-scheduling" sentence
+    // removed (subsumed by R2 Placement check). Net +~286 chars
+    // (real: 15403 → 15689). Cap moves 15500 → 15800.
+    expect(prompt.length).toBeLessThan(15800);
   });
 });

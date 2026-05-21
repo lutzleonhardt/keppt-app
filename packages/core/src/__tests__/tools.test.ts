@@ -272,11 +272,22 @@ describe("buildTools — suggest_quick_replies", () => {
   }
 
   // T6-AC-01: input schema rejects invalid chip payloads before execute.
+  // 2026-05-21: schema gained a required `question` field — chips can no
+  // longer reach the terminal without their accompanying question, which
+  // replaces the soft "prose-first" prompt nudges that cheap models kept
+  // ignoring. The first four rows still pin options-side validation; the
+  // missing-question + empty-question rows pin the new requirement.
   it.each([
-    ["one option", { options: ["a"] }],
-    ["six options", { options: ["a", "b", "c", "d", "e", "f"] }],
-    ["empty option", { options: ["a", ""] }],
-    ["61-char option", { options: ["a", "x".repeat(61)] }],
+    ["one option", { question: "Was?", options: ["a"] }],
+    [
+      "six options",
+      { question: "Was?", options: ["a", "b", "c", "d", "e", "f"] },
+    ],
+    ["empty option", { question: "Was?", options: ["a", ""] }],
+    ["61-char option", { question: "Was?", options: ["a", "x".repeat(61)] }],
+    ["missing question", { options: ["a", "b"] }],
+    ["empty question", { question: "", options: ["a", "b"] }],
+    ["201-char question", { question: "x".repeat(201), options: ["a", "b"] }],
   ])("rejects %s as a tool-error (T6-AC-01)", async (_label, input) => {
     const { toolErrors, toolResults, modelCalls } =
       await runQuickReplyCall(input);
@@ -284,25 +295,45 @@ describe("buildTools — suggest_quick_replies", () => {
     expect(modelCalls).toBe(1);
     expect(toolResults).toEqual([]);
     expect(toolErrors).toHaveLength(1);
-    expect(String(toolErrors[0])).toMatch(/options|Too|small|big|String/);
+    expect(String(toolErrors[0])).toMatch(
+      /options|question|Too|small|big|String|Required/,
+    );
   });
 
-  it("returns valid options and stops the tool loop after the call", async () => {
+  it("returns valid question+options and stops the tool loop after the call", async () => {
     const { toolErrors, toolResults, modelCalls } = await runQuickReplyCall({
+      question: "Soll ich das so eintragen?",
       options: ["a", "b", "c"],
     });
 
     expect(modelCalls).toBe(1);
     expect(toolErrors).toEqual([]);
-    expect(toolResults).toEqual([{ options: ["a", "b", "c"] }]);
+    expect(toolResults).toEqual([
+      {
+        question: "Soll ich das so eintragen?",
+        options: ["a", "b", "c"],
+      },
+    ]);
   });
 
-  it("describes quick replies as mandatory for bare choice questions", () => {
+  // 2026-05-21: tool description rewritten around the new `question`
+  // requirement. The old "MUST call instead of ending with a bare …"
+  // wording is gone because the schema enforces context; what the
+  // description still pins is the no-listing-substitute carve-out
+  // (gpt-5.4-mini regression: chips on "Was steht morgen an?") and
+  // the question-shape contract.
+  it("describes the required question field and listing carve-out", () => {
     const tools = buildTools(
       new InMemoryFileRepository({ now: () => FIXED_NOW }),
     );
     expect(tools.suggest_quick_replies.description).toContain(
-      "MUST call instead of ending with a bare yes/no or choice question",
+      "`question` field is REQUIRED",
+    );
+    expect(tools.suggest_quick_replies.description).toContain(
+      "complete sentence naming the choice you offer",
+    );
+    expect(tools.suggest_quick_replies.description).toContain(
+      'a listing question like "Was steht morgen an?" gets the list in prose, not chips',
     );
   });
 });
@@ -995,15 +1026,22 @@ describe("buildTools — Task 4.3 reminder field", () => {
     }
   });
 
-  // The constant in tools.ts matches the plan-pinned literal (plan line
-  // 1126-1129). Byte-stability across refactors is the contract.
-  it("TASK_FILE_REMINDER matches the plan-pinned literal", () => {
+  // The constant in tools.ts pins the canonical reminder wording.
+  // Byte-stability across refactors is the contract — when the wording
+  // legitimately needs to change (e.g. the once-per-turn clause added
+  // 2026-05-21 to stop re-reads between sequential edits on
+  // gpt-5.4-mini @ reasoningEffort=high, or the Done-checks-off-not-
+  // removes clause added 2026-05-21 to align R3/R5/R21 with R8 Weekly
+  // Review semantics), update both sides at once.
+  it("TASK_FILE_REMINDER carries the once-per-turn crosscheck clause", () => {
     expect(TASK_FILE_REMINDER).toBe(
-      "Task-relevant file modified. Before your final response, complete R5 crosscheck:\n" +
-        "- Read tasks/focus.md, tasks/next-actions.md, tasks/waiting.md, and today's daily/ — never from memory.\n" +
+      "Task-relevant file modified. R5 crosscheck runs ONCE per turn, before your FINAL response — not between sequential edits.\n" +
+        "- Re-read tasks/focus.md, tasks/next-actions.md, tasks/waiting.md, and today's daily/ ONLY for files you have not already read this turn. Files you just edited need no extra read of the OTHER three if they were already read this turn.\n" +
         "- Mirror Focus↔Next-Actions on every status toggle.\n" +
-        "- Done removes from Focus + Next Actions + Waiting. Waiting removes from Focus + Next Actions.\n" +
-        "- Report any drift.",
+        "- Done = check off `[x]` in place across Focus + Next Actions + Waiting; do NOT remove (R8 Weekly Review tidies `[x]` later).\n" +
+        "- Waiting removes from Focus + Next Actions.\n" +
+        "- Report any drift.\n" +
+        "If you already completed this crosscheck after a previous edit in this same turn, skip — do not redo it.",
     );
   });
 });

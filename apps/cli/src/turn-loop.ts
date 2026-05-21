@@ -159,10 +159,11 @@ export async function handleTurn(
       abortSignal: controller.signal,
       // Anthropic: `disableParallelToolUse: true` — force one tool call
       // per step so the edit_file retry budget's per-turn Map (keyed by
-      // filePath) is race-free by construction. DeepSeek: the AI SDK
-      // provider exposes no equivalent flag, so this is best-effort
-      // there; see model-provider.ts and the buildTools doc in
-      // packages/core/src/tools.ts for the documented worst-case bound.
+      // filePath) is race-free by construction. OpenAI uses
+      // `parallelToolCalls: false` for the same contract. DeepSeek: no
+      // equivalent flag is wired, so this is best-effort there; see
+      // model-provider.ts and the buildTools doc in packages/core/src/tools.ts
+      // for the documented worst-case bound.
       //
       // Cache markers (cacheControl) are NOT set top-level here. They
       // live on:
@@ -173,19 +174,26 @@ export async function handleTurn(
       // Top-level `providerOptions.anthropic.cacheControl` on streamText
       // is undocumented in the AI SDK and was silently failing — session
       // 2026-05-20 turn 9 onward showed cacheRead=0 despite byte-
-      // identical prefixes. On DeepSeek the anthropic-scoped marker is
-      // a no-op (DeepSeek does server-side automatic prefix caching).
+      // identical prefixes. On non-Anthropic providers the anthropic-scoped
+      // marker is a no-op.
       providerOptions: providerOptions(),
       // The SDK default logs raw stream errors to stderr. The CLI logs the
       // raw diagnostic record to .keppt/logs and prints a stable summary.
       onError: () => {},
     });
 
-    await consumeStream(result, deps, refs);
+    const { quickReplyPayload } = await consumeStream(result, deps, refs);
 
     deps.terminal.endStream();
-    if (refs.lastQuickReplies)
-      deps.terminal.quickReplies(refs.lastQuickReplies);
+    if (quickReplyPayload) {
+      // suggest_quick_replies schema requires a `question` field, so chips
+      // can no longer reach the terminal without a question line — the
+      // schema replaces the old "model sent no prose" runtime fallback
+      // (removed 2026-05-21 along with the proseEmitted tracker). If
+      // future regressions show models gaming this with a junk question,
+      // re-introduce a runtime check on payload.question content here.
+      deps.terminal.quickReplies(quickReplyPayload);
+    }
     const response = await result.response;
     await phase2Save(deps, refs, response.messages, turnStartedAt);
 
@@ -330,7 +338,16 @@ async function consumeStream(
   result: StreamHandle,
   deps: TurnDeps,
   refs: TurnRefs,
-): Promise<void> {
+): Promise<{
+  quickReplyPayload: { question: string; options: string[] } | null;
+}> {
+  // The `quickReplyPayload` carries the parsed { question, options } shape
+  // captured during the stream so handleTurn can render both in one
+  // terminal call. `refs.lastQuickReplies` keeps just the options array
+  // for cross-turn numeric expansion (next user turn picks "2" → resolved
+  // against options); the question is single-turn UI and does not need
+  // to persist.
+  let quickReplyPayload: { question: string; options: string[] } | null = null;
   for await (const part of result.fullStream) {
     switch (part.type) {
       case "text-delta":
@@ -338,7 +355,8 @@ async function consumeStream(
         break;
       case "tool-call":
         if (part.toolName === "suggest_quick_replies") {
-          refs.lastQuickReplies = quickReplyOptionsFromInput(part.input);
+          quickReplyPayload = quickReplyPayloadFromInput(part.input);
+          refs.lastQuickReplies = quickReplyPayload?.options ?? null;
         } else {
           deps.terminal.toolStatus(part.toolName, part.input);
         }
@@ -356,14 +374,20 @@ async function consumeStream(
         throw part.error;
     }
   }
+  return { quickReplyPayload };
 }
 
-function quickReplyOptionsFromInput(input: unknown): string[] | null {
+function quickReplyPayloadFromInput(
+  input: unknown,
+): { question: string; options: string[] } | null {
   if (!input || typeof input !== "object") return null;
-  const options = (input as Record<string, unknown>).options;
+  const obj = input as Record<string, unknown>;
+  const question = obj.question;
+  const options = obj.options;
+  if (typeof question !== "string" || question.length === 0) return null;
   if (!Array.isArray(options)) return null;
   if (!options.every((option) => typeof option === "string")) return null;
-  return options.slice();
+  return { question, options: options.slice() };
 }
 
 // Phase 2 of the two-phase save: response messages join the session only

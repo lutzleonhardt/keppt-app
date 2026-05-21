@@ -35,12 +35,22 @@ const scopeSchema = z.enum(["active", "archive", "all"]).optional();
 // pin equality against this exported constant rather than re-stating the
 // literal. Not a determinism layer — the R5 crosscheck still depends on the
 // model honouring it. See docs/plans/phase-1-cli.md Task 4.3 Key Discoveries.
+//
+// Wording carries an explicit once-per-turn clause because the reminder
+// fires on every successful canonical-file edit; without it, models with
+// elevated reasoning effort re-read all four files between sequential
+// edits in the same turn (observed on gpt-5.4-mini @ high — turn-008
+// 2026-05-21 read focus/next-actions/waiting twice for a single user
+// action). The "skip if already done after the previous edit" line is
+// what stops that loop without sacrificing the crosscheck itself.
 export const TASK_FILE_REMINDER =
-  "Task-relevant file modified. Before your final response, complete R5 crosscheck:\n" +
-  "- Read tasks/focus.md, tasks/next-actions.md, tasks/waiting.md, and today's daily/ — never from memory.\n" +
+  "Task-relevant file modified. R5 crosscheck runs ONCE per turn, before your FINAL response — not between sequential edits.\n" +
+  "- Re-read tasks/focus.md, tasks/next-actions.md, tasks/waiting.md, and today's daily/ ONLY for files you have not already read this turn. Files you just edited need no extra read of the OTHER three if they were already read this turn.\n" +
   "- Mirror Focus↔Next-Actions on every status toggle.\n" +
-  "- Done removes from Focus + Next Actions + Waiting. Waiting removes from Focus + Next Actions.\n" +
-  "- Report any drift.";
+  "- Done = check off `[x]` in place across Focus + Next Actions + Waiting; do NOT remove (R8 Weekly Review tidies `[x]` later).\n" +
+  "- Waiting removes from Focus + Next Actions.\n" +
+  "- Report any drift.\n" +
+  "If you already completed this crosscheck after a previous edit in this same turn, skip — do not redo it.";
 
 export type ReadFileResult =
   | { ok: true; content: string }
@@ -71,7 +81,7 @@ export type EditFileResult =
   | { ok: true; reminder?: string }
   | { ok: false; error: EditFileError };
 
-export type QuickRepliesResult = { options: string[] };
+export type QuickRepliesResult = { question: string; options: string[] };
 
 // Two attempts: first round-trips currentContent, second is the legitimate
 // "extend search context" retry. Third would just burn tokens.
@@ -247,17 +257,18 @@ async function editFileTool(
     }
     // The next read-await-write sequence on `failures` is intentionally
     // unsynchronized. Concurrent dispatch into editFileTool would race the
-    // counter, but the CLI sets providerOptions.anthropic.disableParallel
-    // ToolUse=true on streamText so Anthropic emits at most one tool call
-    // per step — calls within a buildTools instance are sequential.
-    // workspace-wiring.test.ts pins that flag in place on Anthropic; do
-    // not add a mutex here without first removing the flag (every prior
+    // counter, but the CLI disables parallel tool calls at the provider
+    // boundary (Anthropic: disableParallelToolUse=true; OpenAI:
+    // parallelToolCalls=false), so those providers emit at most one tool
+    // call per step — calls within a buildTools instance are sequential.
+    // workspace-wiring.test.ts pins those flags in place; do not add a
+    // mutex here without first removing the flags (every prior
     // in-tool locking attempt introduced its own bug — slot-reservation
     // false-blocked concurrent successes, per-file queues ignored the
-    // abort signal). On DeepSeek the same flag does not exist on the AI
-    // SDK provider; the worst-case bound is documented on `buildTools`
-    // above. Callers using buildTools outside the CLI must guarantee
-    // the same sequential-dispatch invariant themselves.
+    // abort signal). On DeepSeek no equivalent flag is wired; the worst-case
+    // bound is documented on `buildTools` above. Callers using buildTools
+    // outside the CLI must guarantee the same sequential-dispatch invariant
+    // themselves.
     const count = failures.get(filePath) ?? 0;
     if (count >= MAX_EDIT_FAILURES_PER_FILE) {
       const currentContent = await readOrEmpty(repo, filePath);
@@ -341,9 +352,10 @@ export interface BuildToolsOptions {
  * 2. **Sequential `edit_file` dispatch within one instance.** The
  *    retry budget mutates a plain `Map` without synchronization. The
  *    CLI guarantees this on Anthropic via `disableParallelToolUse=true`
- *    on `streamText`. On DeepSeek the AI SDK provider exposes no
- *    equivalent flag (only `thinking` and `reasoningEffort`), so the
- *    invariant is best-effort there. Worst case: under exactly
+ *    and on OpenAI via `parallelToolCalls=false` on `streamText`. On
+ *    DeepSeek the AI SDK provider exposes no equivalent flag (only
+ *    `thinking` and `reasoningEffort`), so the invariant is best-effort
+ *    there. Worst case: under exactly
  *    concurrent same-file `edit_file` calls within one turn, two
  *    callers can both observe the same `count`, race the
  *    `failures.set`, and burn one extra retry attempt before the
@@ -452,11 +464,16 @@ export function buildTools(
     }),
     suggest_quick_replies: tool({
       description:
-        "Terminal UI tool: propose 2–5 short follow-up answers the user can pick from. MUST call instead of ending with a bare yes/no or choice question when the next user step has discrete, anticipatable options (yes/no, choose-one-of-three, accept/decline/defer). Do NOT use as a fallback for open-ended questions.",
+        "Terminal UI tool: surface 2–5 short follow-up answers under a question. The `question` field is REQUIRED and renders as the prose line above the chips — it must be a complete sentence naming the choice you offer (e.g. \"Soll ich Rasen morgen auch in Focus aufnehmen?\"), not a label or topic noun. Use only when the user's next step has discrete, anticipatable options (yes/no, choose-one-of-three, accept/decline/defer). Do NOT use for open-ended questions, and NEVER as a substitute for an informational answer the user asked for: a listing question like \"Was steht morgen an?\" gets the list in prose, not chips.",
       inputSchema: z.object({
+        question: z.string().min(1).max(200),
         options: z.array(z.string().min(1).max(60)).min(2).max(5),
       }),
-      execute: async ({ options }): Promise<QuickRepliesResult> => ({
+      execute: async ({
+        question,
+        options,
+      }): Promise<QuickRepliesResult> => ({
+        question,
         options,
       }),
     }),

@@ -36,8 +36,15 @@ export interface TerminalOutput {
   // whether the last `read_file` he asked for actually survived the restart.
   replayLine(line: string): void;
   // Numbered quick-reply options proposed by the model through
-  // suggest_quick_replies. Printed after the assistant stream completes.
-  quickReplies(options: readonly string[]): void;
+  // suggest_quick_replies. The required `question` field is rendered as
+  // a single prose line above the chips so the user always sees what the
+  // choice is answering — schema-enforced replacement for the "model just
+  // dumped chips with no context" failure mode observed on cheap models
+  // (see formatQuickReplies + 2026-05-21 design note).
+  quickReplies(payload: {
+    question: string;
+    options: readonly string[];
+  }): void;
   // One-line user-facing error summary written to stderr. Caller composes
   // the full message (prefix + formatCliError + log suffix); the sink only
   // appends a trailing newline.
@@ -94,8 +101,8 @@ export function createStdTerminalOutput(): TerminalOutput {
     replayLine: (line) => {
       stdout.write(`${line}\n`);
     },
-    quickReplies: (options) => {
-      stdout.write(`${formatQuickReplies(options)}\n`);
+    quickReplies: (payload) => {
+      stdout.write(`${formatQuickReplies(payload)}\n`);
     },
     errorSummary: (message) => {
       stderr.write(`${message}\n`);
@@ -106,6 +113,12 @@ export function createStdTerminalOutput(): TerminalOutput {
   };
 }
 
-export function formatQuickReplies(options: readonly string[]): string {
-  return options.map((option, index) => `[${index + 1}] ${option}`).join("   ");
+export function formatQuickReplies(payload: {
+  question: string;
+  options: readonly string[];
+}): string {
+  const chips = payload.options
+    .map((option, index) => `[${index + 1}] ${option}`)
+    .join("   ");
+  return `${payload.question}\n${chips}`;
 }

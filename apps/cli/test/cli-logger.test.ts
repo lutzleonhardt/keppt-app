@@ -25,8 +25,8 @@ function captureTerminal(): CapturedTerminal {
     sessionBanner: (message) =>
       events.push({ kind: "sessionBanner", payload: message }),
     replayLine: (line) => events.push({ kind: "replayLine", payload: line }),
-    quickReplies: (options) =>
-      events.push({ kind: "quickReplies", payload: options }),
+    quickReplies: (payload) =>
+      events.push({ kind: "quickReplies", payload }),
     errorSummary: (message) =>
       events.push({ kind: "errorSummary", payload: message }),
     endStream: () => events.push({ kind: "endStream", payload: undefined }),

@@ -91,7 +91,7 @@ Want updates without checking? Beta list on [getkeppt.com](https://getkeppt.com)
 | Layer | Phase 1 (now) | Target (Phase 2+) |
 |---|---|---|
 | Language / runtime | TypeScript, Node ≥ 20 | same |
-| LLM | Claude Haiku + Sonnet via Vercel AI SDK | same, provider-agnostic |
+| LLM | Anthropic, DeepSeek, or OpenAI via Vercel AI SDK | same, provider-agnostic |
 | Storage | `LocalFileRepository` → Obsidian vault | `SupabaseFileRepository` (PostgreSQL + RLS) |
 | UI | CLI (readline) | Angular 19 + Capacitor + Hashbrown Generative UI |
 | Voice | — | Capacitor Speech Recognition + Whisper fallback |
@@ -108,7 +108,17 @@ pnpm -r build
 pnpm -r test
 ```
 
-The CLI entrypoint and Claude wiring land in Task 3 — until then this repo builds and tests, but doesn't yet talk to an LLM. Track progress in [`docs/plans/phase-1-cli.md`](docs/plans/phase-1-cli.md).
+To run the CLI against a vault, set `VAULT_PATH` plus the API key for the
+selected provider. Anthropic remains the default. Use `GTD_PROVIDER=openai`
+with `OPENAI_API_KEY` to run GPT 5.4 mini (`gpt-5.4-mini`), or override any
+provider default with `GTD_MODEL`.
+
+```sh
+VAULT_PATH=/path/to/vault \
+GTD_PROVIDER=openai \
+OPENAI_API_KEY=... \
+pnpm --filter @gtd/cli dev
+```
 
 ## Repository layout
 

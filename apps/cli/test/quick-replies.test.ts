@@ -57,8 +57,8 @@ function captureTerminal(): CapturedTerminal {
     sessionBanner: (message) =>
       events.push({ kind: "sessionBanner", payload: message }),
     replayLine: (line) => events.push({ kind: "replayLine", payload: line }),
-    quickReplies: (options) =>
-      events.push({ kind: "quickReplies", payload: options }),
+    quickReplies: (payload) =>
+      events.push({ kind: "quickReplies", payload }),
     errorSummary: (message) =>
       events.push({ kind: "errorSummary", payload: message }),
     endStream: () => events.push({ kind: "endStream", payload: undefined }),
@@ -85,7 +85,10 @@ function textChunks(text: string): LanguageModelV4StreamPart[] {
   ];
 }
 
-function quickReplyChunks(options: string[]): LanguageModelV4StreamPart[] {
+function quickReplyChunks(
+  question: string,
+  options: string[],
+): LanguageModelV4StreamPart[] {
   return [
     { type: "stream-start", warnings: [] },
     { type: "text-start", id: "t1" },
@@ -95,7 +98,7 @@ function quickReplyChunks(options: string[]): LanguageModelV4StreamPart[] {
       type: "tool-call",
       toolCallId: "call-quick",
       toolName: "suggest_quick_replies",
-      input: JSON.stringify({ options }),
+      input: JSON.stringify({ question, options }),
     },
     {
       type: "finish",
@@ -169,10 +172,11 @@ async function makeHarness(): Promise<{
 }
 
 describe("quick replies", () => {
-  it("captures streamed suggestions and renders numbered terminal options (T6-AC-02)", async () => {
+  it("captures streamed suggestions and renders question + numbered options (T6-AC-02)", async () => {
     const { deps, refs, terminal } = await makeHarness();
+    const question = "Soll ich das so eintragen?";
     modelState.model = sequencedMockModel([
-      streamResult(quickReplyChunks(["a", "b", "c"])),
+      streamResult(quickReplyChunks(question, ["a", "b", "c"])),
     ]);
 
     await handleTurn(deps, refs, "weiter", new AbortController());
@@ -180,18 +184,21 @@ describe("quick replies", () => {
     expect(refs.lastQuickReplies).toEqual(["a", "b", "c"]);
     expect(terminal.events).toContainEqual({
       kind: "quickReplies",
-      payload: ["a", "b", "c"],
+      payload: { question, options: ["a", "b", "c"] },
     });
-    const rendered = terminal.events.find((e) => e.kind === "quickReplies");
-    expect(rendered?.payload).toEqual(["a", "b", "c"]);
-    expect(formatQuickReplies(["a", "b", "c"])).toContain("[1] a");
-    expect(formatQuickReplies(["a", "b", "c"])).toContain("[2] b");
-    expect(formatQuickReplies(["a", "b", "c"])).toContain("[3] c");
+    const formatted = formatQuickReplies({
+      question,
+      options: ["a", "b", "c"],
+    });
+    expect(formatted.startsWith(question)).toBe(true);
+    expect(formatted).toContain("[1] a");
+    expect(formatted).toContain("[2] b");
+    expect(formatted).toContain("[3] c");
     expect(terminal.events).not.toContainEqual({
       kind: "toolStatus",
       payload: {
         name: "suggest_quick_replies",
-        input: { options: ["a", "b", "c"] },
+        input: { question, options: ["a", "b", "c"] },
       },
     });
   });
@@ -229,10 +236,30 @@ describe("quick replies", () => {
     ).toBe(expected);
   });
 
+  // The earlier "Model sent no prose" runtime fallback was removed
+  // 2026-05-21 along with the proseEmitted tracker — the new chip
+  // schema requires a `question` field, so chips can no longer reach
+  // the terminal without prose context. This test pins that contract:
+  // a chip call with an empty/missing question is dropped by the
+  // payload parser and no chips are rendered.
+  it("drops the chip call when the model emits an empty question", async () => {
+    const { deps, refs, terminal } = await makeHarness();
+    modelState.model = sequencedMockModel([
+      streamResult(quickReplyChunks("", ["Ja", "Nein"])),
+    ]);
+
+    await handleTurn(deps, refs, "weiter", new AbortController());
+
+    expect(refs.lastQuickReplies).toBeNull();
+    expect(
+      terminal.events.some((e) => e.kind === "quickReplies"),
+    ).toBe(false);
+  });
+
   it("clears stale suggestions when the next model turn does not call the tool (T6-AC-07)", async () => {
     const { deps, refs } = await makeHarness();
     modelState.model = sequencedMockModel([
-      streamResult(quickReplyChunks(["Tag planen", "Warten auf zeigen"])),
+      streamResult(quickReplyChunks("Was als nächstes?", ["Tag planen", "Warten auf zeigen"])),
       streamResult(textChunks("ok")),
     ]);
 

@@ -1,8 +1,4 @@
-import type {
-  ModelMessage,
-  SystemModelMessage,
-  UserModelMessage,
-} from "ai";
+import type { ModelMessage, SystemModelMessage, UserModelMessage } from "ai";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { pruneToolResults } from "./tool-result-pruning.js";
 
@@ -18,9 +14,8 @@ import { pruneToolResults } from "./tool-result-pruning.js";
 //   - one on the trailing user message: every turn re-marks here so the
 //     prefix up to this turn is written into the cache for the next turn
 //     to consume.
-// For non-Anthropic providers (e.g. DeepSeek) the `anthropic`-scoped
-// providerOptions are silently ignored — these markers are no-ops there,
-// not errors. DeepSeek does its own automatic prefix caching server-side.
+// For non-Anthropic providers the `anthropic`-scoped providerOptions are
+// silently ignored — these markers are no-ops there, not errors.
 const CACHE_MARKER: { anthropic: { cacheControl: { type: "ephemeral" } } } = {
   anthropic: { cacheControl: { type: "ephemeral" } },
 };
