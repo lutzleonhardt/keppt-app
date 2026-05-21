@@ -73,6 +73,8 @@ Use the production viewport directly. The shell should use `100dvh`, account for
 
 Add typed chat/domain models and a `ChatService` boundary with a `MockChatService` implementation. UI components must consume service Signals and methods rather than importing mock arrays directly.
 
+Keep UI orchestration state in a route/local shell store rather than in presentational components. The store may be provided at the chat shell/screen component boundary instead of as an application-wide singleton, and should bridge RxJS streams to Signals deliberately (for example via `toSignal`) instead of relying on manual subscription field mutation. Presentational components should read Signals/view-model values and call store/service actions.
+
 Use this service shape:
 
 ```ts
@@ -179,6 +181,7 @@ Implement these mock behaviors:
 ### Acceptance
 
 - **T2-AC-01** — Presentational components can depend on the `ChatService` abstraction without importing mock arrays directly.
+- **T2-AC-05** — Chat UI state is orchestrated through a local store/service boundary, with no manual subscription-driven field mutation in presentational components.
 - **T2-AC-02** — The mock service simulates tool row, typing, final assistant response, and quick replies for greeting, capture confirmation, planning, today, waiting, inbox, and acknowledge flows.
 - **T2-AC-03** — Keyword routing covers planning, today/focus, waiting/Max/DB, inbox cleanup, and fallback capture.
 - **T2-AC-04** — Voice capture simulation emits the Anna/tax-documents/AI-Apps transcript, then produces the capture confirmation response.
@@ -186,6 +189,7 @@ Implement these mock behaviors:
 ### Key Locations
 
 - New Angular service/types: `apps/web/src/app/chat/`
+- Local chat store/shell state: `apps/web/src/app/chat/`
 - New mock data: `apps/web/src/app/mock/`
 - Angular provider setup: `apps/web/src/app/app.config.ts`
 - Reference mock content and route behavior: `/home/lutz/projects/keppt/keppt-landing/src/components/mock/strings.tsx`

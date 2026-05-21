@@ -1,0 +1,62 @@
+<main class="chat-shell" aria-label="Keppt Chat">
+  <header class="chat-header">
+    <button class="icon-button" type="button" aria-label="Menü öffnen">
+      <span aria-hidden="true"></span>
+    </button>
+    <div class="chat-title">
+      <p>Keppt</p>
+      <span>{{ today }}</span>
+    </div>
+    <button class="icon-button more" type="button" aria-label="Weitere Optionen">
+      <span aria-hidden="true"></span>
+    </button>
+  </header>
+
+  <section class="conversation" aria-label="Unterhaltung">
+    <div class="message-stack">
+      @for (message of messages(); track message.id) {
+        <article class="message" [class.user-message]="message.sender === 'user'">
+          @if (message.meta) {
+            <p class="message-meta">{{ message.meta }}</p>
+          }
+          <p>{{ message.text }}</p>
+        </article>
+      }
+    </div>
+  </section>
+
+  <footer class="composer" aria-label="Nachricht verfassen">
+    <div class="quick-actions" aria-label="Schnellantworten">
+      @for (action of quickActions; track action) {
+        <button type="button" (click)="submitQuickAction(action)">
+          {{ action }}
+        </button>
+      }
+    </div>
+
+    <div class="composer-row">
+      <button class="voice-button" type="button" aria-label="Spracheingabe starten">
+        <span aria-hidden="true"></span>
+      </button>
+      <label class="draft-field">
+        <span class="visually-hidden">Nachricht</span>
+        <textarea
+          [value]="draft()"
+          rows="1"
+          placeholder="Nachricht an Keppt"
+          (input)="updateDraft($event)"
+          (keydown.enter)="$event.preventDefault(); submitDraft()"
+        ></textarea>
+      </label>
+      <button
+        class="send-button"
+        type="button"
+        aria-label="Nachricht senden"
+        [disabled]="!canSubmit()"
+        (click)="submitDraft()"
+      >
+        <span aria-hidden="true"></span>
+      </button>
+    </div>
+  </footer>
+</main>

@@ -1,0 +1,62 @@
+:root {
+  --keppt-paper: #f6f3ee;
+  --keppt-paper-alt: #efebe3;
+  --keppt-paper-2: #ede9df;
+  --keppt-ink: #1a1814;
+  --keppt-ink-2: rgba(26, 24, 20, 0.62);
+  --keppt-ink-3: rgba(26, 24, 20, 0.38);
+  --keppt-ink-4: rgba(26, 24, 20, 0.18);
+  --keppt-ink-5: rgba(26, 24, 20, 0.1);
+  --keppt-line: rgba(26, 24, 20, 0.08);
+  --keppt-hairline: rgba(26, 24, 20, 0.06);
+  --keppt-accent: #b07a52;
+  --keppt-accent-soft: rgba(176, 122, 82, 0.1);
+  --keppt-accent-soft-2: rgba(176, 122, 82, 0.18);
+  color-scheme: light;
+  font-family:
+    "Inter Tight",
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  background: var(--keppt-paper);
+  color: var(--keppt-ink);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100dvh;
+  background: var(--keppt-paper);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--keppt-accent);
+  outline-offset: 3px;
+}
