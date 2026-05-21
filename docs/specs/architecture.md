@@ -45,17 +45,17 @@ No payment, no App Store. Chat works end-to-end — dev primarily against the va
 
 ```mermaid
 graph LR
-    Chat[Chat View] --> Hashbrown[Generative UI]
-    Hashbrown --> TaskDiff[TaskDiffCard]
-    Hashbrown --> DailyPlan[DailyPlanCard]
-    Hashbrown --> InboxReview[InboxReviewCard]
+    Chat[Chat View] --> Widgets[Typed Angular Widgets]
+    Widgets --> TaskDiff[TaskDiffCard]
+    Widgets --> DailyPlan[DailyPlanCard]
+    Widgets --> InboxReview[InboxReviewCard]
     Files[File Browser] --> Markdown[ngx-markdown]
     Files --> Editor[Edit Mode]
     History[History View] --> FileHistory[file_history]
     Settings[Settings] --> Profile[GTD Profile]
 ```
 
-All views, Generative UI Cards, file browser, history. Ready for beta testers.
+All views, product-owned chat widgets, file browser, history. Ready for beta testers.
 
 ### Phase 2c: Monetization + Distribution
 
@@ -120,7 +120,7 @@ sequenceDiagram
 ## Tech Stack
 
 **Frontend**: Angular 19+ (standalone components, signals)
-**Chat UI / Generative UI**: Hashbrown (by Manfred Steyer / angulararchitects.io)
+**Chat UI**: Custom Angular chat components and typed widgets. See `docs/specs/angular-chat-ui.md`. Hashbrown, AG-UI, and A2UI are not part of the default UI path.
 **Native Shell**: Capacitor — gives native APIs for Voice (Speech Recognition plugin), Push Notifications, In-App Purchase (for subscriptions), and App Store deployment
 **Backend Service**: Node.js + Express/Fastify (own process, no Serverless/Edge Functions)
 **LLM Abstraction**: Vercel AI SDK (`ai` npm package) — provider-agnostic (Anthropic, OpenAI, Google, Groq, Ollama)
@@ -131,46 +131,11 @@ sequenceDiagram
 **Deployment Backend**: Railway, Render or similar container platform
 **Payments**: RevenueCat or native StoreKit via Capacitor plugin for App Store subscriptions
 
-## Chat UI: Hashbrown + Generative UI
+## Chat UI: Custom Angular Components
 
-**Hashbrown** (by Manfred Steyer, angulararchitects.io) is the key UI enabler. It allows the LLM to not just respond with text, but to select and render Angular components directly in the chat — via Structured Output and Tool Calling.
+The default keppt chat UI is built from product-owned Angular components and typed widgets, not from Hashbrown, AG-UI, or A2UI. The LLM/backend may later emit typed events or widget payloads, but the client renders only known product components such as status rows, quick replies, confirmation prompts, plan lists, diff summaries, inbox review rows, and consistency reports.
 
-**Why this matters for keppt-app:**
-
-The LLM doesn't just say "I moved 3 tasks" as text. It can render rich interactive cards in the chat:
-
-- A **TaskDiffCard** showing what moved where, with checkmarks and before/after state
-- A **DailyPlanCard** showing tomorrow's proposed schedule, with tap-to-confirm/reject buttons
-- An **InboxReviewCard** listing items with swipe-to-categorize gestures
-- A **ConsistencyReportCard** showing the cross-check results with expandable details
-
-This is Generative UI — the LLM decides which component to show based on the conversation context. The user gets a visual, interactive response instead of a wall of text. This is the difference between a chatbot and a proper app experience.
-
-**How it works technically:**
-
-```typescript
-chat = uiChatResource({
-  model: 'claude-sonnet',
-  system: `You are a GTD task assistant...`,
-  tools: [
-    moveTaskTool,
-    checkOffTaskTool,
-    planDayTool,
-    reviewInboxTool,
-  ],
-  components: [
-    taskDiffWidget,
-    dailyPlanWidget,
-    inboxReviewWidget,
-    consistencyReportWidget,
-    messageWidget,  // fallback for plain text responses
-  ],
-});
-```
-
-Each component is described via schema so the LLM knows when to use which widget. The LLM picks the component, provides the data, and Angular renders it in the chat stream.
-
-**Strategic bonus:** Hashbrown is Manfred Steyer's project. The Manfred Steyer interview (April 2026) covers Native Federation at Siemens Energy and GenAI for Angular. Using Hashbrown in this app creates a direct narrative connection: "I interviewed Manfred about Generative UI for Angular, then I used his library to build a production app." Perfect for YouTube content, LinkedIn posts, and workshop storytelling.
+The concrete mock-first UI contract, component set, styling rules, and service abstraction are specified in `docs/specs/angular-chat-ui.md`.
 
 ## LLM Streaming in Angular
 
@@ -1263,7 +1228,7 @@ Full-text search across file contents. Default scope: `"active"` (all `tasks/*.m
 
 ## Context-Aware Session Start (Onboarding + Daily Suggestion = one system)
 
-When opening the app / starting a new day, the system reads the current state and generates **one** context-aware suggestion card (Generative UI via Hashbrown). Onboarding is not a separate flow — it is the special case "state is empty".
+When opening the app / starting a new day, the system reads the current state and generates **one** context-aware suggestion card rendered by the product-owned Angular chat UI. Onboarding is not a separate flow — it is the special case "state is empty".
 
 **Decision logic (driven by the system prompt):**
 
@@ -1283,9 +1248,9 @@ When opening the app / starting a new day, the system reads the current state an
 - Always exactly **one** suggestion, not three. No overload.
 - The user can react (confirm, adjust) or ignore and just start typing.
 - No modal, no blocker, no obligation.
-- The suggestion card is a Generative UI element (Hashbrown), not a static UI block.
+- The suggestion card is a typed Angular widget, not an arbitrary generated UI block.
 
-**Implementation:** On session start an automatic LLM call with the current state (active files + metadata like weekday, last session, inbox size, waiting age). The response is rendered as a `SessionStartCard`.
+**Implementation:** On session start an automatic LLM call with the current state (active files + metadata like weekday, last session, inbox size, waiting age). The response is mapped to the typed `SessionStartCard` data shape and rendered by Angular.
 
 ## Session Architecture: One Chat Per Day (+ Switchable History)
 
@@ -1689,6 +1654,27 @@ Validate the core hypothesis: do the prompts work? Is the GTD system usable via 
 
 ---
 
+### Phase 1b: Angular Chat UI Mock — "It feels like the app"
+
+This phase can run in parallel with CLI dogfooding. It builds the Angular mobile chat experience against mock data only, so the product surface can be evaluated before the server, Supabase, Capacitor plugins, and real LLM streaming are wired.
+
+Source spec: `docs/specs/angular-chat-ui.md`.
+
+- Angular app in the pnpm workspace.
+- Standalone components + Signals.
+- Custom Keppt chat components and typed widgets.
+- Mock `ChatService` with deterministic message flows, quick replies, tool/status rows, typing state, and simulated voice capture.
+- Internal `/dev/ui` playground route for isolated component states.
+- Keppt design tokens ported from the landing mock.
+- Mobile app shell that uses viewport/safe-area behavior suitable for a later Capacitor shell.
+- **No Hashbrown, AG-UI, A2UI, Supabase, backend SSE, real auth, or native Capacitor plugin in this phase.**
+
+**Deliverable:** A local Angular app that reproduces the core Keppt chat mock and can be used to refine the mobile UI and component contract.
+
+**Validation Checkpoint:** Does the chat-first surface feel like a real app? Do the components cover the known GTD reply patterns without a generative UI framework? Does the service boundary look sufficient for later SSE integration?
+
+---
+
 ### Phase 2a: Backend + Angular — "It chats in the app"
 
 The shared core moves into an Express server. Angular client communicates via SSE. Supabase as database + auth. **No payment, no App Store** — the goal is a functioning chat with persistence.
@@ -1732,11 +1718,12 @@ A deliberately time-bounded step to validate the Supabase integration before it 
 - Test rate limiting + usage tracking (per-user, per-day) on this path
 - Prepare deployment target Railway/Render
 
-**2a.3: Angular + Capacitor shell**
+**2a.3: Wire Angular UI to backend**
 
-- Angular 19+ project with Capacitor
+- Reuse the Angular chat UI from Phase 1b
+- Add Capacitor shell configuration when device testing starts
 - Supabase Auth integration (Apple Sign-In, Google, Email)
-- Chat view: message list, input field, send button
+- Chat view uses the existing typed component contract from `docs/specs/angular-chat-ui.md`
 - SSE streaming: `provideHttpClient(withFetch())` + Signals + RxJS
 - Session display: today's chat, scrollable history of past days
 
@@ -1764,11 +1751,10 @@ Multi-modal chat input via the existing chat channel — strictly an input modal
 
 ### Phase 2b: Features + Trust — "The app is complete"
 
-The app gets all the features that distinguish it from a simple chatbot. Hashbrown Generative UI, file browser, history, settings.
+The app gets all the features that distinguish it from a simple chatbot: typed interactive chat widgets, file browser, history, settings.
 
-**2b.1: Generative UI (Hashbrown)**
+**2b.1: Typed interactive chat widgets**
 
-- Hashbrown integration for tool cards in the chat
 - `TaskDiffCard` — shows what was moved/completed
 - `DailyPlanCard` — daily plan proposal with confirm/adjust
 - `InboxReviewCard` — inbox items with categorization suggestions
@@ -1793,7 +1779,7 @@ The app gets all the features that distinguish it from a simple chatbot. Hashbro
 - Subscription badge (show tier — still hardcoded in this phase)
 - Edit GTD profile
 
-**Deliverable:** Feature-complete app. Ready for beta testers. All GTD flows work, Generative UI shows interactive cards instead of walls of text, history creates trust.
+**Deliverable:** Feature-complete app. Ready for beta testers. All GTD flows work, typed Angular widgets show interactive cards instead of walls of text, history creates trust.
 
 **Validation Checkpoint:** Test with 5-10 beta users. Is the trust there? Does the consistency engine work? Do non-technical users understand the app?
 
@@ -2084,7 +2070,7 @@ On app start / session start, the system generates **one** context-aware suggest
 - Waiting overdue → offer to follow up
 - Several days break → offer summary
 
-**Principles:** Always exactly one suggestion (no overload). User can react or ignore. No modal, no blocker. Generative UI via Hashbrown (`SessionStartCard`).
+**Principles:** Always exactly one suggestion (no overload). User can react or ignore. No modal, no blocker. Rendered as a typed Angular widget (`SessionStartCard`).
 
 Details and complete state table: see "Context-Aware Session Start" in the architecture section above.
 
