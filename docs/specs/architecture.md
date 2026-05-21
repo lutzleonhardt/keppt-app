@@ -953,7 +953,7 @@ Observability is added in layers, not as one large production-hardening task:
 
 ## Archive Layout & Lifecycle
 
-> **Amended after planning** (Task-5 redesign, 2026-05-20). The original `daily/` ↔ `archive/daily/` split is dropped. Past, today, and future daily notes all live under `daily/YYYY-MM-DD.md` and share one gate rule. No per-turn rollover, no `- [ ]`-stripping, no `move` primitive. Past-daily editability becomes a prompt-soft rule (R6) rather than a gate split; open-task carry-over moves out of silent file mutation into the explicit Auto-Replan-Opener (Task 7). The historical archive concept survives only for non-daily paths if ever needed later — `isInArchiveScope` stays in the predicate API but returns `false` for `daily/*`. See `docs/plans/phase-1-cli.md` Task 5.
+> **Amended after planning** (Task-5 redesign, 2026-05-20). The original `daily/` ↔ `archive/daily/` split is dropped. Past, today, and future daily notes all live under `daily/YYYY-MM-DD.md` and share one gate rule. No per-turn rollover, no `- [ ]`-stripping, no `move` primitive. Past-daily editability becomes a prompt-soft rule (R6) rather than a gate split; open-task carry-over moves out of silent file mutation into the explicit Auto-Replan-Opener (Task 7). The historical archive concept survives only for non-daily paths if ever needed later — `isInArchiveScope` stays in the predicate API but returns `false` for `daily/*`. See `docs/work/main/plan.md` Task 5.
 
 "Archive" in this app means: **deletion-free retention**. Nothing is deleted (except completed tasks — see below). Past artefacts stay where they were written; "archive" is a semantic property (out of routine LLM working context unless the user asks) rather than a physical directory move for `daily/*`.
 
@@ -1038,7 +1038,7 @@ This way the repository abstraction stays cleanly swappable (Local/Supabase/InMe
 
 ### Vault Readiness on Startup (Server-Side)
 
-> **Amended after planning** (Task-5 redesign, 2026-05-20). The original per-turn rollover step is gone with the daily-archive split. What remains is first-run task-file initialization, which doesn't need a per-turn cadence — it's truly once-per-vault. See `docs/plans/phase-1-cli.md` Task 5.
+> **Amended after planning** (Task-5 redesign, 2026-05-20). The original per-turn rollover step is gone with the daily-archive split. What remains is first-run task-file initialization, which doesn't need a per-turn cadence — it's truly once-per-vault. See `docs/work/main/plan.md` Task 5.
 
 A single idempotent step runs **once at CLI startup** (before the REPL loop), not per turn. Long idle gaps no longer matter because no daily-file lifecycle work hides behind the readiness step — the LLM's working knowledge of "what day is it" comes from `turnNow` in the system prompt and the per-turn date that flows through `canRead`/`canWrite`/`isInActiveScope`.
 
@@ -1429,7 +1429,7 @@ Captured here rather than implemented now per the "deterministic safety net + ac
 
 ### Open question: Daily-folder scaling — tool-scope limitation post-archive-merge
 
-Background: the Phase-1 Task-5 redesign (2026-05-20, `docs/plans/phase-1-cli.md`) dropped the `daily/` ↔ `archive/daily/` split. Past, today, and future daily notes now all live in a single `daily/` directory with one gate rule. That simplification removed a whole class of complexity (no `move` primitive, no per-turn rollover, no archive-scope predicate split, no past-daily editability follow-up), but at the cost of unbounded growth in one namespace: after a year of daily use, ~365 files; after three years, ~1100.
+Background: the Phase-1 Task-5 redesign (2026-05-20, `docs/work/main/plan.md`) dropped the `daily/` ↔ `archive/daily/` split. Past, today, and future daily notes now all live in a single `daily/` directory with one gate rule. That simplification removed a whole class of complexity (no `move` primitive, no per-turn rollover, no archive-scope predicate split, no past-daily editability follow-up), but at the cost of unbounded growth in one namespace: after a year of daily use, ~365 files; after three years, ~1100.
 
 Three tool surfaces feel that growth:
 
@@ -1484,7 +1484,7 @@ The product intent is two-tier routing: a small/cheap model handles trivial CRUD
   3. *Explicit user opt-in* — slash command, UI toggle, or natural-language signal (`"plan tomorrow"` as an explicit user-typed intent, not a regex match). Lowest implementation cost; preserves user agency; loses the "invisible to the user" property.
   4. *Hybrid* — tier sets the default, opt-in escalates, classifier never enters the picture.
 
-**Phase 1 stance:** the CLI is single-model (Haiku) — no router, no model picker, no classification surface. Phase 1's goal is to validate the GTD prompts under realistic conditions, and a one-model run isolates prompt quality from routing quality. The Phase-1 plan (`docs/plans/phase-1-cli.md`, Task 4) records the deferral and the reasoning so a future "let's just keyword-match it" pass does not silently re-land the rejected design.
+**Phase 1 stance:** the CLI is single-model (Haiku) — no router, no model picker, no classification surface. Phase 1's goal is to validate the GTD prompts under realistic conditions, and a one-model run isolates prompt quality from routing quality. The Phase-1 plan (`docs/work/main/plan.md`, Task 4) records the deferral and the reasoning so a future "let's just keyword-match it" pass does not silently re-land the rejected design.
 
 **Revisit trigger:** once Phase 2a backend has a user-tier model wired (the obvious cheap discriminator) or Phase 1 smoke shows specific request classes where a single model is materially worse than two — whichever comes first. Until then, no `packages/core/model-router.ts` exists.
 

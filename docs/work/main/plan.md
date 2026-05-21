@@ -30,10 +30,10 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 1. Monorepo + FileRepository + LocalFileRepository (read/write/list/search + JSON history)
 2. `edit_file` with atomic search/replace (uniqueness check + structured error returns)
 3. CLI + Vercel AI SDK + tool handlers (minimal prompt) → **first real console run**
-3.5. GTD layout policy gate (`canRead` / `canWrite` at the `buildTools` boundary) — Task-3 follow-up, closes Codex adversarial-review finding #1. See `docs/task-log/task-3.5-gtd-layout-policy.md`.
-3.6. CLI operational error logging — Task-3 manual-smoke follow-up, post-created 2026-05-09 after an Anthropic low-balance failure showed that the SDK default logs raw `APICallError` objects to stderr. The CLI prints a stable summary and writes full diagnostics to a vault-local JSONL log. See `docs/task-log/task-3.6-cli-error-logging.md`.
-3.7. Per-message retry budget for `edit_file` (`retry-budget.ts` + tool-layer wrapper) — Task-3 follow-up, post-created 2026-05-09 from a comparison review against an autonomous-agent build. Caps repeated `edit_file` failures on the same file within one user message at 2; 3rd attempt short-circuits to `retry_budget_exhausted`. See `docs/task-log/task-3.7-retry-budget.md`.
-3.8. Path-safety expansion (8 → 13 attack vectors): drive letters, segment trailing dots/whitespace, length caps, reserved Windows names, runtime symlink-escape check in `LocalFileRepository` — Task-3 follow-up, post-created 2026-05-09 from the same comparison review. See `docs/task-log/task-3.8-path-safety.md`.
+3.5. GTD layout policy gate (`canRead` / `canWrite` at the `buildTools` boundary) — Task-3 follow-up, closes Codex adversarial-review finding #1. See `docs/work/main/task-log/task-3.5-gtd-layout-policy.md`.
+3.6. CLI operational error logging — Task-3 manual-smoke follow-up, post-created 2026-05-09 after an Anthropic low-balance failure showed that the SDK default logs raw `APICallError` objects to stderr. The CLI prints a stable summary and writes full diagnostics to a vault-local JSONL log. See `docs/work/main/task-log/task-3.6-cli-error-logging.md`.
+3.7. Per-message retry budget for `edit_file` (`retry-budget.ts` + tool-layer wrapper) — Task-3 follow-up, post-created 2026-05-09 from a comparison review against an autonomous-agent build. Caps repeated `edit_file` failures on the same file within one user message at 2; 3rd attempt short-circuits to `retry_budget_exhausted`. See `docs/work/main/task-log/task-3.7-retry-budget.md`.
+3.8. Path-safety expansion (8 → 13 attack vectors): drive letters, segment trailing dots/whitespace, length caps, reserved Windows names, runtime symlink-escape check in `LocalFileRepository` — Task-3 follow-up, post-created 2026-05-09 from the same comparison review. See `docs/work/main/task-log/task-3.8-path-safety.md`.
 3.9. Shared logging abstraction — Task-3 follow-up, post-created 2026-05-09 from the operational logging architecture decision. Introduces a runtime-neutral `Logger`/`LogEvent` contract, keeps `packages/core` free of `console.*`, and moves CLI terminal output vs. diagnostics behind explicit adapters.
 4. System prompt R1-R13 + request builder + input heuristic + prompt caching (model routing deferred — see Task 4 block)
 4.1. Tool-result pruning + session persistence — Task-4 follow-up, split out 2026-05-18 during `/start-task 4` because the original Task 4 exceeded the `/plan` "diff + tests fit one commit" sizing rule. Task 4 ships the prompt/router/input/caching pipeline with the existing in-memory message array; Task 4.1 swaps that array for on-disk sessions and adds `pruneToolResults` to the request-builder. Reverse dependency forced: Task 4.1 edits `request-builder.ts` and `apps/cli/src/index.ts`, which Task 4 creates/rewrites. **Pre-commit redesign 2026-05-19:** a Codex adversarial review of the in-flight 4.1 diff flagged three concrete bugs (Phase-2-save rollback gap, UTC day-rollover contamination, non-atomic write) plus a layering smell (core writing through `node:fs` directly, unusable from the Phase-2a web/Supabase target). All four folded into 4.1 before commit — they sit inside 4.1's own artifacts. Result: `Session` reshaped from passive record into a class with encapsulated invariants + injectable `SessionStore`.
@@ -371,7 +371,7 @@ Today is {TODAY_ISO} ({TODAY_WEEKDAY}).
 - `apps/cli/src/cli-error-log.ts`
 - `apps/cli/test/cli-errors.test.ts`
 - `apps/cli/test/cli-error-log.test.ts`
-- `docs/task-log/task-3.6-cli-error-logging.md`
+- `docs/work/main/task-log/task-3.6-cli-error-logging.md`
 
 ### Key Discoveries
 
@@ -445,7 +445,7 @@ Vitest suite against `InMemoryFileRepository` + a spy wrapper that counts `repo.
 - `packages/core/src/tools.ts` (+ wrap `edit_file`, extend `BuildToolsOptions` with `turnId`, add `retry_budget_exhausted` variant to `EditFileError`)
 - `packages/core/src/__tests__/retry-budget.test.ts`
 - `apps/cli/src/index.ts` (+ fresh `turnId` per turn, rebuild tools per turn)
-- `docs/task-log/task-3.7-retry-budget.md`
+- `docs/work/main/task-log/task-3.7-retry-budget.md`
 
 ### Key Discoveries
 
@@ -520,7 +520,7 @@ Extend `__tests__/file-repository.contract.ts` with a parametrized rejection tab
 - `packages/core/src/local-file-repository.ts` (+ `resolveSafe`, route I/O through it)
 - `packages/core/src/__tests__/file-repository.contract.ts` (+ parametrized rejection table for #1–#12)
 - `packages/core/src/__tests__/local-file-repository.test.ts` (+ symlink-escape scenarios)
-- `docs/task-log/task-3.8-path-safety.md`
+- `docs/work/main/task-log/task-3.8-path-safety.md`
 
 ### Key Discoveries
 
@@ -704,7 +704,7 @@ remains the default at every boundary.
 - `apps/cli/test/cli-errors.test.ts`
 - `apps/cli/test/cli-error-log.test.ts`
 - `apps/cli/test/cli-logger.test.ts`
-- `docs/task-log/task-3.9-shared-logging-abstraction.md`
+- `docs/work/main/task-log/task-3.9-shared-logging-abstraction.md`
 
 ### Key Discoveries
 
@@ -968,7 +968,7 @@ Vitest suite green:
 - `apps/cli/src/index.ts` (modified — store DI, day-rollover guard, snapshot/restore around Phase-1 and Phase-2 saves, split error-log phases)
 - `apps/cli/test/two-phase-save.test.ts` (extended — AC-13 Phase-2-save rollback, AC-14 day-rollover)
 - `apps/cli/test/workspace-wiring.test.ts` (re-verified or extended if it hits the message path)
-- `docs/task-log/task-4.1-pruning-and-sessions.md` (post-implementation wrap-up — includes the 2026-05-19 pre-commit redesign)
+- `docs/work/main/task-log/task-4.1-pruning-and-sessions.md` (post-implementation wrap-up — includes the 2026-05-19 pre-commit redesign)
 
 ### Key Discoveries
 
@@ -1091,7 +1091,7 @@ Vitest suite green:
 - `apps/cli/src/index.ts` (modified — DEBUG-gated `FsTurnLogger`/`NoopTurnLogger` instantiation, day-rollover reinstantiation, per-turn record assembly across ok / stream-error / aborted branches)
 - `apps/cli/test/fs-turn-logger.test.ts` (new — counter seeding from disk, atomic write spy, day-rollover reset, allowlist serialization)
 - `apps/cli/test/turn-logger-integration.test.ts` (new — DEBUG on/off, ok/aborted/stream-error outcomes, pruning visibility across multi-turn flow, NoopTurnLogger transparency)
-- `docs/task-log/task-4.2-debug-turn-logging.md` (post-implementation wrap-up)
+- `docs/work/main/task-log/task-4.2-debug-turn-logging.md` (post-implementation wrap-up)
 
 ### Key Discoveries
 
@@ -1202,7 +1202,7 @@ Vitest suite green:
 - `packages/core/src/system-prompt.ts` (modified — opening line, R2 expansion, R4 slim-down, R9 expansion, R14/R15/R16 added)
 - `packages/core/src/__tests__/system-prompt.test.ts` (modified — `for (let i = 1; i <= 13; i++)` becomes `i <= 16`; new sentinel-string assertions for R2/R9/R14/R15/R16 bodies; opening-line assertion)
 - `packages/core/src/index.ts` (modified — if `isCanonicalTaskFile` is re-exported alongside `canRead`/`canWrite`)
-- `docs/task-log/task-4.3-tool-reminder-and-prompt-sharpening.md` (post-implementation wrap-up)
+- `docs/work/main/task-log/task-4.3-tool-reminder-and-prompt-sharpening.md` (post-implementation wrap-up)
 
 ### Key Discoveries
 
