@@ -2,7 +2,7 @@
 
 > **GTD that maintains itself.** You talk, the system files. Chat is the only surface; GTD runs in the engine room; voice is the default input.
 
-[**Live demo → getkeppt.com**](https://getkeppt.com) · [Architecture](docs/specs/architecture.md) · [Product spec](docs/specs/product.md) · [Build log](docs/task-log/) · [Dev.to blog](https://dev.to/lutz_leonhardt)
+[**Live demo → getkeppt.com**](https://getkeppt.com) · [Architecture](docs/specs/architecture.md) · [Product spec](docs/specs/context/product.md) · [Build log](docs/task-log/) · [Dev.to blog](https://dev.to/lutz_leonhardt)
 
 <p align="center">
   <a href="https://getkeppt.com">
@@ -42,7 +42,7 @@ I'm documenting the build process publicly: architecture, prompts, Capacitor + A
 - **GTD as autopilot.** Inbox triage, daily plan, weekly review, consistency checks — all maintained by the LLM, not by you.
 - **Open Markdown data.** Your tasks live as plain `.md` files. The LLM reads and writes; you can always open the vault yourself.
 
-Full pitch and market context: [`docs/specs/product.md`](docs/specs/product.md).
+Full pitch and market context: [`docs/specs/product.md`](docs/specs/context/product.md).
 
 ## Build status
 

@@ -1,7 +1,8 @@
 # Plan — Phase 1: CLI ("It works in the terminal")
 
-> Spec: [`docs/specs/architecture.md`](../specs/architecture.md) (Build Milestones → Phase 1) + [`docs/specs/product.md`](../specs/product.md)
-> SDK research: [`docs/specs/vercel-sdk.md`](../specs/vercel-sdk.md)
+> Spec: [`docs/specs/architecture.md`](../../specs/architecture.md) (Build Milestones → Phase 1) + [`docs/specs/context/product.md`](../../specs/context/product.md)
+> SDK research: [`docs/specs/context/vercel-sdk.md`](../../specs/context/vercel-sdk.md)
+> Operational logging context: [`docs/specs/context/operational-logging.md`](../../specs/context/operational-logging.md)
 
 ## Scope
 
