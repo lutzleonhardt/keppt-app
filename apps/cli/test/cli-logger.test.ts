@@ -15,12 +15,18 @@ function captureTerminal(): CapturedTerminal {
   const events: Array<{ kind: string; payload: unknown }> = [];
   return {
     events,
-    assistantText: (text) => events.push({ kind: "assistantText", payload: text }),
+    assistantText: (text) =>
+      events.push({ kind: "assistantText", payload: text }),
     toolStatus: (name, input) =>
       events.push({ kind: "toolStatus", payload: { name, input } }),
     toolError: (name, err) =>
       events.push({ kind: "toolError", payload: { name, err } }),
     info: (message) => events.push({ kind: "info", payload: message }),
+    sessionBanner: (message) =>
+      events.push({ kind: "sessionBanner", payload: message }),
+    replayLine: (line) => events.push({ kind: "replayLine", payload: line }),
+    quickReplies: (options) =>
+      events.push({ kind: "quickReplies", payload: options }),
     errorSummary: (message) =>
       events.push({ kind: "errorSummary", payload: message }),
     endStream: () => events.push({ kind: "endStream", payload: undefined }),
@@ -95,7 +101,12 @@ describe("createCliLogger — JSONL persistence", () => {
     await waitForEntries(vaultPath, 4);
     const entries = await readEntries(vaultPath);
     expect(entries).toHaveLength(4);
-    expect(entries.map((e) => e.level)).toEqual(["debug", "info", "warn", "error"]);
+    expect(entries.map((e) => e.level)).toEqual([
+      "debug",
+      "info",
+      "warn",
+      "error",
+    ]);
     expect(entries[0]).toMatchObject({
       level: "debug",
       code: "x.debug",

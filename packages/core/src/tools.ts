@@ -6,7 +6,12 @@ import {
   InvalidPathError,
   type FileRepository,
 } from "./file-repository.js";
-import { canRead, canWrite, isCanonicalTaskFile, isPastDaily } from "./gtd-layout.js";
+import {
+  canRead,
+  canWrite,
+  isCanonicalTaskFile,
+  isPastDaily,
+} from "./gtd-layout.js";
 import { type Logger, NoopLogger, safeLog } from "./logging.js";
 import { formatToday } from "./search.js";
 import type { SearchResult } from "./file-repository.js";
@@ -66,6 +71,8 @@ export type EditFileResult =
   | { ok: true; reminder?: string }
   | { ok: false; error: EditFileError };
 
+export type QuickRepliesResult = { options: string[] };
+
 // Two attempts: first round-trips currentContent, second is the legitimate
 // "extend search context" retry. Third would just burn tokens.
 const MAX_EDIT_FAILURES_PER_FILE = 2;
@@ -97,7 +104,10 @@ async function readFileTool(
     return { ok: true, content };
   } catch (err) {
     if (err instanceof FileNotFoundError) {
-      return { ok: false, error: { reason: "not_found", message: err.message } };
+      return {
+        ok: false,
+        error: { reason: "not_found", message: err.message },
+      };
     }
     if (err instanceof InvalidPathError) {
       logger.warn({
@@ -105,7 +115,10 @@ async function readFileTool(
         code: "tool.read_file.invalid_path",
         meta: { filePath, reason: err.reason },
       });
-      return { ok: false, error: { reason: "invalid_path", message: err.message } };
+      return {
+        ok: false,
+        error: { reason: "invalid_path", message: err.message },
+      };
     }
     throw err;
   }
@@ -153,7 +166,10 @@ async function writeFileTool(
         code: "tool.write_file.invalid_path",
         meta: { filePath, reason: err.reason },
       });
-      return { ok: false, error: { reason: "invalid_path", message: err.message } };
+      return {
+        ok: false,
+        error: { reason: "invalid_path", message: err.message },
+      };
     }
     throw err;
   }
@@ -195,7 +211,10 @@ function allowedByCanRead(filePath: string, today: string): boolean {
 // repo.read throws FileNotFoundError; repo.edit returns missingFileError
 // with currentContent: "". Mirror the latter so the exhausted edit_file
 // path stays inside the EditFileResult shape for missing-but-writable files.
-async function readOrEmpty(repo: FileRepository, filePath: string): Promise<string> {
+async function readOrEmpty(
+  repo: FileRepository,
+  filePath: string,
+): Promise<string> {
   try {
     return await repo.read(filePath);
   } catch (err) {
@@ -277,7 +296,10 @@ async function editFileTool(
         currentContentLength: editError?.currentContent.length ?? 0,
       },
     });
-    return { ok: false, error: { ...(result.error as EditError), reason: "match" } };
+    return {
+      ok: false,
+      error: { ...(result.error as EditError), reason: "match" },
+    };
   } catch (err) {
     if (err instanceof InvalidPathError) {
       logger.warn({
@@ -285,7 +307,10 @@ async function editFileTool(
         code: "tool.edit_file.invalid_path",
         meta: { filePath, reason: err.reason },
       });
-      return { ok: false, error: { reason: "invalid_path", message: err.message } };
+      return {
+        ok: false,
+        error: { reason: "invalid_path", message: err.message },
+      };
     }
     throw err;
   }
@@ -396,7 +421,14 @@ export function buildTools(
         change_summary: changeSummarySchema,
       }),
       execute: async ({ file_path, content, change_summary }) =>
-        writeFileTool(repo, file_path, content, change_summary, today(), logger),
+        writeFileTool(
+          repo,
+          file_path,
+          content,
+          change_summary,
+          today(),
+          logger,
+        ),
     }),
     list_files: tool({
       description:
@@ -417,6 +449,16 @@ export function buildTools(
       }),
       execute: async ({ query, scope }) =>
         searchFilesTool(repo, query, scope ?? "active", today()),
+    }),
+    suggest_quick_replies: tool({
+      description:
+        "Terminal UI tool: propose 2–5 short follow-up answers the user can pick from. MUST call instead of ending with a bare yes/no or choice question when the next user step has discrete, anticipatable options (yes/no, choose-one-of-three, accept/decline/defer). Do NOT use as a fallback for open-ended questions.",
+      inputSchema: z.object({
+        options: z.array(z.string().min(1).max(60)).min(2).max(5),
+      }),
+      execute: async ({ options }): Promise<QuickRepliesResult> => ({
+        options,
+      }),
     }),
   };
 }

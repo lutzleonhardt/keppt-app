@@ -35,6 +35,9 @@ export interface TerminalOutput {
   // CLI just loaded — instead of staring at a blank prompt and guessing
   // whether the last `read_file` he asked for actually survived the restart.
   replayLine(line: string): void;
+  // Numbered quick-reply options proposed by the model through
+  // suggest_quick_replies. Printed after the assistant stream completes.
+  quickReplies(options: readonly string[]): void;
   // One-line user-facing error summary written to stderr. Caller composes
   // the full message (prefix + formatCliError + log suffix); the sink only
   // appends a trailing newline.
@@ -91,6 +94,9 @@ export function createStdTerminalOutput(): TerminalOutput {
     replayLine: (line) => {
       stdout.write(`${line}\n`);
     },
+    quickReplies: (options) => {
+      stdout.write(`${formatQuickReplies(options)}\n`);
+    },
     errorSummary: (message) => {
       stderr.write(`${message}\n`);
     },
@@ -98,4 +104,8 @@ export function createStdTerminalOutput(): TerminalOutput {
       stdout.write("\n");
     },
   };
+}
+
+export function formatQuickReplies(options: readonly string[]): string {
+  return options.map((option, index) => `[${index + 1}] ${option}`).join("   ");
 }

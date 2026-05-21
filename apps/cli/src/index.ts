@@ -17,6 +17,7 @@ import {
 } from "./terminal-output.js";
 import { announceSessionBoundary } from "./session-boundary.js";
 import { handleTurn, type TurnDeps, type TurnRefs } from "./turn-loop.js";
+import { expandQuickReplyLine } from "./quick-replies.js";
 
 const DEBUG = process.env.DEBUG === "1";
 
@@ -61,7 +62,12 @@ async function main(): Promise<void> {
     ? await FsTurnLogger.create(vaultPath, session.date)
     : null;
 
-  const refs: TurnRefs = { session, turnLogger, turnNow: startedAt };
+  const refs: TurnRefs = {
+    session,
+    turnLogger,
+    turnNow: startedAt,
+    lastQuickReplies: null,
+  };
   const repo = new LocalFileRepository(vaultPath, {
     now: () => refs.turnNow,
     logger: cliLogger,
@@ -111,7 +117,7 @@ async function main(): Promise<void> {
   rl.prompt();
   for await (const rawLine of rl) {
     sigintArmed = false;
-    const line = rawLine.trim();
+    const line = expandQuickReplyLine(rawLine.trim(), refs.lastQuickReplies);
     if (line.length === 0) {
       rl.prompt();
       continue;

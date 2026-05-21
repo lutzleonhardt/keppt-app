@@ -2,11 +2,20 @@ import type {
   LanguageModelV4StreamPart,
   LanguageModelV4StreamResult,
 } from "@ai-sdk/provider";
-import { isStepCount, simulateReadableStream, streamText } from "ai";
+import {
+  hasToolCall,
+  isStepCount,
+  simulateReadableStream,
+  streamText,
+} from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 
-import type { FileRepository, SearchResult, SearchScope } from "../file-repository.js";
+import type {
+  FileRepository,
+  SearchResult,
+  SearchScope,
+} from "../file-repository.js";
 import type { EditResult, SearchReplaceEdit } from "../edit.js";
 import { InMemoryFileRepository } from "../in-memory-file-repository.js";
 import { MemoryLogger, type LogEvent, type Logger } from "../logging.js";
@@ -20,7 +29,11 @@ class TrapRepository implements FileRepository {
     this.reads.push(filePath);
     throw new Error(`TrapRepository.read should not be called (${filePath})`);
   }
-  async write(filePath: string, _content: string, _summary: string): Promise<void> {
+  async write(
+    filePath: string,
+    _content: string,
+    _summary: string,
+  ): Promise<void> {
     this.writes.push(filePath);
     throw new Error(`TrapRepository.write should not be called (${filePath})`);
   }
@@ -115,7 +128,9 @@ describe("buildTools — integration with MockLanguageModelV4", () => {
     await repo.write("tasks/focus.md", "- [ ] ship task 3\n", "seed");
 
     const model = sequencedMockModel([
-      streamResult(toolCallChunks("list_files", "call-1", { prefix: "tasks/" })),
+      streamResult(
+        toolCallChunks("list_files", "call-1", { prefix: "tasks/" }),
+      ),
       streamResult(
         toolCallChunks("read_file", "call-2", { file_path: "tasks/inbox.md" }),
       ),
@@ -146,7 +161,9 @@ describe("buildTools — integration with MockLanguageModelV4", () => {
       "read_file",
     ]);
     expect(observedToolCalls[0]?.input).toEqual({ prefix: "tasks/" });
-    expect(observedToolCalls[1]?.input).toEqual({ file_path: "tasks/inbox.md" });
+    expect(observedToolCalls[1]?.input).toEqual({
+      file_path: "tasks/inbox.md",
+    });
     expect(finalText).toBe("Your inbox has 1 task: buy milk.");
   });
 
@@ -215,6 +232,77 @@ describe("buildTools — integration with MockLanguageModelV4", () => {
     expect(finalText).toBe("Done — first 'buy milk' is checked off.");
     expect(await repo.read("tasks/inbox.md")).toBe(
       "- [x] buy milk\n- [ ] buy milk\n",
+    );
+  });
+});
+
+describe("buildTools — suggest_quick_replies", () => {
+  async function runQuickReplyCall(input: unknown): Promise<{
+    toolErrors: unknown[];
+    toolResults: unknown[];
+    modelCalls: number;
+  }> {
+    const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+    let modelCalls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        modelCalls += 1;
+        if (modelCalls > 1) {
+          throw new Error("suggest_quick_replies should stop the loop");
+        }
+        return streamResult(
+          toolCallChunks("suggest_quick_replies", "call-1", input),
+        );
+      },
+    });
+    const result = streamText({
+      model,
+      tools: buildTools(repo, { now: () => FIXED_NOW }),
+      stopWhen: [hasToolCall("suggest_quick_replies"), isStepCount(5)],
+      messages: [{ role: "user", content: "go" }],
+    });
+    const toolErrors: unknown[] = [];
+    const toolResults: unknown[] = [];
+    for await (const part of result.fullStream) {
+      if (part.type === "tool-error") toolErrors.push(part.error);
+      else if (part.type === "tool-result") toolResults.push(part.output);
+      else if (part.type === "error") throw part.error;
+    }
+    return { toolErrors, toolResults, modelCalls };
+  }
+
+  // T6-AC-01: input schema rejects invalid chip payloads before execute.
+  it.each([
+    ["one option", { options: ["a"] }],
+    ["six options", { options: ["a", "b", "c", "d", "e", "f"] }],
+    ["empty option", { options: ["a", ""] }],
+    ["61-char option", { options: ["a", "x".repeat(61)] }],
+  ])("rejects %s as a tool-error (T6-AC-01)", async (_label, input) => {
+    const { toolErrors, toolResults, modelCalls } =
+      await runQuickReplyCall(input);
+
+    expect(modelCalls).toBe(1);
+    expect(toolResults).toEqual([]);
+    expect(toolErrors).toHaveLength(1);
+    expect(String(toolErrors[0])).toMatch(/options|Too|small|big|String/);
+  });
+
+  it("returns valid options and stops the tool loop after the call", async () => {
+    const { toolErrors, toolResults, modelCalls } = await runQuickReplyCall({
+      options: ["a", "b", "c"],
+    });
+
+    expect(modelCalls).toBe(1);
+    expect(toolErrors).toEqual([]);
+    expect(toolResults).toEqual([{ options: ["a", "b", "c"] }]);
+  });
+
+  it("describes quick replies as mandatory for bare choice questions", () => {
+    const tools = buildTools(
+      new InMemoryFileRepository({ now: () => FIXED_NOW }),
+    );
+    expect(tools.suggest_quick_replies.description).toContain(
+      "MUST call instead of ending with a bare yes/no or choice question",
     );
   });
 });
@@ -326,9 +414,7 @@ describe("buildTools — GTD layout gate", () => {
     // even a date-formatted archive entry is dropped by the tool postfilter.
     // The leak-blocking guarantee for the other out-of-scope paths still
     // holds.
-    expect(output.map((h) => h.filePath).sort()).toEqual([
-      "tasks/inbox.md",
-    ]);
+    expect(output.map((h) => h.filePath).sort()).toEqual(["tasks/inbox.md"]);
   });
 
   // Regression for the third Codex review round: even after the gate uses
@@ -345,7 +431,11 @@ describe("buildTools — GTD layout gate", () => {
     const repoClock = new Date("2026-05-09T00:01:00Z"); // repo "today" drifts
     const repo = new InMemoryFileRepository({ now: () => repoClock });
     await repo.write("daily/2026-05-08.md", "ate sushi for lunch", "seed");
-    await repo.write("daily/2026-05-09.md", "tomorrow's plan: sushi again", "seed");
+    await repo.write(
+      "daily/2026-05-09.md",
+      "tomorrow's plan: sushi again",
+      "seed",
+    );
 
     const output = (await runSingleToolCall(
       repo,
@@ -746,7 +836,10 @@ describe("buildTools — Task 4.3 reminder field", () => {
       content: "x",
       change_summary: "blocked",
     });
-    expect(output).toMatchObject({ ok: false, error: { reason: "out_of_scope" } });
+    expect(output).toMatchObject({
+      ok: false,
+      error: { reason: "out_of_scope" },
+    });
     expect(output as object).not.toHaveProperty("reminder");
     expect(trap.writes).toEqual([]);
   });
@@ -814,7 +907,10 @@ describe("buildTools — Task 4.3 reminder field", () => {
         content: "x",
         change_summary: "blocked",
       });
-      expect(out).toMatchObject({ ok: false, error: { reason: "invalid_path" } });
+      expect(out).toMatchObject({
+        ok: false,
+        error: { reason: "invalid_path" },
+      });
       expect(out as object).not.toHaveProperty("reminder");
     }
     // out_of_scope on edit_file
@@ -835,7 +931,10 @@ describe("buildTools — Task 4.3 reminder field", () => {
         edits: [{ search: "a", replace: "b" }],
         change_summary: "blocked",
       });
-      expect(out).toMatchObject({ ok: false, error: { reason: "invalid_path" } });
+      expect(out).toMatchObject({
+        ok: false,
+        error: { reason: "invalid_path" },
+      });
       expect(out as object).not.toHaveProperty("reminder");
     }
     // match failure on edit_file (canonical path, but write didn't land)

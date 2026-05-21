@@ -13,7 +13,7 @@
 
 import { statSync } from "node:fs";
 import path from "node:path";
-import { isStepCount, streamText, type ModelMessage } from "ai";
+import { hasToolCall, isStepCount, streamText, type ModelMessage } from "ai";
 import {
   MODEL_ID as PROVIDER_MODEL_ID,
   model,
@@ -29,10 +29,7 @@ import {
 } from "@gtd/core";
 import { FsSessionStore } from "./fs-session-store.js";
 import { FsTurnLogger } from "./fs-turn-logger.js";
-import {
-  writeTurnArtifact,
-  type TurnLogContext,
-} from "./turn-artifact.js";
+import { writeTurnArtifact, type TurnLogContext } from "./turn-artifact.js";
 import { appendCliErrorLog } from "./cli-error-log.js";
 import { formatCliError } from "./cli-errors.js";
 import type { TerminalOutput } from "./terminal-output.js";
@@ -64,6 +61,10 @@ export interface TurnRefs {
   /** Snapshotted at the start of every turn. Read by the `repo` closure
    *  and the per-turn `tools` so date-sensitive logic agrees on "today". */
   turnNow: Date;
+  /** Last chip suggestions proposed by suggest_quick_replies. The REPL
+   *  expands a numeric pick before calling handleTurn, then handleTurn clears
+   *  the value so suggestions survive for exactly one user turn. */
+  lastQuickReplies: string[] | null;
 }
 
 // Task 5: env-override for the turn clock. Set `GTD_NOW_OVERRIDE` to an ISO
@@ -101,6 +102,7 @@ export async function handleTurn(
   //
   // `readTurnClock` honours `GTD_NOW_OVERRIDE` for Task 8 day-rollover
   // reproducibility. When the env var is unset, `new Date()`.
+  refs.lastQuickReplies = null;
   refs.turnNow = readTurnClock();
   const tools = buildTools(deps.repo, {
     now: () => refs.turnNow,
@@ -126,8 +128,7 @@ export async function handleTurn(
       today: refs.turnNow,
       messages: refs.session.messages,
       fileVersionAt: makeFileVersionAt(deps.vaultPath),
-      messageCreatedAt: (msg) =>
-        refs.session.createdAtOf(msg) ?? Date.now(),
+      messageCreatedAt: (msg) => refs.session.createdAtOf(msg) ?? Date.now(),
     });
     // `system` from buildRequest is a SystemModelMessage carrying the
     // Anthropic cache marker on its providerOptions. streamText accepts
@@ -135,8 +136,7 @@ export async function handleTurn(
     // line ~801: `system?: string | SystemModelMessage | Array<...>`).
     // The turn-log artifact wants a plain string for readability, so we
     // extract `system.content` for that surface.
-    const systemText =
-      typeof system.content === "string" ? system.content : "";
+    const systemText = typeof system.content === "string" ? system.content : "";
     if (refs.turnLogger) {
       turnCtx = {
         turnLogger: refs.turnLogger,
@@ -155,7 +155,7 @@ export async function handleTurn(
       system,
       messages: requestMessages,
       tools,
-      stopWhen: isStepCount(MAX_STEPS),
+      stopWhen: [hasToolCall("suggest_quick_replies"), isStepCount(MAX_STEPS)],
       abortSignal: controller.signal,
       // Anthropic: `disableParallelToolUse: true` — force one tool call
       // per step so the edit_file retry budget's per-turn Map (keyed by
@@ -181,9 +181,11 @@ export async function handleTurn(
       onError: () => {},
     });
 
-    await consumeStream(result, deps);
+    await consumeStream(result, deps, refs);
 
     deps.terminal.endStream();
+    if (refs.lastQuickReplies)
+      deps.terminal.quickReplies(refs.lastQuickReplies);
     const response = await result.response;
     await phase2Save(deps, refs, response.messages, turnStartedAt);
 
@@ -327,6 +329,7 @@ async function phase1Save(
 async function consumeStream(
   result: StreamHandle,
   deps: TurnDeps,
+  refs: TurnRefs,
 ): Promise<void> {
   for await (const part of result.fullStream) {
     switch (part.type) {
@@ -334,7 +337,11 @@ async function consumeStream(
         deps.terminal.assistantText(part.text);
         break;
       case "tool-call":
-        deps.terminal.toolStatus(part.toolName, part.input);
+        if (part.toolName === "suggest_quick_replies") {
+          refs.lastQuickReplies = quickReplyOptionsFromInput(part.input);
+        } else {
+          deps.terminal.toolStatus(part.toolName, part.input);
+        }
         break;
       case "tool-error":
         deps.terminal.toolError(part.toolName, part.error);
@@ -349,6 +356,14 @@ async function consumeStream(
         throw part.error;
     }
   }
+}
+
+function quickReplyOptionsFromInput(input: unknown): string[] | null {
+  if (!input || typeof input !== "object") return null;
+  const options = (input as Record<string, unknown>).options;
+  if (!Array.isArray(options)) return null;
+  if (!options.every((option) => typeof option === "string")) return null;
+  return options.slice();
 }
 
 // Phase 2 of the two-phase save: response messages join the session only

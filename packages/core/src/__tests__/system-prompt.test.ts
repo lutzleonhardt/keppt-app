@@ -25,6 +25,9 @@ describe("buildSystemPrompt", () => {
   it("opens with 'task and note assistant' framing, not 'GTD assistant'", () => {
     const prompt = buildSystemPrompt({ today: new Date("2026-04-24") });
     expect(prompt).toContain("task and note assistant");
+    expect(prompt).toContain(
+      "UI tool suggest_quick_replies surfaces numbered answer chips",
+    );
     expect(prompt).not.toContain("GTD assistant");
   });
 
@@ -32,7 +35,9 @@ describe("buildSystemPrompt", () => {
   // accidental future deletion without locking the surrounding phrasing.
   it("contains sentinel phrases for R2/R4/R9/R14/R15/R16/R17/R18/R19 bodies", () => {
     const prompt = buildSystemPrompt({ today: new Date("2026-04-24") });
-    expect(prompt).toContain("Inbox is for unclear or half-formed capture only");
+    expect(prompt).toContain(
+      "Inbox is for unclear or half-formed capture only",
+    );
     expect(prompt).toContain("Today-plan = Focus promotion");
     expect(prompt).toContain("same checkbox format as the source lists");
     expect(prompt).toContain("may be dictated via speech-to-text");
@@ -58,6 +63,19 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("server-side"); // archive-move claim removed
   });
 
+  // T6-AC-08: Task 6 ships the tool, so the R11 wording switches from
+  // Task-5's forward-looking "when available" hint to active terminal-tool
+  // instructions.
+  it("describes suggest_quick_replies as an active terminal tool (T6-AC-08)", () => {
+    const prompt = buildSystemPrompt({ today: new Date("2026-04-24") });
+    expect(prompt).toContain("always call this terminal tool after your prose");
+    expect(prompt).toContain("yes/no, accept/decline/defer");
+    expect(prompt).toContain(
+      'Do not end with a bare choice question like "Soll ich das korrigieren?"',
+    );
+    expect(prompt).not.toContain("When this tool is available");
+  });
+
   // T5-AC-11: R20 (Log-section capture) — completion + user-supplied context
   // = one Log line; carve-outs for the three NOT-log cases.
   it("contains sentinel phrases for R20 Log-section capture (T5-AC-11)", () => {
@@ -65,7 +83,9 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("[R20]");
     expect(prompt).toContain("Log-section capture");
     expect(prompt).toContain("Condense the user's wording");
-    expect(prompt).toContain("pure structural moves between lists with no outcome");
+    expect(prompt).toContain(
+      "pure structural moves between lists with no outcome",
+    );
     expect(prompt).toContain("check-offs without any user-supplied context");
     expect(prompt).toContain("status updates without completion");
   });

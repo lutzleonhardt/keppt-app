@@ -1,8 +1,4 @@
-export type {
-  EditError,
-  EditResult,
-  SearchReplaceEdit,
-} from "./edit.js";
+export type { EditError, EditResult, SearchReplaceEdit } from "./edit.js";
 export { planAndApplyEdits } from "./edit.js";
 export type {
   FileRepository,
@@ -38,6 +34,7 @@ export {
   type BuildToolsOptions,
   type EditFileError,
   type EditFileResult,
+  type QuickRepliesResult,
   type ReadFileResult,
   type WriteFileResult,
 } from "./tools.js";
