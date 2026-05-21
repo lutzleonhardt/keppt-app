@@ -46,6 +46,10 @@ function readProvider(): ProviderKey {
 
 export const PROVIDER: ProviderKey = readProvider();
 
+export function apiKeyEnvName(provider: ProviderKey = PROVIDER): string {
+  return provider === "deepseek" ? "DEEPSEEK_API_KEY" : "ANTHROPIC_API_KEY";
+}
+
 // Single source of truth for the model identifier — used both as the
 // `streamText` model wiring and as the `model` field on per-turn debug
 // artifacts. The DeepSeek default is V4 Pro (released 2026-04-24, 1M

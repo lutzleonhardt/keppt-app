@@ -6,7 +6,7 @@ import {
   InvalidPathError,
 } from "@gtd/core";
 
-import { PROVIDER, providerOptions } from "../src/model-provider.js";
+import { PROVIDER, apiKeyEnvName, providerOptions } from "../src/model-provider.js";
 
 describe("@gtd/cli — workspace wiring", () => {
   it("imports public surface from @gtd/core and exercises it", async () => {
@@ -47,5 +47,10 @@ describe("@gtd/cli — workspace wiring", () => {
     } else {
       expect(providerOptions()).toEqual({ deepseek: {} });
     }
+  });
+
+  it("maps each provider to the API key env var required at startup", () => {
+    expect(apiKeyEnvName("anthropic")).toBe("ANTHROPIC_API_KEY");
+    expect(apiKeyEnvName("deepseek")).toBe("DEEPSEEK_API_KEY");
   });
 });

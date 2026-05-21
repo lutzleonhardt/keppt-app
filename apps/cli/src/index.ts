@@ -18,6 +18,7 @@ import {
 import { announceSessionBoundary } from "./session-boundary.js";
 import { handleTurn, type TurnDeps, type TurnRefs } from "./turn-loop.js";
 import { expandQuickReplyLine } from "./quick-replies.js";
+import { apiKeyEnvName } from "./model-provider.js";
 
 const DEBUG = process.env.DEBUG === "1";
 
@@ -33,7 +34,7 @@ function requireEnv(name: string, terminal: TerminalOutput): string {
 async function main(): Promise<void> {
   const terminal = createStdTerminalOutput();
   const vaultPath = requireEnv("VAULT_PATH", terminal);
-  requireEnv("ANTHROPIC_API_KEY", terminal);
+  requireEnv(apiKeyEnvName(), terminal);
 
   const cliLogger = createCliLogger({ vaultPath, terminal });
 
