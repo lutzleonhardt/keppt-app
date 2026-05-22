@@ -5,6 +5,8 @@ Scope: `docs/work/keppt-ui/` on branch `keppt-ui`
 
 This plan builds the first mock-first Angular UI for Keppt as a mobile chat app. Each task includes the reference mock files and extracted facts it needs; `/start-task N` should not require rereading the spec or sibling tasks.
 
+Post-Task-2 amendment: Task 2 implemented a temporary typed assistant block model because the original plan asked for it. Task 2.5 supersedes that part of the contract. From Task 2.5 onward, assistant prose is Markdown rendered through `ngx-markdown`; typed data remains for product UI patterns such as tool rows and quick replies.
+
 > The executing agent may adjust scope and ordering based on more
 > up-to-date context discovered during implementation, as long as
 > each task still satisfies the sizing rules above.
@@ -202,11 +204,66 @@ Implement these mock behaviors:
 - Important chips include `Tag planen`, `Warten auf zeigen`, `Erstmal nur erfassen`, `Ja, Anna zuerst`, `Plan morgen — 4 h`, `Später entscheiden`, `Ja, eintragen`, `Anpassen`, `An Max pingen`, `Tagesplan starten`, `Plan für morgen`, `Räum die Inbox auf`, and `Was steht heute an?`.
 - Reference regex routing is `4 stunden|plan morgen|plan für morgen|realistisch`, `heute|wichtig|fokus`, `warten|waiting|max|db`, and `inbox|aufräumen|sortier`.
 
+## Task 2.5: Replace Assistant Blocks With Markdown Rendering
+
+### Instructions
+
+Replace the temporary assistant block AST with Markdown-rendered assistant content before expanding the chat surface further. Assistant prose messages should carry a Markdown string, and the UI should render that string through `ngx-markdown`.
+
+Update the chat DTOs so assistant content is shaped like this:
+
+```ts
+export interface AssistantContentMessage {
+  id: string;
+  role: 'assistant';
+  kind: 'content';
+  markdown: string;
+  quickReplies?: QuickReply[];
+  createdAt: string;
+}
+```
+
+Remove `AssistantBlock`, `InlineText`, `RichListItem`, and the block renderer components unless a remaining typed product widget still needs them. Do not encode known product UI such as tool/status rows or quick replies inside Markdown; keep those as typed message fields/components.
+
+Add and configure `ngx-markdown` for the Angular app using the current standalone Angular integration recommended by the package. Convert all mock assistant response bodies from block arrays to Markdown strings while preserving the German copy and the visible structure of the existing mock flows.
+
+Keep the existing mock texts semantically identical. The conversion may add Markdown syntax for structure, emphasis, lists, and code, but it must not rewrite the German wording as part of this task. If the rendered output differs visually from the current assistant block rendering in a meaningful way, adjust the Markdown styling rather than changing the copy.
+
+Wrap rendered Markdown in a stable assistant-only scope such as `.assistant-markdown`. Style the generated Markdown DOM under that scope only, including paragraphs, headings, ordered and unordered lists, list items, links, inline code, code blocks, strong text, and emphasis. Do not add broad global element styles for `p`, `ul`, `ol`, `li`, `code`, or headings. Prefer scoped rules in `styles.scss` if Angular component style encapsulation does not reach the generated Markdown nodes cleanly.
+
+Before changing the renderer, capture a visual baseline for the current mock chat states that contain assistant prose. After the Markdown conversion, run the same states again and compare screenshots/DOM output. Use automated checks where practical; if pixel-perfect matching is too brittle, assert stable text content, key Markdown-generated elements, lack of horizontal overflow, and screenshot similarity for the main mobile viewport.
+
+### Acceptance
+
+- **T2.5-AC-01** — `AssistantContentMessage` uses `markdown: string` and no longer exposes `blocks: AssistantBlock[]`.
+- **T2.5-AC-02** — Assistant Markdown is rendered through `ngx-markdown` in the chat UI.
+- **T2.5-AC-03** — Tool/status rows and quick replies remain typed UI data, not Markdown-encoded controls.
+- **T2.5-AC-04** — Existing mock flows still produce equivalent visible assistant content and all existing chat/mock tests pass after the conversion.
+- **T2.5-AC-05** — Obsolete block renderer types/components are removed unless still justified by a typed product widget.
+- **T2.5-AC-06** — Markdown output is styled under an assistant-only scope and does not rely on broad global element selectors.
+- **T2.5-AC-07** — Automated or scripted visual verification compares pre/post conversion chat states for equivalent text, expected Markdown elements, no horizontal overflow, and acceptable screenshot similarity.
+
+### Key Locations
+
+- Chat DTOs and guards: `apps/web/src/app/chat/chat.types.ts`
+- Assistant content rendering: `apps/web/src/app/chat/components/assistant-content-message.ts`
+- Temporary block renderers to remove or simplify: `apps/web/src/app/chat/components/assistant-block.*`, `chat-inline-text.*`, `rich-list-item.*`
+- Mock response content: `apps/web/src/app/mock/chat-mock-data.ts`
+- Markdown typography scope: `apps/web/src/styles.scss`, or the assistant content component stylesheet if encapsulation works cleanly
+- Angular dependency/configuration: `apps/web/package.json`, `apps/web/src/app/app.config.ts`
+
+### Key Discoveries
+
+- `docs/specs/context/ui-mock.md` recommends `ngx-markdown` for chat rendering and keeps typed data for known UI patterns.
+- The previous `AssistantBlock` model was a local client AST for prose, not a product UI contract. It creates extra component surface without matching the later backend shape.
+- Markdown should cover prose structure such as paragraphs, emphasis, headings, lists, and code. Typed message variants should cover non-prose UI like tool rows, typing state, and quick replies.
+- `ngx-markdown` renders normal HTML elements. Those generated elements need a scoped typography layer for assistant prose so the chat keeps the current visual rhythm after the block components are removed.
+
 ## Task 3: Render Chat Conversation Surface
 
 ### Instructions
 
-Build the chat screen and message components against the typed service data. The chat route must render the header, independent message scroll area, user messages, assistant tool/status rows, assistant typing state, assistant prose blocks, quick replies, bottom composer, and simulated mic overlay.
+Build the chat screen and message components against the typed service data after Task 2.5. The chat route must render the header, independent message scroll area, user messages, assistant tool/status rows, assistant typing state, assistant Markdown content, quick replies, bottom composer, and simulated mic overlay.
 
 Implement these components or equivalent standalone components:
 
@@ -214,13 +271,13 @@ Implement these components or equivalent standalone components:
 - `SessionHeaderComponent` with menu button, Keppt mark, date/status subtitle, and more button.
 - `ChatMessageListComponent` with scroll anchoring when messages change.
 - `UserMessageComponent` for right-aligned dark user bubbles.
-- `AssistantMessageComponent` for typed assistant blocks and attached quick replies.
+- `AssistantMessageComponent` for Markdown assistant content and attached quick replies.
 - `ToolStatusRowComponent` for `"Keppt checked..."` style rows and expandable file lists.
 - `QuickRepliesComponent` for wrapping chip rows.
 - `ChatInputComponent` for text input and mic/send state switch.
 - `MicOverlayComponent` for simulated capture overlay.
 
-Render assistant block types without a generic markdown package: paragraphs, headings, ordered lists, unordered lists, inline strong/emphasis/muted/code marks, and code blocks/tokens. Use familiar icon affordances for menu, more, back, close, mic, send, file, and expand/collapse. Use `lucide-angular` or similarly narrow icon dependency if icons are not already available; do not add a broad UI component library.
+Render assistant prose through `ngx-markdown`. Keep tool/status rows, typing state, and quick replies as typed Angular UI components. Use familiar icon affordances for menu, more, back, close, mic, send, file, and expand/collapse. Use `lucide-angular` or similarly narrow icon dependency if icons are not already available; do not add a broad UI component library.
 
 Use these concrete UI states from the reference mock:
 

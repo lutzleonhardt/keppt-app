@@ -72,7 +72,7 @@ The first Angular UI must cover these surfaces:
 - Header with menu, Keppt mark, date/status subtitle, and more button.
 - Scrollable message list.
 - Assistant status/tool row with optional expanded file list.
-- Assistant prose responses with compact markdown-like structure.
+- Assistant prose responses rendered from compact Markdown.
 - User message bubble.
 - Quick-reply chips.
 - Composer with text input and mic/send button.
@@ -140,7 +140,7 @@ The later real implementation can wrap backend SSE and Vercel AI SDK response ev
 
 ## Message and Widget Shape
 
-Use typed messages so the mock and backend can converge on the same UI contract.
+Use typed messages so the mock and backend can converge on the same UI contract. Assistant prose is Markdown content, not a client-side prose AST. Keep typed data for product UI patterns such as tool/status rows and quick replies.
 
 ```ts
 export type ChatMessage =
@@ -176,32 +176,15 @@ export interface AssistantContentMessage {
   id: string;
   role: 'assistant';
   kind: 'content';
-  blocks: AssistantBlock[];
+  markdown: string;
   quickReplies?: QuickReply[];
   createdAt: string;
 }
-
-export type AssistantBlock =
-  | { type: 'paragraph'; text: InlineText[] }
-  | { type: 'heading'; text: string }
-  | { type: 'ordered-list'; items: RichListItem[] }
-  | { type: 'unordered-list'; items: RichListItem[] }
-  | { type: 'code'; text: string };
 
 export interface QuickReply {
   id: string;
   label: string;
   action?: string;
-}
-
-export type InlineText =
-  | { text: string }
-  | { text: string; mark: 'strong' | 'emphasis' | 'muted' | 'code' };
-
-export interface RichListItem {
-  title?: InlineText[];
-  body: InlineText[];
-  meta?: string;
 }
 
 export type AppScreen =
