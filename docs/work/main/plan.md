@@ -1,12 +1,13 @@
 # Plan — Phase 1: CLI ("It works in the terminal")
 
 > Spec: [`docs/specs/architecture.md`](../../specs/architecture.md) (Build Milestones → Phase 1) + [`docs/specs/context/product.md`](../../specs/context/product.md)
+> Task-model extension: [`docs/specs/task-model-and-occurrence-search.md`](../../specs/task-model-and-occurrence-search.md)
 > SDK research: [`docs/specs/context/vercel-sdk.md`](../../specs/context/vercel-sdk.md)
 > Operational logging context: [`docs/specs/context/operational-logging.md`](../../specs/context/operational-logging.md)
 
 ## Scope
 
-Local CLI that runs end-to-end against the user's own Obsidian vault as a `LocalFileRepository`. Vercel AI SDK with Claude Haiku (single model — model routing is an unresolved architectural question and explicitly deferred, see `docs/specs/architecture.md` → "LLM Provider Architecture"), 5 tools, system prompt R1-R13, one session per day, daily-note lifecycle. **No server, no Supabase, no auth, no tier check.** Goal: validate the GTD prompts and the tool loop under realistic conditions.
+Local CLI that runs end-to-end against the user's own Obsidian vault as a `LocalFileRepository`. Vercel AI SDK with Claude Haiku (single model — model routing is an unresolved architectural question and explicitly deferred, see `docs/specs/architecture.md` → "LLM Provider Architecture"), vault tools plus UI/task-occurrence tools, one session per day, daily-note lifecycle, and a task-model prompt grounded by deterministic occurrence search. **No server, no Supabase, no auth, no tier check.** Goal: validate the task prompts and the tool loop under realistic conditions.
 
 ## SDK fixed points (from research)
 
@@ -24,7 +25,9 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 
 ## Flexibility Clause
 
-> The executing agent may adjust scope and ordering based on more up-to-date context discovered during implementation, as long as each task still satisfies the sizing rules from `/plan`.
+> The executing agent may adjust scope and ordering based on more up-to-date context discovered during implementation, as long as each task still satisfies the sizing rules above.
+>
+> When a task is finished (DONE or BLOCKED), close it with the `/wrap-up N` → `/commit N` pair. `/wrap-up N` writes or extends `docs/work/<scope>/task-log/task-{N}-{slug}.md`, where `<scope>` is derived from the current git branch, and is safe to run multiple times across sessions — it merges. `/commit N` reads that log, stages code + summary, and commits them together after showing the plan and waiting for confirmation. Optionally run `/review` (quick per-task, full before a PR) between wrap-up and commit; a second `/wrap-up N` can absorb the review findings.
 
 ## Tasks at a glance
 
@@ -38,13 +41,15 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 3.9. Shared logging abstraction — Task-3 follow-up, post-created 2026-05-09 from the operational logging architecture decision. Introduces a runtime-neutral `Logger`/`LogEvent` contract, keeps `packages/core` free of `console.*`, and moves CLI terminal output vs. diagnostics behind explicit adapters.
 4. System prompt R1-R13 + request builder + input heuristic + prompt caching (model routing deferred — see Task 4 block)
 4.1. Tool-result pruning + session persistence — Task-4 follow-up, split out 2026-05-18 during `/start-task 4` because the original Task 4 exceeded the `/plan` "diff + tests fit one commit" sizing rule. Task 4 ships the prompt/router/input/caching pipeline with the existing in-memory message array; Task 4.1 swaps that array for on-disk sessions and adds `pruneToolResults` to the request-builder. Reverse dependency forced: Task 4.1 edits `request-builder.ts` and `apps/cli/src/index.ts`, which Task 4 creates/rewrites. **Pre-commit redesign 2026-05-19:** a Codex adversarial review of the in-flight 4.1 diff flagged three concrete bugs (Phase-2-save rollback gap, UTC day-rollover contamination, non-atomic write) plus a layering smell (core writing through `node:fs` directly, unusable from the Phase-2a web/Supabase target). All four folded into 4.1 before commit — they sit inside 4.1's own artifacts. Result: `Session` reshaped from passive record into a class with encapsulated invariants + injectable `SessionStore`.
-4.2. Per-turn debug logging (request/response artifacts) — Task-4 follow-up, post-created 2026-05-19. Task 4 wired prompt caching and Task 4.1 wired tool-result pruning, but both are invisible at runtime. Adds a `TurnLogRecord` shape + `TurnLogger` interface in core (anchors a Phase-2a `SupabaseTurnLogger` for support/bug-report workflows — "user reports broken behaviour, support pulls the matching turn artifact" — without schema break) and a `DEBUG=1`-gated `FsTurnLogger` writing `<vault>/.keppt/logs/sessions/<date>/turn-NNN.json` artifacts containing the post-pruning request, per-step response breakdown, and `totalUsage`. Empirical-validation surface for `feedback_phase1_pragmatism` and a precondition for Task 8's real-API acceptance run.
+4.2. Per-turn debug logging (request/response artifacts) — Task-4 follow-up, post-created 2026-05-19. Task 4 wired prompt caching and Task 4.1 wired tool-result pruning, but both are invisible at runtime. Adds a `TurnLogRecord` shape + `TurnLogger` interface in core (anchors a Phase-2a `SupabaseTurnLogger` for support/bug-report workflows — "user reports broken behaviour, support pulls the matching turn artifact" — without schema break) and a `DEBUG=1`-gated `FsTurnLogger` writing `<vault>/.keppt/logs/sessions/<date>/turn-NNN.json` artifacts containing the post-pruning request, per-step response breakdown, and `totalUsage`. Empirical-validation surface for `feedback_phase1_pragmatism` and a precondition for Task 10's real-API acceptance run.
 4.3. Tool-result reminder + GTD-prompt sharpening (R2/R9 + R14–R16) — Task-4 follow-up, post-created 2026-05-19 from a dogfooding session (`<vault>/.keppt/logs/sessions/2026-05-19/turn-003.json`) where Haiku, after three writes to `tasks/{inbox,next-actions,focus}.md`, never ran the R4 crosscheck and left the same three task strings in all three lists (R2 violation on Inbox). The same turn then surfaced a reflex-correction failure: when the user asked "ist das richtig?" about a compliant Daily-Plan state (R3+R9 allow checkbox copies), Haiku reverted to a non-checkbox bullet list and apologised — sycophancy under skeptical user pressure. Adds an optional `reminder` string on `WriteFileResult` / `EditFileResult` for canonical task-file and daily-note writes (low-cost salience boost, not a deterministic enforcement layer — model choice does the heavy lifting on compliance, see Task 4.3 Discoveries), plus five prompt edits closing the rule gaps the turn exposed: R2 carves Inbox down to unspecified/idea capture only (Haiku routed three obviously-NA tasks via Inbox because R2's "new → Inbox" implied otherwise), R9 makes Daily-Plan checkbox copies explicit (so a "correction" that strips checkboxes is no longer ambiguous), R14 acknowledges voice-dictated input (the user uses Whisper; "BuzzForex" earlier in this very thread was a homophone confusion), R15 blocks reflex-correction under skeptical questioning, R16 forbids GTD evangelism and explicit anchor-token citations in user-facing text (Haiku wrote "lass mich R3 nochmal erklären" — surfacing an internal marker as if it were product vocabulary). Opening line of the system prompt softens from "GTD assistant" to "task and note assistant" to stop priming the model into tutorial mode.
-5. Daily-note gate unification + GTD task-file init + R5/R6/R17/R18 prompt update — **planning-redesigned 2026-05-20.** Replaces the original Task 5 (daily-note lifecycle with archive move) plus the post-created Task 5.5 (per-turn vault readiness) and Task 5.6 (future-daily gate relaxation). Decision: drop the physical `daily/` → `archive/daily/` archive move and `- [ ]`-stripping entirely. Past, today, and future daily notes all live under `daily/YYYY-MM-DD.md` with a single gate rule. Past-daily editability becomes a prompt-soft rule (R6-new). Open-task carry-over moves out of silent file mutation into the explicit Auto-Replan-Opener (Task 7). Two new R-rules cover the narrative side: R17 (Log-section capture when completion has user-supplied context — "telefoniert mit Müller, erledigt") and R18 (Cross-day disposition — past Daily-Plan `[ ]` → `[x]` with semantic "closed out of this day's plan, see Log for what happened"; today's Log carries the disposition with source-date annotation; R6 exception preserves the inline-correction path). Only Task 5.5's first-run task-file init survives, simplified to a once-per-startup helper.
-6. `suggest_quick_replies` tool — chip suggestions for user answers. Generic mechanism: LLM proposes 2–5 short follow-up answers; CLI renders as numbered options with REPL number-expansion; Phase-2 mobile renders the same tool output as tappable chips. Precondition for Task 7's Auto-Replan flow but useful in every turn with discrete next steps.
-7. Auto-Replan-Opener at day boundary — deterministic context gather (last 5 dailies + `next-actions.md` + `waiting.md`) feeds a one-shot LLM kickoff turn at session boundary. LLM greets, identifies stale pendings semantically, offers handling options via Task-6's chip tool. Skip-when-empty for fresh vaults. Session-marker `autoReplanRanFor` prevents re-firing the same day. Replaces the carry-over behaviour the old Task 5 archive-move-and-strip provided silently.
-8. End-to-end acceptance against real Claude API + vault — formerly Task 6. Scenario 6 (day change) rewritten to assert Auto-Replan-Opener fires and persists its marker, instead of asserting the archive move that no longer exists.
-9. Weekly Review interactive workflow (deferred placeholder) — formerly Task 7. Post-created 2026-05-19. Captures the intent to port the richer Weekly-Review flow from the user's personal vault `CLAUDE.md` (group-by-theme Waiting with one question per cluster, propose-don't-walk for Next Actions, end-of-review self-reflection check) into the keppt-app system prompt. Deferred because the content is ~200 prompt tokens that only matters during an actual Weekly Review session — putting it in the always-on R1–R13 block would bloat the cached system head for negligible benefit on the 99% of turns that are not reviews. Open design question: how the review-mode content gets delivered (dedicated `weekly_review` tool that returns the protocol on call; intent-detected context-note injection like the `crosscheck-due` plumbing discussed under Task 4.3; or a separate review-mode session header). To be decided when scheduled — not blocking Phase 1.
+5. Daily-note gate unification + GTD task-file init + R5/R6/R17/R18 prompt update — **planning-redesigned 2026-05-20.** Replaces the original Task 5 (daily-note lifecycle with archive move) plus the post-created Task 5.5 (per-turn vault readiness) and Task 5.6 (future-daily gate relaxation). Decision: drop the physical `daily/` → `archive/daily/` archive move and `- [ ]`-stripping entirely. Past, today, and future daily notes all live under `daily/YYYY-MM-DD.md` with a single gate rule. Past-daily editability becomes a prompt-soft rule (R6-new). Open-task carry-over moves out of silent file mutation into the explicit Auto-Replan-Opener (Task 9). Two new R-rules cover the narrative side: R17 (Log-section capture when completion has user-supplied context — "telefoniert mit Müller, erledigt") and R18 (Cross-day disposition — past Daily-Plan `[ ]` → `[x]` with semantic "closed out of this day's plan, see Log for what happened"; today's Log carries the disposition with source-date annotation; R6 exception preserves the inline-correction path). Only Task 5.5's first-run task-file init survives, simplified to a once-per-startup helper.
+6. `suggest_quick_replies` tool — chip suggestions for user answers. Generic mechanism: LLM proposes 2–5 short follow-up answers; CLI renders as numbered options with REPL number-expansion; Phase-2 mobile renders the same tool output as tappable chips. Precondition for Task 9's Auto-Replan flow but useful in every turn with discrete next steps.
+7. `find_task_occurrences` tool — bounded raw-evidence search for task-like placement checks. Adds a simple MVP API (`candidates: string[]`) that literal-searches task files plus recent/future dailies with normalized matching and returns raw Markdown context blocks, not classifier truth.
+8. Task-model prompt rewrite + placement evals — replaces the brittle single-location/routine-crosscheck prompt model with entity relationships: InboxCapture, CanonicalTask, FocusItem, DailyPlanItem, DailyOnlyEntry. Uses `find_task_occurrences` before risky Focus/Daily scheduling and adds eval coverage for Inbox drift, missing backing, Waiting/Someday planning, daily-only context, and history-question boundaries.
+9. Auto-Replan-Opener at day boundary — deterministic context gather (last 5 dailies + `next-actions.md` + `waiting.md`) feeds a one-shot LLM kickoff turn at session boundary. LLM greets, identifies stale pendings semantically, offers handling options via Task-6's chip tool. Skip-when-empty for fresh vaults. Session-marker `autoReplanRanFor` prevents re-firing the same day. Replaces the carry-over behaviour the old Task 5 archive-move-and-strip provided silently.
+10. End-to-end acceptance against real Claude API + vault — formerly Task 8. Scenario 6 (day change) rewritten to assert Auto-Replan-Opener fires and persists its marker, instead of asserting the archive move that no longer exists; adds occurrence-search regression coverage for silent duplicate Daily scheduling.
+11. Weekly Review interactive workflow (deferred placeholder) — formerly Task 9. Post-created 2026-05-19. Captures the intent to port the richer Weekly-Review flow from the user's personal vault `CLAUDE.md` (group-by-theme Waiting with one question per cluster, propose-don't-walk for Next Actions, end-of-review self-reflection check) into the keppt-app system prompt. Deferred because the content is ~200 prompt tokens that only matters during an actual Weekly Review session — putting it in the always-on prompt head would bloat the cached system head for negligible benefit on the 99% of turns that are not reviews. Open design question: how the review-mode content gets delivered (dedicated `weekly_review` tool that returns the protocol on call; intent-detected context-note injection like the `crosscheck-due` plumbing discussed under Task 4.3; or a separate review-mode session header). To be decided when scheduled — not blocking Phase 1.
 
 ---
 
@@ -771,7 +776,7 @@ The "productization pass" over Task 3 (part 1). The inline code from Task 3 gets
 - Appends the new user message
 - **No active-state pre-load.** The architecture-spec Request Block (`docs/specs/architecture.md` → "Request Architecture: How Each Message Is Built") explicitly drops the "Current GTD Files" block. The LLM reads vault files on demand via `read_file`; pruning (Task 4.1) keeps recent reads as the LLM's working snapshot. Rationale captured in the spec under "Why no pre-loaded current-files block" (resolves Codex review findings 1 + 2 from 2026-05-19: trust-boundary on user-editable content and missing size cap). `buildRequest` therefore does not take a `repo` parameter — it's a pure transform over `today`/`profile`/`messages`/`userMessage`.
 
-**Model selection:** *(deferred.)* The CLI keeps Task 3's hardcoded `anthropic("claude-haiku-4-5")` call. No `packages/core/src/model-router.ts` is introduced. See the Router-removal note above for the architectural reasoning. If Phase-1 smoke (Task 8) surfaces request classes where Haiku is materially worse, that's the trigger to revisit — not a green vitest on four phrases.
+**Model selection:** *(deferred.)* The CLI keeps Task 3's hardcoded `anthropic("claude-haiku-4-5")` call. No `packages/core/src/model-router.ts` is introduced. See the Router-removal note above for the architectural reasoning. If Phase-1 smoke (Task 10) surfaces request classes where Haiku is materially worse, that's the trigger to revisit — not a green vitest on four phrases.
 
 **Session persistence:** *(deferred to Task 4.1.)* Task 4's CLI keeps the in-memory `messages: ModelMessage[]` array from Task 3. Per-turn message state survives across REPL turns within one process but is lost on exit — acceptable for Task 4 smoke since the manual transcript (T4-AC-14) runs in one session.
 
@@ -993,7 +998,7 @@ Vitest suite green:
 
 ## Task 4.2: Per-turn debug logging (request/response artifacts)
 
-> **Post-created task.** Added 2026-05-19 from a Phase-1 dogfooding gap. Task 4 wired prompt caching, Task 4.1 wired tool-result pruning — both are invisible at runtime. The existing `cliLogger.debug` with `code: "prompt.cache_usage"` (`apps/cli/src/index.ts`) emits the `totalUsage` breakdown to `cli-errors.jsonl` per turn, but the *post-pruning request* the LLM actually saw and the per-step response breakdown land nowhere. Without that the empirical-validation tradeoff documented under [[feedback_phase1_pragmatism]] can't be exercised — we'd have to trust the pruner instead of reading what was sent. This is also a precondition for the Task 8 acceptance run, which needs concrete artifacts to spot-check against expected prompt-cache hits and pruning stubs.
+> **Post-created task.** Added 2026-05-19 from a Phase-1 dogfooding gap. Task 4 wired prompt caching, Task 4.1 wired tool-result pruning — both are invisible at runtime. The existing `cliLogger.debug` with `code: "prompt.cache_usage"` (`apps/cli/src/index.ts`) emits the `totalUsage` breakdown to `cli-errors.jsonl` per turn, but the *post-pruning request* the LLM actually saw and the per-step response breakdown land nowhere. Without that the empirical-validation tradeoff documented under [[feedback_phase1_pragmatism]] can't be exercised — we'd have to trust the pruner instead of reading what was sent. This is also a precondition for the Task 10 acceptance run, which needs concrete artifacts to spot-check against expected prompt-cache hits and pruning stubs.
 >
 > Phase 1 ships only the CLI's `FsTurnLogger`, gated by `DEBUG=1` and vault-local. The `TurnLogRecord` shape and `TurnLogger` contract land in **core** anyway — Phase 2a needs the same artifact for the always-on backend support/bug-report path (user reports broken output, support pulls the matching turn artifact by `turnId`). Doing it now avoids a Phase-2a schema break. Allowlist serialization is sufficient at this seam regardless of runtime: the Anthropic API key is read from env by the SDK and never reaches our local request object, so there is no secret to redact. Phase-2a-specific concerns (cross-user content boundaries, GDPR retention/erasure, storage choice) are explicitly deferred to the `SupabaseTurnLogger` task.
 
@@ -1078,7 +1083,7 @@ Vitest suite green:
 - **T4.2-AC-07:** Abort path: `AbortController.abort()` mid-stream produces a `turn-NNN.json` with `outcome: "aborted"` and no `responseMessages` / `steps` / `totalUsage`.
 - **T4.2-AC-08:** Allowlist serialization: when `providerOptions.anthropic` carries an extra unexpected key, the artifact's `initialRequest.providerOptions` reflects that shallow copy faithfully; nothing outside the documented `TurnLogRecord` fields appears at the top level (no incidental passthrough of the raw `streamText` options object).
 - **T4.2-AC-09:** Pruning visibility: after six tool-using turns against a mocked model whose response includes a `read_file` tool-call/result for the same file each turn, `turn-006.json`'s `initialRequest.messages` contains at least one stub string matching the Task 4.1 stub format (`/^\[Previous .* result — superseded/`). Closes the empirical-validation goal motivating this task.
-- **T4.2-AC-10:** Cache-usage visibility: with a mocked usage object containing `inputTokenDetails.cacheReadTokens`, the field is reachable via `totalUsage.inputTokenDetails.cacheReadTokens` in the on-disk artifact. (No assertion against real provider behavior — that lands in Task 8.)
+- **T4.2-AC-10:** Cache-usage visibility: with a mocked usage object containing `inputTokenDetails.cacheReadTokens`, the field is reachable via `totalUsage.inputTokenDetails.cacheReadTokens` in the on-disk artifact. (No assertion against real provider behavior — that lands in Task 10.)
 - **T4.2-AC-11:** Write-failure non-fatal: simulating `rename` rejecting with `EACCES` in `writeTurn` emits a `cliLogger.warn` with `code: "turn_log.write_failed"` (asserted via `MemoryLogger`) and does not throw out of the turn — the REPL continues to the next prompt.
 - **T4.2-AC-12:** Interface contracts: `NoopTurnLogger.writeTurn(record)` resolves without I/O and produces no on-disk artifacts when substituted into a CLI test run. `MemoryTurnLogger` substituted in the same flow exposes a public `records` array with one entry per turn in call order, each entry shape-matching `TurnLogRecord`.
 - **T4.2-AC-13:** Core hygiene: `packages/core/src/turn-log.ts` imports no `node:fs`, no `node:fs/promises`, no `console.*` (asserted alongside the existing T3.9-AC-01/-02 core-hygiene checks).
@@ -1112,7 +1117,7 @@ Vitest suite green:
 
 > **Post-created 2026-05-19.** Dogfooding session `<vault>/.keppt/logs/sessions/2026-05-19/turn-003.json` exposed two parallel failures with Haiku 4.5: (1) state drift — after three task-file writes the R4 crosscheck never ran, leaving "Gassi gehen / Wäsche waschen / Wäsche bügeln" duplicated across `inbox.md`, `next-actions.md`, and `focus.md`; (2) reflex-correction — on the user's follow-up "ist das richtig?" about a Daily-Plan state that was actually R3/R9-compliant, Haiku reverted to a non-checkbox bullet list and apologised. Diagnosis after design discussion: deterministic enforcement (engine-side crosscheck, semantic ops, hidden synthetic messages, restricted tool sets) was deliberately rejected as over-engineering for Phase 1 — model choice (Sonnet 4.6 or DeepSeek V4 as candidate replacements for Haiku) is the realistic compliance lever, and the engine adds only a minimal salience hint. Five prompt edits close rule gaps the same turn exposed.
 >
-> Scope is deliberately tight — one code-side change plus targeted prompt edits. The richer Weekly-Review content from the user's personal vault `CLAUDE.md` is split out into Task 9 (deferred placeholder), because it only matters during review sessions and would bloat the always-cached system head.
+> Scope is deliberately tight — one code-side change plus targeted prompt edits. The richer Weekly-Review content from the user's personal vault `CLAUDE.md` is split out into Task 11 (deferred placeholder), because it only matters during review sessions and would bloat the always-cached system head.
 
 ### Instructions
 
@@ -1213,7 +1218,7 @@ Vitest suite green:
 - **R4 slim-down depends on the reminder existing.** Pre-4.3 R4 was a five-step prose protocol; post-4.3 it leans on the tool result to surface the obligation at the right moment. If the reminder gets pulled in a future refactor, R4 will lose its operational anchor and need to be re-expanded. The two changes are mechanically coupled even though they sit in different files — the tool result and the prompt rule reference the same word ("reminder") deliberately.
 - **Sentinel-string assertions in tests, not full snapshots.** The plan deliberately avoids `toMatchSnapshot` against the full system prompt because every prompt iteration would regenerate the snapshot and lose the assertion power. Instead each new/changed rule gets one short sentinel substring (e.g. `"Inbox is for unclear or half-formed capture only"`) that pins the rule body against accidental deletion without locking the surrounding phrasing.
 - **Opening-line framing matters more than rule body.** In turn-003 Haiku used phrases like "Excellent question!" and "lass mich R3 nochmal erklären" — both signatures of a model primed to perform tutorial competence. The pre-4.3 opening line "You are the user's GTD assistant" reinforces that priming. The post-4.3 opening ("task and note assistant ... apply it silently ... most users do not know GTD") rewires the persona before any rule fires. R16 catches the residual cases; the opening line catches the default tendency.
-- **Why not also port the Vault's Weekly-Review detail here.** The user's personal vault `CLAUDE.md` carries ~200 prompt tokens of richer Weekly-Review choreography (group Waiting by theme, propose-don't-walk for Next Actions, end-of-review self-reflection). Folding it into R7 here would inflate the always-cached system head for content that matters in ~1% of turns. Split into Task 9 with an open delivery question (dedicated `weekly_review` tool returning the protocol on call vs. context-note injection vs. mode-specific header).
+- **Why not also port the Vault's Weekly-Review detail here.** The user's personal vault `CLAUDE.md` carries ~200 prompt tokens of richer Weekly-Review choreography (group Waiting by theme, propose-don't-walk for Next Actions, end-of-review self-reflection). Folding it into R7 here would inflate the always-cached system head for content that matters in ~1% of turns. Split into Task 11 with an open delivery question (dedicated `weekly_review` tool returning the protocol on call vs. context-note injection vs. mode-specific header).
 
 ### Open question — `session-gap` context note (deferred; Task-6 trigger)
 
@@ -1225,7 +1230,7 @@ Vitest suite green:
 
 **Default position: don't ship now.** Industry norm (Claude.ai, ChatGPT, Cursor) is *not* to per-message-stamp. Adding it speculatively would burn the [[feedback_phase1_pragmatism]] budget — the symmetric counterpart to the Task-4.3 reminder, which was *triggered* by a concrete `turn-003.json` failure, not by hypothesis.
 
-**Design sketch (if Task 8 surfaces evidence).** Extend the `ContextNote` union in `packages/core/src/request-builder.ts:14` with `kind: "session-gap"`, fire it from inside `buildRequest` when the gap between the trailing user message's `messageCreatedAt` and "now" exceeds a threshold, render via `renderNotes` alongside `stale-files`. The existing `<context-note>` channel already attaches to the trailing user message and survives the prompt-cache contract — no new plumbing.
+**Design sketch (if Task 10 surfaces evidence).** Extend the `ContextNote` union in `packages/core/src/request-builder.ts:14` with `kind: "session-gap"`, fire it from inside `buildRequest` when the gap between the trailing user message's `messageCreatedAt` and "now" exceeds a threshold, render via `renderNotes` alongside `stale-files`. The existing `<context-note>` channel already attaches to the trailing user message and survives the prompt-cache contract — no new plumbing.
 
 **Open sub-decisions to settle at task time.**
 - **Threshold.** Any UTC day change? `> N hours`? Both OR-combined? ("Day change" aligns with the day-rollover concept already in `Session`; pure hour-threshold may matter more for an evening-resume-next-morning pattern.)
@@ -1240,7 +1245,7 @@ Vitest suite green:
 
 ## Task 5: Daily-note gate unification + GTD task-file init + R5/R6 prompt update
 
-> **Planning redesign 2026-05-20.** This task replaces three previously-planned tasks: the original Task 5 (daily-note lifecycle with archive move), the post-created Task 5.5 (per-turn vault readiness with day rollover), and Task 5.6 (future-daily gate relaxation). Decision: drop the physical `daily/` → `archive/daily/` archive move and the `- [ ]`-stripping content transformation entirely. Past, today, and future daily notes all live under `daily/YYYY-MM-DD.md` and share one gate rule. The user's stated workflow — "morgens schließe ich gestern noch ab, ich habe Gassi gehen erst um 22 Uhr gemacht, das müsste in gestrigem Plan noch von `[ ]` auf `[x]` und einen Log-Eintrag bekommen" — explicitly *wants* yesterday's open boxes visible. Open-task carry-over moves out of silent file mutation into an explicit user-facing flow (Auto-Replan-Opener, Task 7). Only the original Task 5.5's first-run task-file init survives, simplified from a per-turn cadence to a once-at-startup helper.
+> **Planning redesign 2026-05-20.** This task replaces three previously-planned tasks: the original Task 5 (daily-note lifecycle with archive move), the post-created Task 5.5 (per-turn vault readiness with day rollover), and Task 5.6 (future-daily gate relaxation). Decision: drop the physical `daily/` → `archive/daily/` archive move and the `- [ ]`-stripping content transformation entirely. Past, today, and future daily notes all live under `daily/YYYY-MM-DD.md` and share one gate rule. The user's stated workflow — "morgens schließe ich gestern noch ab, ich habe Gassi gehen erst um 22 Uhr gemacht, das müsste in gestrigem Plan noch von `[ ]` auf `[x]` und einen Log-Eintrag bekommen" — explicitly *wants* yesterday's open boxes visible. Open-task carry-over moves out of silent file mutation into an explicit user-facing flow (Auto-Replan-Opener, Task 9). Only the original Task 5.5's first-run task-file init survives, simplified from a per-turn cadence to a once-at-startup helper.
 
 ### Instructions
 
@@ -1256,7 +1261,7 @@ Vitest suite green:
 
 - **R6 rewrite** — from "Past notes are read-only" to:
   > "Past daily notes default read-only — only correct boxes/entries that are objectively wrong (e.g. a task completed late in the day not checked off, an event that happened but was not logged in the Log section). Future daily notes are writable for planning ('Tierarzttermin übermorgen' → `daily/<übermorgen>.md`). Future drafts the user may pre-create with calendar appointments; on your first write into a previously-empty future draft, add the three sections (Plan / Log / Notes) so structure stays consistent across files."
-- **R5 wording**: drop the prior "server-side archives at day change" claim. Daily notes simply *are* the date-keyed files in `daily/`. The Auto-Replan-Opener (Task 7) is the touchpoint where the LLM is reminded of pending items from recent days — R5 mentions that the opener flow exists, not how it works.
+- **R5 wording**: drop the prior "server-side archives at day change" claim. Daily notes simply *are* the date-keyed files in `daily/`. The Auto-Replan-Opener (Task 9) is the touchpoint where the LLM is reminded of pending items from recent days — R5 mentions that the opener flow exists, not how it works.
 - **R17 (Log-section capture).** *"When you check off a task or register a user-described event AND the user's turn contained context for it (with whom, how, outcome), append a single line to today's daily Log section. Format: `- <kurzer Bezug>: <Outcome>` — date carried by the filename, no timestamp needed. Condense the user's wording, don't paste it 1:1. Do NOT log: pure structural moves between lists with no outcome; check-offs without any user-supplied context; status updates without completion (those belong in Notes or stay in Waiting). The Log section is the journal of *what happened*; the Plan section is *what was planned*."*
 - **R18 (Cross-day disposition).** *"When the user takes action today on a task whose `[ ]` lives in a **past** daily's Plan section — regardless of whether they completed it, deferred it, or cancelled it: (1) set the past daily's `[ ]` → `[x]`. (2) update `tasks/*.md` according to the disposition (completion → `[x]`/remove; deferral → copy to Focus or today's/tomorrow's daily Plan per R3/R9; cancellation → remove). (3) append a Log line to **today's** daily that names both the action and the source date: `- Wäsche: erledigt (Plan von 19.05.)` / `- Wäsche: verschoben auf heute (Plan von 19.05.)` / `- Wäsche: gestrichen (Plan von 19.05.)`. **Semantic note: `[x]` in a daily Plan section means 'closed out of this day's plan' — not necessarily 'completed'. In `tasks/*.md` the strict 'completed' meaning still holds.** The Log line carries the actual disposition. R6 exception: if the user states the task was actually done *on the past date* and they just forgot to check it off ('hab ich gestern doch noch gemacht'), correct the past daily inline — `[x]` and Log entry in the *past* daily, nothing in today's daily."*
 - **R-rule for the chip tool** (folded into R3 or as a new R-line): "When the next user step has 2–5 discrete, anticipatable options, call `suggest_quick_replies` (see Task 6). Don't use it as a generic question-fallback."
@@ -1276,7 +1281,7 @@ export async function ensureGtdTaskFiles(repo: FileRepository): Promise<{ create
 
 **Clock-injection env override:**
 
-For Task 8 E2E day-rollover reproducibility, support `GTD_NOW_OVERRIDE=2026-05-21T09:00:00Z`. When set, `turn-loop.ts` sources `refs.turnNow = new Date(env)` at turn start instead of `new Date()`. Single integration point, no other code paths touch it.
+For Task 10 E2E day-rollover reproducibility, support `GTD_NOW_OVERRIDE=2026-05-21T09:00:00Z`. When set, `turn-loop.ts` sources `refs.turnNow = new Date(env)` at turn start instead of `new Date()`. Single integration point, no other code paths touch it.
 
 ### Acceptance
 
@@ -1317,13 +1322,13 @@ Vitest suite against `InMemoryFileRepository` + a stub clock:
 - **Unbounded growth of `daily/` is a known Phase-1 limitation.** After a year of use, ~365 files in one directory. Acceptable for Phase 1 (single-user, dev-time vault sizes are small). When `list_files("daily/")` token cost becomes a real cost, the right fix is a date-window parameter on the listing tool — same shape `search_files` will eventually take. Filesystem won't be the storage layer in Phase 2a (Supabase) so over-fitting now would waste work.
 - **Same-direction simplification for Task 5.6's substance.** What Task 5.6 was buying (gate relaxation for future dailies) drops out for free from "single rule for `daily/*` regardless of date". The two prompt pieces that 5.6 needed (R6 wording for future drafts; structure convention on first write) land inside R6 here.
 - **`[x]` has different semantics in Daily-Plan vs `tasks/*`.** In `tasks/*.md` it strictly means *completed*. In a daily Plan section it means *closed-out of this day's plan* — could be completion, deferral, or cancellation. The disambiguator is the **Log section of the daily that owns the disposition** (today's daily if it happened today; the past daily if R6's "actually done yesterday" path). R18 spells this out so the LLM doesn't drift into one of the rejected alternatives: (a) a new `[*]` marker (Obsidian doesn't render it visually distinct, adds vocabulary for marginal gain), (b) leave past `[ ]` open and resolve via semantic Log-matching in the Auto-Replan-Opener (brittle, costs tokens every opener call), or (c) delete the past line entirely (loses the planning record). The Log entry's source-date annotation (`(Plan von 19.05.)`) is the audit trail. User confusion is bounded to past-daily browsing — rare in practice; the Log is right there in the same file.
-- **R17 and R18 work as a pair, not in isolation.** R18 mutates the Daily-Plan box and dictates *where* the Log line lands; R17 dictates *whether* a Log line gets written at all (only when the user supplied context). Together they handle the four real cases — same-day completion, same-day other-event, cross-day completion, cross-day deferral — with one rule each and no overlap. The Auto-Replan-Opener (Task 7) is the most heavy R17/R18 customer because every chip-pick on the opener naturally lands as a context-rich completion or deferral on a past Daily-Plan box.
+- **R17 and R18 work as a pair, not in isolation.** R18 mutates the Daily-Plan box and dictates *where* the Log line lands; R17 dictates *whether* a Log line gets written at all (only when the user supplied context). Together they handle the four real cases — same-day completion, same-day other-event, cross-day completion, cross-day deferral — with one rule each and no overlap. The Auto-Replan-Opener (Task 9) is the most heavy R17/R18 customer because every chip-pick on the opener naturally lands as a context-rich completion or deferral on a past Daily-Plan box.
 
 ---
 
 ## Task 6: `suggest_quick_replies` tool — chip suggestions for user answers
 
-> **New task, 2026-05-20.** Generic mechanism for the LLM to propose 2–5 short follow-up answers ("chips") at the end of a turn. The CLI renders them as a numbered list with REPL number-expansion; the future mobile UI renders the same tool output as tappable buttons. Precondition for Task 7's Auto-Replan-Opener flow but useful in any turn with discrete next steps.
+> **New task, 2026-05-20.** Generic mechanism for the LLM to propose 2–5 short follow-up answers ("chips") at the end of a turn. The CLI renders them as a numbered list with REPL number-expansion; the future mobile UI renders the same tool output as tappable buttons. Precondition for Task 9's Auto-Replan-Opener flow but useful in any turn with discrete next steps.
 
 ### Instructions
 
@@ -1397,11 +1402,313 @@ Vitest suite against the `streamText` mock (`MockLanguageModelV4`):
 - **Tool with no side effect is the right shape.** It declares an intent without coupling to render mechanics. The same tool call renders as numbered CLI options today and tappable chips on mobile later — neither renderer needs to know the LLM's prompt-side rule, and the LLM doesn't know whether its options will become buttons or `[N]`-prefixes.
 - **Number-expansion at REPL boundary, not in core.** Keeping the expansion in `apps/cli` keeps `packages/core` UI-agnostic. The mobile renderer does the same thing in its tap handler — produces a plain user message identical to what typing the text would have produced.
 - **No-expansion paths matter.** Free-text continuation, out-of-range digits, partial-digit-plus-text — all must pass through unchanged. The LLM should never have to disambiguate whether `"2"` was a chip-pick or a literal "2" the user meant.
-- **Generic, not Auto-Replan-coupled.** This tool exists independently of Task 7. It will also be used for yes/no confirmations, category picks ("Inbox / Next Actions / Someday-Maybe?"), and any place where the LLM's natural next prompt has anticipatable answers. Decoupling lets each consumer remain ignorant of the others.
+- **Generic, not Auto-Replan-coupled.** This tool exists independently of Task 9. It will also be used for yes/no confirmations, category picks ("Inbox / Next Actions / Someday-Maybe?"), and any place where the LLM's natural next prompt has anticipatable answers. Decoupling lets each consumer remain ignorant of the others.
 
 ---
 
-## Task 7: Auto-Replan-Opener at day boundary
+## Task 7: `find_task_occurrences` tool
+
+> **New task, 2026-05-22.** Dogfooding showed that long prompt-only placement rules do not reliably stop duplicate Daily scheduling. Add one deterministic raw-evidence tool that behaves like safe literal `rg -C 1` over task-relevant surfaces. This task implements only the search surface and tool contract; the prompt rewrite that teaches when to call it lands in Task 8.
+
+### Instructions
+
+Add a core occurrence-search helper and expose it through `buildTools` as `find_task_occurrences`.
+
+**Public tool API:**
+
+```ts
+find_task_occurrences({
+  candidates: string[]
+})
+```
+
+`candidates` are literal strings, not regexes. The model supplies the literal user wording plus a small set of close variants: key nouns/verbs, obvious inflections/stems/compounds, and close everyday synonyms. A normal call checks one task-like item; unrelated tasks should use separate calls.
+
+**Output shape:**
+
+```ts
+{
+  searchedFiles: string[];
+  blocks: Array<{
+    file: string;
+    line: number;
+    candidates: string[];
+    rawBlock: string[];
+  }>;
+}
+```
+
+- `searchedFiles` lists existing files that were actually read.
+- `line` is the 1-based central or first matched line in the block.
+- `rawBlock` is raw Markdown context, normally one line before the matched line(s), the matched line(s), and one line after.
+- If multiple matches fall into the same or overlapping context block, return that block once and list all matching candidates for the block.
+- If nearby matches produce blocks that overlap or have at most one raw line between them, merge them into one larger raw block.
+- Do not return derived fields such as `surface`, `date`, `checkbox`, `matchReason`, `taskLikeHint`, `entryKind`, `open`, `done`, or `drift`.
+- Do not add truncation for MVP; return all matched blocks in the bounded surfaces.
+
+**Search surfaces:**
+
+Search existing files from exactly these surfaces:
+
+```text
+tasks/inbox.md
+tasks/next-actions.md
+tasks/waiting.md
+tasks/someday-maybe.md
+tasks/focus.md
+daily/YYYY-MM-DD.md where date >= today - 30 days
+all existing future daily/YYYY-MM-DD.md notes
+```
+
+- Daily files are searched as whole files, not as parsed `## Plan` sections.
+- `today` comes from the same injected clock used by `buildTools({ now })`, `search_files`, and the task-file reminder gate; do not call `new Date()` inside the helper.
+- Missing files are skipped, not treated as tool failure. This keeps a fresh or hand-edited vault robust. `searchedFiles` still reflects only files that were actually read.
+- Ignore non-date daily paths such as `daily/notes.md`.
+- Do not expose `scope`, `intent`, `dateRange`, `status`, or `regex` parameters in the MVP API.
+
+**Matching rules:**
+
+- OR-search all candidates.
+- Treat candidates as literals. Any regex used internally must be built from escaped/normalized text, never from raw model input.
+- Normalize both candidate and file content before matching:
+  - lowercase;
+  - Unicode NFKD/NFD normalization plus combining-mark stripping for umlaut/diacritic tolerance;
+  - collapse whitespace runs;
+  - tolerate punctuation and Markdown markers such as `-`, `*`, `#`, `[ ]`, `[x]`, `[[...]]` by normalizing them to separators.
+- Drop candidates that become empty after normalization. If all candidates become empty, return no blocks after reading the bounded surfaces.
+- Preserve raw Markdown in `rawBlock`; normalization is only for match detection.
+
+**Core shape:**
+
+Implement the reusable logic outside the tool wrapper, likely as:
+
+```ts
+export interface TaskOccurrenceBlock {
+  file: string;
+  line: number;
+  candidates: string[];
+  rawBlock: string[];
+}
+
+export interface TaskOccurrenceSearchResult {
+  searchedFiles: string[];
+  blocks: TaskOccurrenceBlock[];
+}
+
+export async function findTaskOccurrences(
+  repo: FileRepository,
+  today: string,
+  candidates: readonly string[],
+): Promise<TaskOccurrenceSearchResult>;
+```
+
+The `buildTools` wrapper should validate with Zod (`candidates: z.array(z.string().min(1)).min(1)`) and return the helper result as a normal tool output. Occurrence-search results are ordinary tool results and flow through the existing tool-result pruning and turn-log machinery without special casing.
+
+### Acceptance
+
+- **T7-AC-01:** Given candidates `["Rasen mähen", "rasen"]` and Markdown containing checkbox/list markers, mixed case, extra whitespace, punctuation, or `Rasen-mähen`/`Rasen mähen`-style punctuation drift, `findTaskOccurrences` returns the matching raw block without requiring regex input.
+- **T7-AC-02:** Given a candidate with umlauts/diacritics and file content using the decomposed or plain-letter form, matching succeeds through Unicode normalization and combining-mark stripping.
+- **T7-AC-03:** Given seeded task files plus daily notes before, inside, and after the active horizon, search reads the five task files, daily files from `today - 30 days` onward, today, and all existing future daily notes; it excludes daily files older than the 30-day lookback and ignores non-date daily paths.
+- **T7-AC-04:** Missing task or daily files do not throw; `searchedFiles` contains only files actually read.
+- **T7-AC-05:** Multiple candidate hits inside overlapping or near-adjacent context windows are merged into one block with the union of matching candidate strings.
+- **T7-AC-06:** Output contains raw Markdown evidence only: `searchedFiles` and `blocks[]` with `file`, `line`, `candidates`, `rawBlock`; no derived classifier/status/date/surface fields are present.
+- **T7-AC-07:** `buildTools` exposes `find_task_occurrences` with exactly one input property, `candidates: string[]`; there are no scope, date-range, status, intent, or regex parameters.
+- **T7-AC-08:** The tool uses the injected `now` clock from `buildTools` so a test can pin `today` and verify the 30-day daily horizon without relying on wall-clock time.
+- **T7-AC-09:** A regression fixture for "Rasen" in a future daily note proves the tool returns the future Daily Plan evidence that Task 8 will require the model to inspect before a second Daily Plan write.
+
+### Key Locations
+
+- `packages/core/src/tools.ts` (+ `find_task_occurrences` tool definition)
+- `packages/core/src/task-occurrences.ts` (new reusable helper)
+- `packages/core/src/__tests__/task-occurrences.test.ts`
+- `packages/core/src/__tests__/tools.test.ts` (tool-schema and `MockLanguageModelV4` integration)
+
+### Key Discoveries
+
+- **Raw evidence, not classifier truth.** Users can edit Markdown freely, so the tool must not decide whether a hit is open, done, canonical, transient, or drift. The model inspects path + raw block and reads full files if the block is insufficient.
+- **Bounded Daily search is deliberate.** The 30-day lookback is a drift buffer for recent missed or leftover planning, plus all future scheduled notes. A negative result means "not found in the active placement horizon", not "never existed".
+- **History questions use different tools.** `find_task_occurrences` is for placement/sync checks. Explicit questions such as "Wann habe ich zuletzt ...?" use `search_files`/`read_file` over broader history with specific search terms.
+- **Simple API beats model-side scope choice.** The model already struggles with procedural checks; MVP removes scope/date/status knobs so the safe surface is deterministic.
+
+---
+
+## Task 8: Task-model prompt rewrite + placement evals
+
+> **New task, 2026-05-22.** Rewrite the prompt around entity relationships and the `find_task_occurrences` evidence loop. This replaces the brittle prompt-only single-location/crosscheck model that allowed silent duplicate Daily scheduling. Keep existing daily lifecycle, logging, quick replies, voice tolerance, skepticism handling, and no-rule-leak behavior.
+
+### Instructions
+
+Rewrite `buildSystemPrompt` and the task-file reminder so task consistency is taught through a compact entity model plus a few operating rules, not through routine broad file loading.
+
+**Opening/tool surface:**
+
+- Mention `find_task_occurrences` alongside the vault tools and `suggest_quick_replies`.
+- Keep the current-date line and injected-date behavior.
+- Keep the user-facing no-method/no-rule-leak policy: internal anchors and implementation rule names must not be surfaced.
+
+**Entity model to teach directly:**
+
+```text
+InboxCapture
+- Untriaged capture.
+- Not canonical.
+- Must not have matching Focus or open Daily Plan backing.
+- Must be processed into Next Actions, Waiting, or Someday before Focus/Daily scheduling.
+
+CanonicalTask
+- Exactly one canonical bucket:
+  Next Actions | Waiting | Someday.
+- This is the task's source-of-truth location while open.
+
+FocusItem
+- Current-attention overlay.
+- Not a canonical bucket.
+- Every open Focus item should match one open CanonicalTask.
+
+DailyPlanItem
+- Scheduled checkbox-like Plan item for a date.
+- Not a canonical bucket.
+- Every open DailyPlanItem should match one open FocusItem and one open CanonicalTask.
+
+DailyOnlyEntry
+- Non-task Plan context such as appointments, notes, or time blocks.
+- Outside the task graph by default.
+```
+
+Storage mapping to include:
+
+```text
+tasks/inbox.md                 -> InboxCapture
+tasks/next-actions.md          -> CanonicalTask(bucket = Next Actions)
+tasks/waiting.md               -> CanonicalTask(bucket = Waiting)
+tasks/someday-maybe.md         -> CanonicalTask(bucket = Someday)
+tasks/focus.md                 -> FocusItem
+daily/YYYY-MM-DD.md Plan lines -> DailyPlanItem or DailyOnlyEntry,
+                                  interpreted from raw Markdown context
+```
+
+**Core constraints to encode:**
+
+- An open canonical task appears in exactly one canonical bucket: Next Actions, Waiting, or Someday.
+- Inbox is pre-triage. If an Inbox item matches a canonical task, Focus item, or Daily Plan task, surface drift and process the Inbox item before writing a new Focus/Daily placement.
+- Focus may duplicate task text because it is an overlay, not a bucket.
+- Daily Plan may duplicate task text because it is scheduling, not a bucket.
+- A task-like Daily Plan item should have both Focus and canonical backing.
+- A task should not appear as open in multiple Daily Plans unless the user explicitly wants repetition or multiple sessions.
+- Daily-only entries are allowed for appointments, notes, and time blocks.
+- Daily-only checkbox tasks are allowed only when the user explicitly asks for a one-off scratch item outside the task system.
+- Completed historical occurrences are context, not blockers for new or repeated work.
+- Weekly Review is the maintenance cadence for stale Focus/Daily/Inbox/Someday/Waiting state; it is not the definition of Focus.
+
+**Occurrence-search operating rule:**
+
+Before writing task-like items into Focus or Daily Plans, or before moving, scheduling, or syncing an existing task:
+
+1. Build candidates for one task-like item: literal words plus close variants.
+2. Call `find_task_occurrences({ candidates })`.
+3. Inspect the raw blocks yourself. Treat paths and Markdown as evidence, not certified structure.
+4. If the returned block is not enough to judge whether the hit is the same task, a completed item, a daily-only entry, or drift, read the full matched file before writing. Prefer reading only files that actually matched.
+5. Do not write based only on memory or guessed matches.
+
+Use `find_task_occurrences` for placement/sync checks, not for history answers. For explicit history questions, use `search_files`/`read_file` over the broader daily/archive surface and choose specific search terms to control result volume.
+
+**Daily/Focus write guidance:**
+
+| Finding from raw blocks | Action before writing |
+|---|---|
+| No canonical task exists for a new DailyPlanItem | Create or process the canonical task first. |
+| Canonical task exists but no Focus item exists | Add Focus as part of the same change unless Focus overflow needs user choice. |
+| Inbox match exists | Triage into Next Actions, Waiting, or Someday before Focus/Daily scheduling. If it also appears elsewhere, report drift first. |
+| Waiting match exists | Do not treat the original task as directly actionable unless the user says the blocker is gone; planning may mean a follow-up task. |
+| Someday match is scheduled | Treat as reactivation; promote/move before scheduling. |
+| Another open Daily Plan occurrence exists | Ask whether to move, duplicate, or repeat before adding a second one. |
+| Daily checkbox match lacks Focus/canonical backing | Treat as drift unless the user explicitly asked for a one-off scratch item outside the task system; ask before repairing. |
+
+**Avoid bulk auditing:**
+
+- Do not occurrence-search every Next Action unless the user explicitly asks for a full audit or Weekly Review.
+- Small active sets such as Focus can be checked item-by-item when planning the week/day.
+- Provider-level parallel tool use stays disabled for safety; sequential calls are acceptable.
+
+**Prompt scope changes:**
+
+Replace or remove:
+
+- single-location placement wording that treats Focus/Daily as possible task locations;
+- Focus-Daily sync procedures encoded as broad always-on routines;
+- routine crosscheck file-loading as the primary safety mechanism;
+- model-selected date ranges for placement checks;
+- historical done/closed occurrences as blockers for new or repeated work;
+- Focus as a weekly bucket or second canonical location;
+- implicit daily-only checkbox tasks.
+
+Keep, but shrink where practical:
+
+- vault file model and allowed file shapes;
+- Inbox capture for unclear items;
+- Markdown checkbox syntax;
+- daily `Plan` / `Log` / `Notes`;
+- daily lifecycle: all daily notes stay under `daily/YYYY-MM-DD.md`, past-daily correction limits, future-daily planning, and first-write section creation;
+- Weekly Review marker/suggestion behavior;
+- Next Actions category/subheading guidance;
+- natural-language command recognition;
+- quick replies for discrete choices;
+- Log capture and cross-day disposition;
+- current date, voice-input tolerance, skepticism means re-check, no method/rule leaks, out-of-scope answer limits, self-edit limits, concise tone, and low-level tool protocol affordances.
+
+**Task-file reminder update:**
+
+Update `TASK_FILE_REMINDER` (or replace it with a smaller equivalent) so it no longer instructs routine reads of `tasks/focus.md`, `tasks/next-actions.md`, `tasks/waiting.md`, and today's daily as the primary safety procedure. The reminder may still nudge the model to honor task-graph consistency before the final response, but placement evidence now comes from `find_task_occurrences` and targeted `read_file` calls.
+
+**Eval/docs coverage:**
+
+Add or extend scenario docs under `docs/evals/` so an executing agent can run or manually replay these cases without re-reading the spec:
+
+- Inbox match only: scheduling requires triage into a canonical bucket first.
+- Inbox plus canonical/Focus/Daily match: report drift before writing.
+- Canonical task not in Focus is planned into a Daily: add Focus too.
+- Focus item without canonical backing: report drift and ask before repairing.
+- Daily checkbox without Focus/canonical backing: report drift unless the user explicitly asked for a scratch item outside the task system.
+- Waiting item is planned: ask whether blocker is gone or create a follow-up.
+- Someday item is planned: reactivate/promote before scheduling.
+- Daily non-checkbox appointment/note matches candidate: treat as context by default, not task drift.
+- Explicit history question ("Wann habe ich zuletzt ...?"): use generic broader search, not active-horizon occurrence-search miss as negative evidence.
+- Existing Rasen double-schedule scenario: do not silently add a second open Daily Plan occurrence; ask whether to move, duplicate, or repeat.
+
+### Acceptance
+
+- **T8-AC-01:** System-prompt snapshot contains the entity model names `InboxCapture`, `CanonicalTask`, `FocusItem`, `DailyPlanItem`, and `DailyOnlyEntry`, plus the relationship that canonical tasks may have Focus items and Focus items may schedule Daily Plan items.
+- **T8-AC-02:** Prompt no longer describes Focus as a canonical task bucket or says Focus and Next Actions are the allowed duplicate exception for "same location"; it instead describes Focus as a current-attention overlay.
+- **T8-AC-03:** Prompt requires `find_task_occurrences({ candidates })` before task-like Focus/Daily placement, scheduling, moving, or sync decisions.
+- **T8-AC-04:** Prompt says occurrence-search blocks are raw evidence, not certified structure, and instructs reading matched files when the raw block is insufficient.
+- **T8-AC-05:** Prompt distinguishes placement/sync checks from explicit history questions; history questions use broader generic `search_files`/`read_file` rather than occurrence-search negative evidence.
+- **T8-AC-06:** Prompt contains the Daily/Focus write guidance for missing canonical backing, missing Focus backing, Inbox drift, Waiting, Someday reactivation, duplicate open Daily Plan occurrences, and Daily checkbox drift.
+- **T8-AC-07:** `TASK_FILE_REMINDER` or its replacement no longer instructs routine loading of Focus, Next Actions, Waiting, and today's daily as the primary post-write consistency procedure.
+- **T8-AC-08:** Prompt tests remove old expectations tied to the prior routine crosscheck/single-location model and pin the new task-entity wording.
+- **T8-AC-09:** Eval docs cover Inbox-only, Inbox-plus-drift, canonical-without-Focus, Focus-without-canonical, Daily-checkbox-without-backing, Waiting planning, Someday reactivation, daily non-checkbox context, explicit history question, and Rasen double-schedule scenarios.
+- **T8-AC-10:** The Rasen double-schedule eval requires asking before adding a second open Daily Plan occurrence when `find_task_occurrences` returns an existing future Daily Plan hit.
+- **T8-AC-11:** Existing daily lifecycle, cross-day disposition, quick-reply, voice-input, skepticism, no-rule-leak, out-of-scope, self-edit, and tone snapshot tests remain covered after wording updates.
+- **T8-AC-12:** `pnpm -r test` is green after prompt/reminder/eval changes.
+
+### Key Locations
+
+- `packages/core/src/system-prompt.ts`
+- `packages/core/src/tools.ts` (`TASK_FILE_REMINDER`)
+- `packages/core/src/__tests__/system-prompt.test.ts`
+- `packages/core/src/__tests__/tools.test.ts`
+- `docs/evals/scenario-01-rasen-double-schedule/README.md`
+- likely new `docs/evals/scenario-*/README.md` files for placement cases
+
+### Key Discoveries
+
+- **The old invariant was the wrong abstraction.** "A task lives in one place, except Focus/Next Actions" made Focus look like a second bucket and did not cover Daily duplicates. The new model makes canonical buckets, overlays, and schedules explicit.
+- **Occurrence search supplies evidence, not judgment.** The assistant still interprets Markdown because users can hand-edit structure, but it must first gather bounded evidence before risky Focus/Daily writes.
+- **Less prompt, more surface area where it matters.** The goal is not a larger rulebook. The always-on prompt should carry the entity model and a small set of risky-write rules; deterministic search handles the evidence collection that prompt-only procedures failed to enforce.
+- **Completed history is not a blocker.** A done occurrence in an old daily note can be relevant context, but it should not prevent new or repeated work. That is why occurrence search is bounded and history questions use generic search separately.
+
+---
+
+## Task 9: Auto-Replan-Opener at day boundary
 
 > **New task, 2026-05-20.** Replaces the carry-over behaviour that the original Task 5's archive-move-and-strip provided silently. When a new day starts, run a one-shot LLM-driven kickoff turn that surfaces stale pending items from recent dailies and the persistent task files. The LLM greets, identifies pending items semantically, and offers handling options via `suggest_quick_replies` (Task 6). The trigger is the same session-boundary moment that already prints `day rollover · …` / `new session`.
 
@@ -1479,28 +1786,28 @@ The two call sites share the same conditional logic — extract a helper `maybeR
 
 Vitest suite (gather function against `InMemoryFileRepository`; opener against the `streamText` mock):
 
-- **T7-AC-01:** `gatherAutoReplanContext(repo, "2026-05-20", 5)` on a seeded vault reads exactly `daily/2026-05-15.md`...`daily/2026-05-19.md`. Today (`2026-05-20.md`) and future (`2026-05-21.md`) are excluded even when present.
-- **T7-AC-02:** Missing daily files in the window are silently skipped — gather returns the present subset, not an error. The `dailies` array contains entries only for files that existed.
-- **T7-AC-03:** `isEmpty = true` when no dailies + empty `next-actions.md` + empty `waiting.md`. `isEmpty = false` if any of the three has non-whitespace content.
-- **T7-AC-04:** `runAutoReplanOpener` with `isEmpty = false` and a mock that emits a 3-message response: synthetic user message and response messages both appear in `session.messages` after the call. `session.autoReplanRanFor === today`.
-- **T7-AC-05:** `runAutoReplanOpener` with `isEmpty = true`: no synthetic message added, no stream call attempted, `autoReplanRanFor` stays unset.
-- **T7-AC-06:** `maybeRunAutoReplanOpener` is a no-op when `session.autoReplanRanFor === today`. No banner, no message, no stream call.
-- **T7-AC-07:** Trigger from fresh CLI start with `autoReplanRanFor` unset: opener fires once before the first REPL prompt. Banner appears in terminal capture.
-- **T7-AC-08:** Trigger from `dayRolloverGuard`: after the day-rollover banner, opener fires for the new session.
-- **T7-AC-09:** Stream failure during the opener leaves `autoReplanRanFor` unset (retry on next start). The CLI error log gets an entry; the REPL loop still enters.
-- **T7-AC-10:** Synthetic user message is a normal `ModelMessage` (role: 'user', stringy content) — it survives prompt-cache rebuild and Phase-2 save like any other user turn; no schema special-casing.
+- **T9-AC-01:** `gatherAutoReplanContext(repo, "2026-05-20", 5)` on a seeded vault reads exactly `daily/2026-05-15.md`...`daily/2026-05-19.md`. Today (`2026-05-20.md`) and future (`2026-05-21.md`) are excluded even when present.
+- **T9-AC-02:** Missing daily files in the window are silently skipped — gather returns the present subset, not an error. The `dailies` array contains entries only for files that existed.
+- **T9-AC-03:** `isEmpty = true` when no dailies + empty `next-actions.md` + empty `waiting.md`. `isEmpty = false` if any of the three has non-whitespace content.
+- **T9-AC-04:** `runAutoReplanOpener` with `isEmpty = false` and a mock that emits a 3-message response: synthetic user message and response messages both appear in `session.messages` after the call. `session.autoReplanRanFor === today`.
+- **T9-AC-05:** `runAutoReplanOpener` with `isEmpty = true`: no synthetic message added, no stream call attempted, `autoReplanRanFor` stays unset.
+- **T9-AC-06:** `maybeRunAutoReplanOpener` is a no-op when `session.autoReplanRanFor === today`. No banner, no message, no stream call.
+- **T9-AC-07:** Trigger from fresh CLI start with `autoReplanRanFor` unset: opener fires once before the first REPL prompt. Banner appears in terminal capture.
+- **T9-AC-08:** Trigger from `dayRolloverGuard`: after the day-rollover banner, opener fires for the new session.
+- **T9-AC-09:** Stream failure during the opener leaves `autoReplanRanFor` unset (retry on next start). The CLI error log gets an entry; the REPL loop still enters.
+- **T9-AC-10:** Synthetic user message is a normal `ModelMessage` (role: 'user', stringy content) — it survives prompt-cache rebuild and Phase-2 save like any other user turn; no schema special-casing.
 
 ### Key Locations
 
 - `packages/core/src/auto-replan.ts` (gather function only)
-- `packages/core/src/__tests__/auto-replan.test.ts` (T7-AC-01..03)
+- `packages/core/src/__tests__/auto-replan.test.ts` (T9-AC-01..03)
 - `packages/core/src/sessions.ts` (+ `autoReplanRanFor`)
 - `packages/core/src/__tests__/sessions.test.ts` (field persistence)
 - `apps/cli/src/auto-replan-opener.ts` (the runner + `maybeRunAutoReplanOpener`)
 - `apps/cli/src/turn-loop.ts` (integration in `dayRolloverGuard`)
 - `apps/cli/src/index.ts` (initial-start trigger after `announceSessionBoundary`)
 - `apps/cli/src/terminal-output.ts` (banner line)
-- `apps/cli/test/auto-replan-opener.test.ts` (T7-AC-04..10)
+- `apps/cli/test/auto-replan-opener.test.ts` (T9-AC-04..10)
 
 ### Key Discoveries
 
@@ -1509,15 +1816,18 @@ Vitest suite (gather function against `InMemoryFileRepository`; opener against t
 - **Marker on the session, not on a separate file.** `autoReplanRanFor` co-locates the "did opener run" state with everything else about today. No new files, no new directories, survives the same Phase-2 save the rest of the session does.
 - **Synthetic user message, not synthetic system addendum.** Putting the rollover context into a user-role message means: (a) it's visible in the message log, (b) the user can re-read what the opener was working from, (c) the LLM responds naturally as if the user said "guten morgen, was steht an?" with attached context. A system addendum would be less legible and the post-pruning artifact (Task 4.2) would not show the same thing the user sees.
 - **Skip-when-empty is a real branch.** A fresh vault with no history producing an "Auto-Replan" greeting every morning would be noise. Leaving `autoReplanRanFor` unset on skip means the opener fires when real context first appears — not exactly once at startup, but exactly once per day the vault is non-trivial.
-- **Quick-Reply tool decouples the flow.** The opener doesn't know how chips are rendered. It just instructs the LLM to call `suggest_quick_replies` like any other turn. This is why Task 6 is sequenced before Task 7 — Task 7 imports the chip-tool contract but not its renderer.
+- **Quick-Reply tool decouples the flow.** The opener doesn't know how chips are rendered. It just instructs the LLM to call `suggest_quick_replies` like any other turn. This is why Task 6 is sequenced before Task 9 — Task 9 imports the chip-tool contract but not its renderer.
 - **Why two trigger sites, not a per-turn hook.** Putting the marker check inside `handleTurn`'s pre-turn block would have it execute on every turn forever, just to return early. The two trigger sites (initial load, day rollover) are the only moments `session.date` *changes* — exactly the boundary the marker tracks.
 
 ---
-## Task 8: End-to-end acceptance against real Claude API + vault
+
+## Task 10: End-to-end acceptance against real Claude API + vault
 
 ### Instructions
 
 A scripted E2E harness that runs the CLI as a subprocess against the real Haiku API + a dedicated test vault. The first test that proves the entire stack works.
+
+With Tasks 7 and 8 in front of this task, E2E assertions use the new entity model: Next Actions, Waiting, and Someday are the canonical buckets; Focus is an overlay; Daily Plan is scheduling evidence. A task may appear in Focus and Daily when backed by exactly one open canonical task.
 
 **`apps/cli/test-e2e/` structure:**
 - `e2e.test.ts` — Vitest test file (should run with `describe.runIf(process.env.ANTHROPIC_API_KEY)`)
@@ -1556,14 +1866,15 @@ daily/{today}.md: (empty)
 
 1. **Read-only:** `"What's on for today?"` → CLI answers (stdout non-empty); no `file_history` entries with `changedBy: 'llm'` were created.
 2. **Create in inbox:** `"New task: buy milk"` → `tasks/inbox.md` contains a new line with "milk" (case-insensitive substring); existing content intact.
-3. **Move (single-location R2):** `"Move buy milk to next actions"` → no line in `inbox.md` with "milk", exactly one line in `next-actions.md` with "milk". Spec invariant R2 holds.
-4. **Complete:** `"Check off buy milk"` → the line in `next-actions.md` is `[x]` or removed. No open "milk" entries remain.
+3. **Move into canonical bucket:** `"Move buy milk to next actions"` → no line in `inbox.md` with "milk", exactly one open canonical line in `next-actions.md` with "milk". No open "milk" line exists in `waiting.md` or `someday-maybe.md`.
+4. **Complete:** `"Check off buy milk"` → the line in `next-actions.md` is `[x]` or removed. No open canonical "milk" entries remain.
 5. **Soft-test inbox cleanup:** `"Clean up my inbox"` → number of open items in `inbox.md` is smaller than before; the difference appears either in `next-actions.md`, `waiting.md`, `someday-maybe.md`, or as `[x]`. **Property assertion:** sum of "open + done + archived" task strings stays the same (lost-task detector). No assertion on which category each item ends up in.
-6. **Day change → Auto-Replan-Opener fires (Task 7).** Stop the CLI, set `GTD_NOW_OVERRIDE=2026-04-25T09:00:00Z`, restart. Before the REPL prompt appears, the `[Auto-Replan]` banner is in stdout AND the new session JSON contains `autoReplanRanFor: "2026-04-25"` AND `session.messages[0].role === "user"` with content starting with `"[Day rollover"`. No assertion on the LLM's response text. Past dailies in `daily/` are NOT moved (regression test against the old archive behaviour — `archive/daily/` stays empty unless explicitly written).
+6. **Day change → Auto-Replan-Opener fires (Task 9).** Stop the CLI, set `GTD_NOW_OVERRIDE=2026-04-25T09:00:00Z`, restart. Before the REPL prompt appears, the `[Auto-Replan]` banner is in stdout AND the new session JSON contains `autoReplanRanFor: "2026-04-25"` AND `session.messages[0].role === "user"` with content starting with `"[Day rollover"`. No assertion on the LLM's response text. Past dailies in `daily/` are NOT moved (regression test against the old archive behaviour — `archive/daily/` stays empty unless explicitly written).
 7. **Cross-day completion (R18 + R17).** Seed `daily/<yesterday>.md` Plan with `- [ ] Wäsche machen` and `tasks/next-actions.md` with the same line. User turn: `"Wäsche eben fertig"`. Assertions: (a) `daily/<yesterday>.md` Plan now reads `- [x] Wäsche machen`; (b) `tasks/next-actions.md` has no open "Wäsche" line (`[x]` or removed); (c) `daily/<today>.md` Log section contains a new line matching `/W(ä|ae)sche.*(Plan von|von gestern|<yesterday>)/i` — substring `"Wäsche"` plus source-date annotation; (d) no edit landed in `daily/<yesterday>.md` Log section (the event happened today, today owns the log).
-8. **Cross-day deferral (R18).** Seed `daily/<yesterday>.md` Plan with `- [ ] Bügeln` and `tasks/next-actions.md` with the same line. User turn: `"Bügeln nicht geschafft, verschieb auf heute"`. Assertions: (a) `daily/<yesterday>.md` Plan now reads `- [x] Bügeln` (closed-out semantics, not completion); (b) `tasks/next-actions.md` still contains `- [ ] Bügeln` (still pending) OR `daily/<today>.md` Plan contains `- [ ] Bügeln` (re-planned for today); (c) `daily/<today>.md` Log section contains a line with `"Bügeln"` plus "verschoben"/"verschiebt"/"morgen"/"heute" substring plus source-date annotation. **Property assertion (lost-task detector):** the Bügeln-string still appears as an open box exactly once across the active task surface (next-actions OR today's Plan, not both — R2 single-location).
+8. **Cross-day deferral (R18).** Seed `daily/<yesterday>.md` Plan with `- [ ] Bügeln` and `tasks/next-actions.md` with the same line. User turn: `"Bügeln nicht geschafft, verschieb auf heute"`. Assertions: (a) `daily/<yesterday>.md` Plan now reads `- [x] Bügeln` (closed-out semantics, not completion); (b) `tasks/next-actions.md` still contains exactly one open canonical `Bügeln` line unless the assistant explicitly moved it to another canonical bucket; (c) if `daily/<today>.md` Plan contains `- [ ] Bügeln`, that is treated as scheduling backed by the canonical task, not as a duplicate canonical task; (d) `daily/<today>.md` Log section contains a line with `"Bügeln"` plus "verschoben"/"verschiebt"/"morgen"/"heute" substring plus source-date annotation.
 9. **R6 past-date correction.** Seed `daily/<yesterday>.md` Plan with `- [ ] Gassi gehen 22 Uhr` (no `tasks/*` entry — transient daily task). User turn: `"Gassi war gestern 22 Uhr, vergessen abzuhaken"`. Assertions: (a) `daily/<yesterday>.md` Plan now reads `- [x] Gassi gehen 22 Uhr`; (b) `daily/<yesterday>.md` Log section contains a new line with `"Gassi"` substring (event-of-yesterday → logged in *yesterday's* daily, NOT today's); (c) `daily/<today>.md` Log section does NOT contain any "Gassi" entry from this turn. This is the R6 inline-correction path discriminated from R18 by the user's "gestern" wording.
-10. **History-log check:** `.keppt/file-history.jsonl` contains one entry per mutating turn from scenarios 2-5 plus the turns from 7-9 that touched the vault. Scenario 6 contributes no `file_history` entries (the opener is read-only against the vault — it only persists the session).
+10. **Occurrence-search duplicate Daily regression.** Seed `tasks/next-actions.md` and `tasks/focus.md` with `- [ ] Rasen sehr kurz schneiden + lüften`; seed `daily/<tomorrow>.md` Plan with the same open line. User turn: `"Rasen auch für übermorgen einplanen"`. Assertions: (a) `daily/<day-after-tomorrow>.md` does not gain an open Rasen line in this turn; (b) the existing `daily/<tomorrow>.md` line remains; (c) the turn produces no vault write unless the assistant first gets an explicit user choice to move, duplicate, or repeat. Text is still not exact-matched.
+11. **History-log check:** `.keppt/file-history.jsonl` contains one entry per mutating turn from scenarios 2-5 plus the turns from 7-9 that touched the vault. Scenario 6 contributes no `file_history` entries (the opener is read-only against the vault — it only persists the session). Scenario 10 contributes no `file_history` entry unless the test explicitly provides a second user choice that permits a duplicate/repeated plan.
 
 **Test runtime and cost:**
 - Test runs only when `ANTHROPIC_API_KEY` is set (`describe.runIf`), otherwise skip
@@ -1579,9 +1890,10 @@ daily/{today}.md: (empty)
 
 ### Acceptance
 
-- **T8-AC-01:** `pnpm --filter cli test:e2e` is green when `ANTHROPIC_API_KEY` is set.
-- **T8-AC-02:** Skip message is clearly visible when the key is missing ("skipped — set ANTHROPIC_API_KEY to run e2e").
-- **T8-AC-03:** `README.md` contains one documentation line explaining how to run the test locally and how expensive it is.
+- **T10-AC-01:** `pnpm --filter cli test:e2e` is green when `ANTHROPIC_API_KEY` is set.
+- **T10-AC-02:** Skip message is clearly visible when the key is missing ("skipped — set ANTHROPIC_API_KEY to run e2e").
+- **T10-AC-03:** `README.md` contains one documentation line explaining how to run the test locally and how expensive it is.
+- **T10-AC-04:** The real-API E2E suite includes the Rasen duplicate-Daily regression and proves no second open Daily Plan occurrence is written without an explicit user choice to move, duplicate, or repeat.
 
 ### Key Locations
 
@@ -1595,16 +1907,16 @@ daily/{today}.md: (empty)
 ### Key Discoveries
 
 - **LLM output is non-deterministic.** Assertions go **only** against filesystem state and `file_history`, never against exact LLM text. Allowed: rough string checks ("output contains 'milk'") for read-only scenarios.
-- **R2 (single-location) is the strongest property assertion.** After every mutating turn: for any task string at most one open occurrence may exist (exception: focus ↔ next actions may duplicate).
-- **Lost-task detector:** the sum of all unique task strings across all lists (incl. archived and done) is monotonically non-decreasing. If this invariant breaks, the system has lost a task — that is the core trust risk from the product spec.
-- **Scenario 6 (day change) only works thanks to Task 5's `GTD_NOW_OVERRIDE` clock injection.** Without the env override, the day boundary would not be reproducibly testable. The assertions deliberately target the *deterministic* surface of Task 7's opener (banner string, `autoReplanRanFor` marker, presence of a synthetic user message) — not the LLM's response text, which would be flaky.
+- **Canonical uniqueness is the strongest property assertion.** After every mutating turn: for any task string, at most one open canonical occurrence may exist across Next Actions, Waiting, and Someday. Focus and Daily may duplicate only as backed overlay/schedule occurrences.
+- **Lost-task detector:** the sum of all unique task strings across canonical lists plus backed Focus/Daily occurrences is monotonically non-decreasing unless the user explicitly completed or cancelled the task. If this invariant breaks, the system has lost a task — that is the core trust risk from the product spec.
+- **Scenario 6 (day change) only works thanks to Task 5's `GTD_NOW_OVERRIDE` clock injection.** Without the env override, the day boundary would not be reproducibly testable. The assertions deliberately target the *deterministic* surface of Task 9's opener (banner string, `autoReplanRanFor` marker, presence of a synthetic user message) — not the LLM's response text, which would be flaky.
 - **The tests must be robust against model updates.** If Haiku answers differently in 6 months, the tests should still pass — hence property assertions instead of text matches.
 
 ---
 
-## Task 9: Weekly Review interactive workflow (deferred placeholder)
+## Task 11: Weekly Review interactive workflow (deferred placeholder)
 
-> **Post-created 2026-05-19. Placeholder — not yet specced.** Captures the intent to port the richer Weekly-Review choreography from the user's personal vault `CLAUDE.md` into the keppt-app product so review sessions actually feel like a review and not a passive list-walk. Held out of Task 4.3 because the content is ~200 prompt tokens that only matter in ~1% of turns, and putting it in the always-cached R1–R16 head would bloat every regular turn for no benefit. To be designed and scheduled when Phase 1 acceptance (Task 8) is green and real-session feedback indicates the simpler Weekly-Review behaviour from current R7 is insufficient.
+> **Post-created 2026-05-19. Placeholder — not yet specced.** Captures the intent to port the richer Weekly-Review choreography from the user's personal vault `CLAUDE.md` into the keppt-app product so review sessions actually feel like a review and not a passive list-walk. Held out of Task 4.3 because the content is ~200 prompt tokens that only matter in ~1% of turns, and putting it in the always-cached R1–R16 head would bloat every regular turn for no benefit. To be designed and scheduled when Phase 1 acceptance (Task 10) is green and real-session feedback indicates the simpler Weekly-Review behaviour from current R7 is insufficient.
 
 ### What needs to land (content)
 
@@ -1639,7 +1951,7 @@ Current R7 (current shape, pre- and post-Task-4.3) already carries the Marker-Da
 
 ### When to schedule
 
-After Task 8 (real-API acceptance) lands and one or two real Weekly-Review sessions have been run against the current R7 — if those sessions feel passive/list-walking rather than interactive, this task takes priority over the next planned feature. If the simpler R7 actually feels adequate in real use, this task can be deprioritised or merged into a future "review polish" pass.
+After Task 10 (real-API acceptance) lands and one or two real Weekly-Review sessions have been run against the current R7 — if those sessions feel passive/list-walking rather than interactive, this task takes priority over the next planned feature. If the simpler R7 actually feels adequate in real use, this task can be deprioritised or merged into a future "review polish" pass.
 
 ---
 
