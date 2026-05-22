@@ -450,6 +450,7 @@ const result = streamText({
     write_file: writeFileTool,  // fallback for create / full rewrite
     list_files: listFilesTool,
     search_files: searchFilesTool,
+    find_task_occurrences: findTaskOccurrencesTool, // rg-style task placement check
   },
   maxSteps: 10,  // Agentic Loop: up to 10 tool calls per request
 });
@@ -1026,12 +1027,15 @@ The scope rules are deliberately **not** enforced in the `FileRepository`, but i
 - Only check: **path safety** (no `..` segments, no absolute paths, no symlink escapes). Violation is a bug, not a user error → exception.
 - No knowledge of the GTD structure (`tasks/`, `daily/`).
 
-**Layer 2 — LLM tool layer (the 5 tools):**
+**Layer 2 — LLM tool layer (vault tools):**
 - Enforces the scope rules from the table above. Concretely:
   - `read_file`: `tasks/*.md`, `daily/YYYY-MM-DD.md` for any valid date
   - `write_file` / `edit_file`: `tasks/*.md`, `daily/YYYY-MM-DD.md` for any valid date. Past-daily writes are gated by the prompt rule R6 (default read-only, narrow correction carve-out), not by the predicate
   - `list_files`: prefix must be `tasks/` or `daily/`
   - `search_files`: scope parameter as in the table
+  - `find_task_occurrences`: bounded task-placement search across task files,
+    Focus, Inbox, and the active Daily horizon; see
+    `docs/specs/task-model-and-occurrence-search.md`
 - Violation → structured error as tool result (like `EditResult { ok: false, ... }`), no throw. The LLM receives feedback and can react in the next step.
 
 This way the repository abstraction stays cleanly swappable (Local/Supabase/InMemory) and the GTD semantics live where they belong: at the boundary to the LLM.
@@ -1123,7 +1127,13 @@ Inline reference in code: `packages/core/src/local-file-repository.ts`
 
 ## LLM Tool Definitions
 
-The LLM interacts with the data **exclusively** through 5 tools. No filesystem, no bash, no shell. The tools operate on a **`FileRepository` interface** — the implementation behind it is swappable.
+The LLM interacts with the data **exclusively** through vault tools. No filesystem, no bash, no shell. The tools operate on a **`FileRepository` interface** — the implementation behind it is swappable.
+
+> **Task consistency amendment (2026-05-22):** task placement consistency is no
+> longer expected to come from long prompt-only crosscheck procedures. The shared
+> core adds an rg-style `find_task_occurrences` tool and the prompt is rewritten
+> around a compact entity model. See
+> `docs/specs/task-model-and-occurrence-search.md`.
 
 ### FileRepository Interface (Open-Closed Principle)
 
@@ -1197,7 +1207,7 @@ class SupabaseFileRepository implements FileRepository {
 
 ### LLM Tool Definitions
 
-The 5 tools the LLM calls. Each tool internally delegates to the `FileRepository` interface.
+The vault tools the LLM calls. Each tool internally delegates to the `FileRepository` interface.
 
 **`read_file(file_path: string): string`**
 Reads the current content of a file. Returns the markdown content. If the file is missing, there is a defined error (not null/empty).
@@ -1245,6 +1255,14 @@ Full-text search across file contents. Default scope: `"active"` (all `tasks/*.m
 - Example: `search_files("DB Followup")` → matches across every daily, e.g. `[{ filePath: "daily/2026-04-08.md", snippet: "...", line: 17 }]`
 - Internally: `fileRepository.search(query, scope)` — Supabase uses PostgreSQL Full-Text Search, locally string search / ripgrep is sufficient
 
+**`find_task_occurrences({ candidates: string[] }): { searchedFiles, blocks }`**
+Task-placement search for Focus/Daily/canonical consistency. Behaves like safe
+literal `rg -C 1` over task-relevant surfaces and the active Daily horizon
+(`today - 30 days` through all existing future dailies). Returns raw Markdown
+blocks, not classifications. The model inspects the raw blocks and reads matched
+files fully if the block is insufficient before writing. Detailed contract:
+`docs/specs/task-model-and-occurrence-search.md`.
+
 **Why `edit_file` is the default write tool (instead of full-text `write_file`):**
 - **Token costs collapse.** Checking off a task goes from "2000 lines of output" to "~50 tokens of search/replace". At $3/MTok Haiku output, the difference is ~30x ($0.006 → $0.0002). Directly relevant for the pricing model — every task operation becomes dramatically cheaper, crosscheck writes only become economically viable this way.
 - **Silent-drift risk disappears.** With full-text write, the LLM can accidentally rephrase a task formulation, change a character, flip the order — unnoticed. With `edit_file`, the unchanged part of the file **never** flows through LLM output. Massive for the trust thesis ("conservative bookkeeper").
@@ -1253,12 +1271,14 @@ Full-text search across file contents. Default scope: `"active"` (all `tasks/*.m
 
 **Why `write_file` still remains:** For "file doesn't exist yet" and "structure is being completely rebuilt", search/replace is unsuitable — full-text write is clearer there. But: **90%+ of operations go through `edit_file`**, no longer through `write_file`.
 
-**Why exactly 5 tools:**
+**Why keep the tool set small:**
 - Each tool is a function call = latency + tokens. Fewer tools = faster responses.
 - `read_file` + `edit_file` cover 95% of all operations.
 - `write_file` is the exception for create/full rewrite.
 - `list_files` is rarely needed (the system knows the GTD structure), but necessary for dynamic content (past-daily browsing, future drafts).
 - `search_files` is the substitute for `grep` / bash search — essential for "Where is X?" and historical queries against past dailies.
+- `find_task_occurrences` is the deterministic safety net for task-placement
+  consistency, replacing prompt-only R2/R4/R5 crosscheck procedures.
 - **No delete_file tool.** Files are not deleted, only emptied or rewritten. Prevents data loss through LLM errors.
 
 ## Context-Aware Session Start (Onboarding + Daily Suggestion = one system)
@@ -1924,6 +1944,13 @@ A noted strategic option, **not** an active workstream. Captured here so the arc
 - **Principle: Read + Write. That's it.**
 
 ## System Prompt Rules (R1-R13)
+
+> **Legacy section / superseded task-placement model (2026-05-22):** The
+> original R1-R4 wording below is retained as historical architecture context,
+> but the task-placement, Focus, Daily Plan, and crosscheck design is superseded
+> by `docs/specs/task-model-and-occurrence-search.md`. The new prompt should use
+> the entity model plus `find_task_occurrences` instead of copying these
+> procedure-heavy rules forward.
 
 ### R1: Data Model — Five Lists + Daily Notes
 
