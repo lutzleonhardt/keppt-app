@@ -1,10 +1,7 @@
 import type {
-  AssistantBlock,
   AssistantContentMessage,
   AssistantToolMessage,
-  InlineText,
   QuickReply,
-  RichListItem,
 } from "../chat/chat.types";
 
 export interface MockToolRow {
@@ -14,7 +11,7 @@ export interface MockToolRow {
 
 export interface MockAssistantResponse {
   readonly tool: MockToolRow;
-  readonly blocks: readonly AssistantBlock[];
+  readonly markdown: string;
   readonly quickReplies?: readonly string[];
 }
 
@@ -61,35 +58,6 @@ export const routePatterns = {
   waiting: /warten|waiting|max|db/i,
   inbox: /inbox|aufräumen|sortier/i,
 } as const;
-
-const paragraph = (id: string, ...text: InlineText[]): AssistantBlock => ({
-  id,
-  type: "paragraph",
-  text,
-});
-
-const heading = (id: string, text: string): AssistantBlock => ({
-  id,
-  type: "heading",
-  text,
-});
-
-const inline = (
-  text: string,
-  mark?: "strong" | "emphasis" | "muted" | "code",
-): InlineText => (mark ? { text, mark } : { text });
-
-const ordered = (id: string, items: RichListItem[]): AssistantBlock => ({
-  id,
-  type: "ordered-list",
-  items,
-});
-
-const unordered = (id: string, items: RichListItem[]): AssistantBlock => ({
-  id,
-  type: "unordered-list",
-  items,
-});
 
 const toolRows = {
   greeting: {
@@ -153,195 +121,126 @@ const toolRows = {
 const responses = {
   greeting: {
     tool: toolRows.greeting,
-    blocks: [
-      paragraph("greeting-date", inline("Guten Morgen, Lutz. Heute ist "), inline("Mittwoch, 6. Mai", "strong"), inline(".")),
-      paragraph(
-        "greeting-waiting",
-        inline("Eine offene Rückmeldung wartet seit 8 Tagen — "),
-        inline("DB Follow-up-Call", "strong"),
-        inline(". Willst du kurz reinschauen, bevor wir den Tag planen?"),
-      ),
-    ],
+    markdown: [
+      "Guten Morgen, Lutz. Heute ist **Mittwoch, 6. Mai**.",
+      "Eine offene Rückmeldung wartet seit 8 Tagen — **DB Follow-up-Call**. Willst du kurz reinschauen, bevor wir den Tag planen?",
+    ].join("\n\n"),
     quickReplies: ["Tag planen", "Warten auf zeigen", "Erstmal nur erfassen"],
   },
   captureConfirm: {
     tool: toolRows.captureConfirm,
-    blocks: [
-      paragraph("capture-confirm-intro", inline("Keppt. Ich habe drei Dinge mitgenommen:")),
-      ordered("capture-confirm-items", [
-        {
-          title: [inline("Anna wegen Angebot schreiben", "strong")],
-          body: [
-            inline("habe ich für morgen vorgeschlagen, Anna ist Cash-relevant und wartet auf Rückmeldung."),
-          ],
-        },
-        {
-          title: [inline("Steuerunterlagen sortieren", "strong")],
-          body: [inline("Zeitpunkt unklar; liegt erstmal in der Inbox, wir entscheiden später.")],
-        },
-        {
-          title: [inline("YouTube-Idee „AI Apps“", "strong")],
-          body: [inline("als Idee in "), inline("Vielleicht irgendwann", "emphasis"), inline(" abgelegt, ohne Druck.")],
-        },
-      ]),
-      paragraph("capture-confirm-question", inline("Soll "), inline("Anna", "emphasis"), inline(" morgen Priorität bekommen?")),
-    ],
+    markdown: [
+      "Keppt. Ich habe drei Dinge mitgenommen:",
+      "",
+      "1. **Anna wegen Angebot schreiben**  ",
+      "   habe ich für morgen vorgeschlagen, Anna ist Cash-relevant und wartet auf Rückmeldung.",
+      "2. **Steuerunterlagen sortieren**  ",
+      "   Zeitpunkt unklar; liegt erstmal in der Inbox, wir entscheiden später.",
+      "3. **YouTube-Idee „AI Apps“**  ",
+      "   als Idee in *Vielleicht irgendwann* abgelegt, ohne Druck.",
+      "",
+      "Soll *Anna* morgen Priorität bekommen?",
+    ].join("\n"),
     quickReplies: ["Ja, Anna zuerst", "Plan morgen — 4 h", "Später entscheiden"],
   },
   planning: {
     tool: toolRows.planning,
-    blocks: [
-      heading("planning-heading", "Morgen — Plan für 4 Stunden"),
-      ordered("planning-items", [
-        {
-          title: [inline("Anna wegen Angebot schreiben.", "strong")],
-          body: [],
-          meta: "Wichtig & zeitkritisch · 90 Min",
-        },
-        {
-          title: [inline("AI-Apps-Video gliedern.", "strong")],
-          body: [],
-          meta: "Höchster Hebel für Content · 60 Min",
-        },
-        {
-          title: [inline("Steuerunterlagen vorsortieren.", "strong")],
-          body: [],
-          meta: "Nur erster Schritt · 20 Min",
-        },
-      ]),
-      heading("planning-not-tomorrow-heading", "Nicht morgen:"),
-      unordered("planning-not-tomorrow-items", [
-        { body: [inline("Hecke schneiden")] },
-        { body: [inline("Steuer komplett")] },
-        { body: [inline("VW-Rechnung, solange Max nicht geantwortet hat")] },
-      ]),
-      paragraph("planning-question", inline("Plan übernehmen?")),
-    ],
+    markdown: [
+      "## Morgen — Plan für 4 Stunden",
+      "",
+      "1. **Anna wegen Angebot schreiben.**  ",
+      "   Wichtig & zeitkritisch · 90 Min",
+      "2. **AI-Apps-Video gliedern.**  ",
+      "   Höchster Hebel für Content · 60 Min",
+      "3. **Steuerunterlagen vorsortieren.**  ",
+      "   Nur erster Schritt · 20 Min",
+      "",
+      "## Nicht morgen:",
+      "",
+      "- Hecke schneiden",
+      "- Steuer komplett",
+      "- VW-Rechnung, solange Max nicht geantwortet hat",
+      "",
+      "Plan übernehmen?",
+    ].join("\n"),
     quickReplies: ["Ja, eintragen", "Anpassen"],
   },
   today: {
     tool: toolRows.today,
-    blocks: [
-      heading("today-heading", "Heute"),
-      ordered("today-items", [
-        {
-          title: [inline("Anna wegen Angebot schreiben.", "strong")],
-          body: [],
-          meta: "Wichtig & zeitnah · 30 Min",
-        },
-        {
-          title: [inline("AI-Apps-Video gliedern.", "strong")],
-          body: [],
-          meta: "Ruhige Phase · 90 Min",
-        },
-        {
-          title: [inline("Steuerunterlagen vorsortieren.", "strong")],
-          body: [],
-          meta: "Erster Schritt · 20 Min",
-        },
-      ]),
-      paragraph(
-        "today-waiting-question",
-        inline("Zwei Rückmeldungen warten — bei "),
-        inline("Max", "strong"),
-        inline(" seit 3 Tagen, bei "),
-        inline("DB", "strong"),
-        inline(" seit 8 Tagen. Willst du heute pingen?"),
-      ),
-    ],
+    markdown: [
+      "## Heute",
+      "",
+      "1. **Anna wegen Angebot schreiben.**  ",
+      "   Wichtig & zeitnah · 30 Min",
+      "2. **AI-Apps-Video gliedern.**  ",
+      "   Ruhige Phase · 90 Min",
+      "3. **Steuerunterlagen vorsortieren.**  ",
+      "   Erster Schritt · 20 Min",
+      "",
+      "Zwei Rückmeldungen warten — bei **Max** seit 3 Tagen, bei **DB** seit 8 Tagen. Willst du heute pingen?",
+    ].join("\n"),
     quickReplies: ["An Max pingen", "Tagesplan starten", "Plan für morgen"],
   },
   waiting: {
     tool: toolRows.waiting,
-    blocks: [
-      paragraph("waiting-intro", inline("Zwei offene Rückmeldungen liegen bei dir:")),
-      ordered("waiting-items", [
-        {
-          title: [inline("Max — Feedback zur Rechnung.", "strong")],
-          body: [],
-          meta: "Seit 3 Tagen · noch im Rahmen.",
-        },
-        {
-          title: [inline("DB — Follow-up-Call.", "strong")],
-          body: [],
-          meta: "Seit 8 Tagen · überfällig.",
-        },
-      ]),
-      paragraph("waiting-question", inline("Soll ich an einen von beiden erinnern?")),
-    ],
+    markdown: [
+      "Zwei offene Rückmeldungen liegen bei dir:",
+      "",
+      "1. **Max — Feedback zur Rechnung.**  ",
+      "   Seit 3 Tagen · noch im Rahmen.",
+      "2. **DB — Follow-up-Call.**  ",
+      "   Seit 8 Tagen · überfällig.",
+      "",
+      "Soll ich an einen von beiden erinnern?",
+    ].join("\n"),
     quickReplies: ["An Max pingen", "DB jetzt nachhaken", "Nichts tun"],
   },
   inbox: {
     tool: toolRows.inbox,
-    blocks: [
-      paragraph("inbox-intro", inline("Klar. In deiner Inbox liegen aktuell "), inline("4 Einträge", "strong"), inline(". Mein Vorschlag:")),
-      ordered("inbox-items", [
-        {
-          title: [inline("Anna wegen Angebot schreiben", "strong")],
-          body: [inline("→ "), inline("Nächste Schritte / Arbeit", "emphasis"), inline(", geplant für morgen.")],
-        },
-        {
-          title: [inline("Steuerunterlagen sortieren", "strong")],
-          body: [inline("→ "), inline("Nächste Schritte / Persönlich", "emphasis"), inline(", ohne festen Termin.")],
-        },
-        {
-          title: [inline("YouTube-Idee „AI Apps“", "strong")],
-          body: [inline("→ "), inline("Vielleicht irgendwann", "emphasis"), inline(", beobachten.")],
-        },
-        {
-          title: [inline("Geschenk für Mama recherchieren", "strong")],
-          body: [inline("→ "), inline("Nächste Schritte / Persönlich", "emphasis"), inline(", Geburtstag in 2 Wochen.")],
-        },
-      ]),
-      paragraph("inbox-question", inline("Soll ich das so übernehmen, oder willst du was anpassen?")),
-    ],
+    markdown: [
+      "Klar. In deiner Inbox liegen aktuell **4 Einträge**. Mein Vorschlag:",
+      "",
+      "1. **Anna wegen Angebot schreiben**  ",
+      "   → *Nächste Schritte / Arbeit*, geplant für morgen.",
+      "2. **Steuerunterlagen sortieren**  ",
+      "   → *Nächste Schritte / Persönlich*, ohne festen Termin.",
+      "3. **YouTube-Idee „AI Apps“**  ",
+      "   → *Vielleicht irgendwann*, beobachten.",
+      "4. **Geschenk für Mama recherchieren**  ",
+      "   → *Nächste Schritte / Persönlich*, Geburtstag in 2 Wochen.",
+      "",
+      "Soll ich das so übernehmen, oder willst du was anpassen?",
+    ].join("\n"),
     quickReplies: ["So übernehmen", "Anders verteilen", "Später"],
   },
   acknowledge: {
     tool: toolRows.acknowledge,
-    blocks: [],
+    markdown: "",
     quickReplies: ["Räum die Inbox auf", "Was steht heute an?"],
   },
   planEntered: {
     tool: toolRows.planEntered,
-    blocks: [
-      paragraph(
-        "plan-entered-confirmation",
-        inline("Erledigt. Ich habe den Plan in "),
-        inline("2026-05-07.md", "code"),
-        inline(" eingetragen — drei Slots, zwei Hinweise als Notiz."),
-      ),
-      paragraph(
-        "plan-entered-next-actions",
-        inline("In "),
-        inline("Nächste Schritte", "emphasis"),
-        inline(" bleibt alles wie es war; morgen früh frage ich dich, ob wir loslegen."),
-      ),
-    ],
+    markdown: [
+      "Erledigt. Ich habe den Plan in `2026-05-07.md` eingetragen — drei Slots, zwei Hinweise als Notiz.",
+      "In *Nächste Schritte* bleibt alles wie es war; morgen früh frage ich dich, ob wir loslegen.",
+    ].join("\n\n"),
     quickReplies: ["Was sonst noch?", "Nichts mehr"],
   },
   annaPriority: {
     tool: toolRows.annaPriority,
-    blocks: [
-      paragraph("anna-priority-confirmation", inline("Gemerkt. "), inline("Anna", "strong"), inline(" ist morgen oben.")),
-      paragraph(
-        "anna-priority-planning-hint",
-        inline("Wenn du willst, plane ich den Rest des Tages drumherum — sag einfach "),
-        inline("„Plan morgen“", "emphasis"),
-        inline(" oder gib mir, wie viel Zeit du hast."),
-      ),
-    ],
+    markdown: [
+      "Gemerkt. **Anna** ist morgen oben.",
+      "Wenn du willst, plane ich den Rest des Tages drumherum — sag einfach *„Plan morgen“* oder gib mir, wie viel Zeit du hast.",
+    ].join("\n\n"),
     quickReplies: ["Plan morgen — 4 h", "Erstmal nur erfassen"],
   },
   captureOnly: {
     tool: toolRows.captureOnly,
-    blocks: [
-      paragraph("capture-only-body", inline("Klar. Drück den Mic-Button oder schreib einfach — ich höre zu, ohne zu sortieren.")),
-    ],
+    markdown: "Klar. Drück den Mic-Button oder schreib einfach — ich höre zu, ohne zu sortieren.",
   },
   later: {
     tool: toolRows.later,
-    blocks: [paragraph("later-body", inline("Alles gut. Ich frage später nochmal nach."))],
+    markdown: "Alles gut. Ich frage später nochmal nach.",
   },
 } satisfies Record<MockFlow, MockAssistantResponse>;
 
@@ -352,20 +251,10 @@ export function getMockResponse(flow: MockFlow, capturedText?: string): MockAssi
 
   return {
     ...responses.acknowledge,
-    blocks: [
-      paragraph(
-        "acknowledge-captured",
-        inline("Notiert — "),
-        inline(`„${capturedText ?? "Das"}“`, "emphasis"),
-        inline(" liegt jetzt in deiner Inbox."),
-      ),
-      paragraph(
-        "acknowledge-next-step",
-        inline("Wenn du willst, sag "),
-        inline("„Räum die Inbox auf“", "emphasis"),
-        inline(" und wir sortieren zusammen — oder ich mache nichts und du fragst später danach."),
-      ),
-    ],
+    markdown: [
+      `Notiert — *„${capturedText ?? "Das"}“* liegt jetzt in deiner Inbox.`,
+      "Wenn du willst, sag *„Räum die Inbox auf“* und wir sortieren zusammen — oder ich mache nichts und du fragst später danach.",
+    ].join("\n\n"),
   };
 }
 
@@ -393,7 +282,7 @@ export function createContentMessage(
     id,
     role: "assistant",
     kind: "content",
-    blocks: [...response.blocks],
+    markdown: response.markdown,
     quickReplies: response.quickReplies?.map(createQuickReply),
     createdAt,
   };

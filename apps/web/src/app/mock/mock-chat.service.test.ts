@@ -29,7 +29,12 @@ describe("MockChatService", () => {
     expect(content).toMatchObject({
       role: "assistant",
       kind: "content",
+      markdown:
+        "Guten Morgen, Lutz. Heute ist **Mittwoch, 6. Mai**.\n\nEine offene Rückmeldung wartet seit 8 Tagen — **DB Follow-up-Call**. Willst du kurz reinschauen, bevor wir den Tag planen?",
     });
+    expect("blocks" in content).toBe(false);
+    expect(lastContent(service.messages()).markdown).not.toContain("Warten auf zeigen");
+    expect(lastContent(service.messages()).markdown).not.toContain("Erstmal nur erfassen");
     expect(lastContent(service.messages()).quickReplies?.map((reply) => reply.label)).toEqual([
       "Tag planen",
       "Warten auf zeigen",
@@ -110,22 +115,12 @@ describe("MockChatService", () => {
     expect(lastTool(service.messages()).text).toBe("Anna für morgen vorgemerkt");
 
     await service.chooseQuickReply(quickReplyPhrases.captureOnly);
-    expect(lastContent(service.messages()).blocks).toEqual([
-      {
-        id: "capture-only-body",
-        type: "paragraph",
-        text: [{ text: "Klar. Drück den Mic-Button oder schreib einfach — ich höre zu, ohne zu sortieren." }],
-      },
-    ]);
+    expect(lastContent(service.messages()).markdown).toBe(
+      "Klar. Drück den Mic-Button oder schreib einfach — ich höre zu, ohne zu sortieren.",
+    );
 
     await service.chooseQuickReply(quickReplyPhrases.laterDecide);
-    expect(lastContent(service.messages()).blocks).toEqual([
-      {
-        id: "later-body",
-        type: "paragraph",
-        text: [{ text: "Alles gut. Ich frage später nochmal nach." }],
-      },
-    ]);
+    expect(lastContent(service.messages()).markdown).toBe("Alles gut. Ich frage später nochmal nach.");
   });
 
   it("keeps navigation state on the service boundary", () => {

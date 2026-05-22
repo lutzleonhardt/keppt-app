@@ -60,3 +60,55 @@ textarea:focus-visible {
   outline: 2px solid var(--keppt-accent);
   outline-offset: 3px;
 }
+
+.assistant-markdown,
+.assistant-markdown markdown {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.assistant-markdown :where(p, h1, h2, h3, h4, h5, h6, ol, ul, pre) {
+  margin: 0;
+}
+
+.assistant-markdown :where(h1, h2, h3, h4, h5, h6) {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.assistant-markdown :where(ol, ul) {
+  display: grid;
+  gap: 7px;
+  padding-left: 1.2em;
+}
+
+.assistant-markdown :where(li) {
+  padding-left: 2px;
+}
+
+.assistant-markdown :where(a) {
+  color: var(--keppt-accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.assistant-markdown :where(code) {
+  border-radius: 5px;
+  padding: 1px 4px;
+  background: var(--keppt-accent-soft);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.92em;
+}
+
+.assistant-markdown :where(pre) {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.assistant-markdown :where(pre code) {
+  display: block;
+  padding: 10px 11px;
+  white-space: pre;
+}

@@ -36,7 +36,7 @@ export interface AssistantTypingMessage extends BaseChatMessage {
 export interface AssistantContentMessage extends BaseChatMessage {
   role: "assistant";
   kind: "content";
-  blocks: AssistantBlock[];
+  markdown: string;
   quickReplies?: QuickReply[];
 }
 
@@ -56,27 +56,10 @@ export function isAssistantContentMessage(message: ChatMessage): message is Assi
   return message.kind === "content";
 }
 
-export type AssistantBlock =
-  | { id: string; type: "paragraph"; text: InlineText[] }
-  | { id: string; type: "heading"; text: string }
-  | { id: string; type: "ordered-list"; items: RichListItem[] }
-  | { id: string; type: "unordered-list"; items: RichListItem[] }
-  | { id: string; type: "code"; text: string };
-
 export interface QuickReply {
   id: string;
   label: string;
   action?: string;
-}
-
-export type InlineText =
-  | { text: string }
-  | { text: string; mark: "strong" | "emphasis" | "muted" | "code" };
-
-export interface RichListItem {
-  title?: InlineText[];
-  body: InlineText[];
-  meta?: string;
 }
 
 export type AppScreen =

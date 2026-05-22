@@ -1,16 +1,13 @@
 import { ChangeDetectionStrategy, Component, input } from "@angular/core";
+import { MarkdownComponent } from "ngx-markdown";
 
 import type { AssistantContentMessage } from "../chat.types";
-import { AssistantBlockComponent } from "./assistant-block";
 
 @Component({
   selector: "keppt-assistant-content-message",
-  imports: [AssistantBlockComponent],
-  template: `
-    @for (block of message().blocks; track block.id) {
-      <keppt-assistant-block [block]="block" />
-    }
-  `,
+  imports: [MarkdownComponent],
+  templateUrl: "./assistant-content-message.html",
+  styles: [":host { display: contents; }"],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AssistantContentMessageComponent {

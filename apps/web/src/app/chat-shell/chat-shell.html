@@ -12,7 +12,7 @@
     </button>
   </header>
 
-  <section class="conversation" aria-label="Unterhaltung">
+  <section #conversation class="conversation" aria-label="Unterhaltung" (scroll)="updateScrollAnchor()">
     <div class="message-stack">
       @for (message of store.messages(); track message.id) {
         <keppt-chat-message [message]="message" />

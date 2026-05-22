@@ -254,7 +254,7 @@ Before changing the renderer, capture a visual baseline for the current mock cha
 
 ### Key Discoveries
 
-- `docs/specs/context/ui-mock.md` recommends `ngx-markdown` for chat rendering and keeps typed data for known UI patterns.
+- The current UI direction is `ngx-markdown` for assistant prose rendering, with typed data kept for known product UI patterns such as tool/status rows, quick replies, confirmations, and plan lists.
 - The previous `AssistantBlock` model was a local client AST for prose, not a product UI contract. It creates extra component surface without matching the later backend shape.
 - Markdown should cover prose structure such as paragraphs, emphasis, headings, lists, and code. Typed message variants should cover non-prose UI like tool rows, typing state, and quick replies.
 - `ngx-markdown` renders normal HTML elements. Those generated elements need a scoped typography layer for assistant prose so the chat keeps the current visual rhythm after the block components are removed.
