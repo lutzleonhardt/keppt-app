@@ -35,9 +35,7 @@
 }
 
 .chat-title p,
-.chat-title span,
-.message p,
-.message-meta {
+.chat-title span {
   margin: 0;
 }
 
@@ -46,8 +44,7 @@
   font-weight: 720;
 }
 
-.chat-title span,
-.message-meta {
+.chat-title span {
   color: var(--keppt-ink-2);
   font-size: 12px;
 }
@@ -125,27 +122,6 @@
   min-height: 100%;
   max-width: 760px;
   margin: 0 auto;
-}
-
-.message {
-  display: grid;
-  justify-self: start;
-  gap: 7px;
-  max-width: min(88%, 560px);
-  padding: 13px 15px;
-  border: 1px solid var(--keppt-hairline);
-  border-radius: 18px 18px 18px 6px;
-  background: rgba(255, 255, 255, 0.66);
-  box-shadow: 0 10px 26px rgba(26, 24, 20, 0.05);
-  line-height: 1.42;
-}
-
-.user-message {
-  justify-self: end;
-  border-color: transparent;
-  border-radius: 18px 18px 6px;
-  background: var(--keppt-accent);
-  color: #fffaf5;
 }
 
 .composer {
@@ -294,10 +270,6 @@
 @media (max-width: 420px) {
   .conversation {
     padding-inline: 12px;
-  }
-
-  .message {
-    max-width: 92%;
   }
 
   .quick-actions button {

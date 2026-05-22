@@ -1,0 +1,27 @@
+@if (headingBlock(); as block) {
+  <h2>{{ block.text }}</h2>
+} @else if (paragraphBlock(); as block) {
+  <p>
+    @for (part of block.text; track part) {
+      <keppt-inline-text [part]="part" />
+    }
+  </p>
+} @else if (orderedListBlock(); as block) {
+  <ol>
+    @for (item of block.items; track item) {
+      <li>
+        <keppt-rich-list-item [item]="item" />
+      </li>
+    }
+  </ol>
+} @else if (unorderedListBlock(); as block) {
+  <ul>
+    @for (item of block.items; track item) {
+      <li>
+        <keppt-rich-list-item [item]="item" />
+      </li>
+    }
+  </ul>
+} @else if (codeBlock(); as block) {
+  <pre><code>{{ block.text }}</code></pre>
+}

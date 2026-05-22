@@ -1,0 +1,17 @@
+@if (item().title?.length) {
+  <span class="item-title">
+    @for (part of item().title; track part) {
+      <keppt-inline-text [part]="part" />
+    }
+  </span>
+}
+@if (item().body.length) {
+  <span>
+    @for (part of item().body; track part) {
+      <keppt-inline-text [part]="part" />
+    }
+  </span>
+}
+@if (item().meta) {
+  <span class="item-meta">{{ item().meta }}</span>
+}

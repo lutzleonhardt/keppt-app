@@ -14,34 +14,34 @@
 
   <section class="conversation" aria-label="Unterhaltung">
     <div class="message-stack">
-      @for (message of messages(); track message.id) {
-        <article class="message" [class.user-message]="message.sender === 'user'">
-          @if (message.meta) {
-            <p class="message-meta">{{ message.meta }}</p>
-          }
-          <p>{{ message.text }}</p>
-        </article>
+      @for (message of store.messages(); track message.id) {
+        <keppt-chat-message [message]="message" />
       }
     </div>
   </section>
 
   <footer class="composer" aria-label="Nachricht verfassen">
     <div class="quick-actions" aria-label="Schnellantworten">
-      @for (action of quickActions; track action) {
-        <button type="button" (click)="submitQuickAction(action)">
-          {{ action }}
+      @for (reply of store.quickReplies(); track reply.id) {
+        <button type="button" (click)="submitQuickAction(reply.label)">
+          {{ reply.label }}
         </button>
       }
     </div>
 
     <div class="composer-row">
-      <button class="voice-button" type="button" aria-label="Spracheingabe starten">
+      <button
+        class="voice-button"
+        type="button"
+        aria-label="Spracheingabe starten"
+        (click)="startVoiceCapture()"
+      >
         <span aria-hidden="true"></span>
       </button>
       <label class="draft-field">
         <span class="visually-hidden">Nachricht</span>
         <textarea
-          [value]="draft()"
+          [value]="store.draft()"
           rows="1"
           placeholder="Nachricht an Keppt"
           (input)="updateDraft($event)"
@@ -52,7 +52,7 @@
         class="send-button"
         type="button"
         aria-label="Nachricht senden"
-        [disabled]="!canSubmit()"
+        [disabled]="!store.canSubmit()"
         (click)="submitDraft()"
       >
         <span aria-hidden="true"></span>

@@ -1,0 +1,26 @@
+@if (userMessage(); as message) {
+  <article class="message user-message">
+    <p>{{ message.text }}</p>
+  </article>
+} @else if (toolMessage(); as message) {
+  <article class="message tool-message">
+    <p class="message-meta">{{ message.text }}</p>
+    @if (message.files?.length) {
+      <ul class="file-list" aria-label="Geprüfte Dateien">
+        @for (file of message.files; track file) {
+          <li>{{ file }}</li>
+        }
+      </ul>
+    }
+  </article>
+} @else if (typingMessage()) {
+  <article class="message typing-message" aria-label="Keppt denkt nach">
+    <span aria-hidden="true"></span>
+    <span aria-hidden="true"></span>
+    <span aria-hidden="true"></span>
+  </article>
+} @else if (contentMessage(); as message) {
+  <article class="message content-message">
+    <keppt-assistant-content-message [message]="message" />
+  </article>
+}

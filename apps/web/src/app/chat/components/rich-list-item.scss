@@ -1,0 +1,13 @@
+:host {
+  display: contents;
+}
+
+.item-title,
+.item-meta {
+  display: block;
+}
+
+.item-meta {
+  color: var(--keppt-ink-2);
+  font-size: 12px;
+}

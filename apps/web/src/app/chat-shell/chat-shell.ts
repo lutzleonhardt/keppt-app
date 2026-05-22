@@ -1,71 +1,36 @@
-import { ChangeDetectionStrategy, Component, computed, signal } from "@angular/core";
-import { toSignal } from "@angular/core/rxjs-interop";
-import { scan, startWith, Subject } from "rxjs";
+import { ChangeDetectionStrategy, Component, inject } from "@angular/core";
 
-import {
-  createUserMessage,
-  initialMessages,
-  quickActions,
-  type ChatShellMessage,
-} from "./shell-content";
-
-interface ChatShellState {
-  readonly messages: readonly ChatShellMessage[];
-  readonly nextId: number;
-}
-
-const initialState: ChatShellState = {
-  messages: initialMessages,
-  nextId: initialMessages.length + 1,
-};
+import { ChatService } from "../chat/chat.service";
+import { ChatStore } from "../chat/chat.store";
+import { ChatMessageComponent } from "../chat/components/chat-message";
+import { MockChatService } from "../mock/mock-chat.service";
 
 @Component({
   selector: "keppt-chat-shell",
+  imports: [ChatMessageComponent],
   templateUrl: "./chat-shell.html",
-  styleUrl: "./chat-shell.css",
+  styleUrl: "./chat-shell.scss",
   changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [{ provide: ChatService, useClass: MockChatService }, ChatStore],
 })
 export class ChatShellComponent {
-  private readonly submittedText$ = new Subject<string>();
-
-  protected readonly draft = signal("");
-  protected readonly quickActions = quickActions;
+  protected readonly store = inject(ChatStore);
   protected readonly today = "Mittwoch, 6. Mai";
-
-  private readonly chatState = toSignal(
-    this.submittedText$.pipe(
-      scan<string, ChatShellState>(
-        (state, text) => ({
-          messages: [...state.messages, createUserMessage(state.nextId, text)],
-          nextId: state.nextId + 1,
-        }),
-        initialState,
-      ),
-      startWith(initialState),
-    ),
-    { initialValue: initialState },
-  );
-
-  protected readonly messages = computed(() => this.chatState().messages);
-  protected readonly canSubmit = computed(() => this.draft().trim().length > 0);
 
   protected updateDraft(event: Event): void {
     const target = event.target as HTMLTextAreaElement;
-    this.draft.set(target.value);
+    this.store.updateDraft(target.value);
   }
 
-  protected submitDraft(): void {
-    const text = this.draft().trim();
-
-    if (text.length === 0) {
-      return;
-    }
-
-    this.submittedText$.next(text);
-    this.draft.set("");
+  protected async submitDraft(): Promise<void> {
+    await this.store.submitDraft();
   }
 
-  protected submitQuickAction(text: string): void {
-    this.submittedText$.next(text);
+  protected async submitQuickAction(text: string): Promise<void> {
+    await this.store.chooseQuickReply(text);
+  }
+
+  protected startVoiceCapture(): void {
+    this.store.startVoiceCapture();
   }
 }
