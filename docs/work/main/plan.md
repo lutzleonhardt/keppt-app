@@ -1432,7 +1432,6 @@ find_task_occurrences({
   blocks: Array<{
     file: string;
     line: number;
-    candidates: string[];
     rawBlock: string[];
   }>;
 }
@@ -1441,9 +1440,9 @@ find_task_occurrences({
 - `searchedFiles` lists existing files that were actually read.
 - `line` is the 1-based central or first matched line in the block.
 - `rawBlock` is raw Markdown context, normally one line before the matched line(s), the matched line(s), and one line after.
-- If multiple matches fall into the same or overlapping context block, return that block once and list all matching candidates for the block.
+- If multiple matches fall into the same or overlapping context block, return that block once.
 - If nearby matches produce blocks that overlap or have at most one raw line between them, merge them into one larger raw block.
-- Do not return derived fields such as `surface`, `date`, `checkbox`, `matchReason`, `taskLikeHint`, `entryKind`, `open`, `done`, or `drift`.
+- Do not return matched-candidate metadata or derived fields such as `surface`, `date`, `checkbox`, `matchReason`, `taskLikeHint`, `entryKind`, `open`, `done`, or `drift`.
 - Do not add truncation for MVP; return all matched blocks in the bounded surfaces.
 
 **Search surfaces:**
@@ -1475,7 +1474,7 @@ all existing future daily/YYYY-MM-DD.md notes
   - Unicode NFKD/NFD normalization plus combining-mark stripping for umlaut/diacritic tolerance;
   - collapse whitespace runs;
   - tolerate punctuation and Markdown markers such as `-`, `*`, `#`, `[ ]`, `[x]`, `[[...]]` by normalizing them to separators.
-- Drop candidates that become empty after normalization. If all candidates become empty, return no blocks after reading the bounded surfaces.
+- Drop candidates that become empty after normalization. If all candidates become empty, return no blocks and do not read the vault.
 - Preserve raw Markdown in `rawBlock`; normalization is only for match detection.
 
 **Core shape:**
@@ -1486,7 +1485,6 @@ Implement the reusable logic outside the tool wrapper, likely as:
 export interface TaskOccurrenceBlock {
   file: string;
   line: number;
-  candidates: string[];
   rawBlock: string[];
 }
 
@@ -1510,8 +1508,8 @@ The `buildTools` wrapper should validate with Zod (`candidates: z.array(z.string
 - **T7-AC-02:** Given a candidate with umlauts/diacritics and file content using the decomposed or plain-letter form, matching succeeds through Unicode normalization and combining-mark stripping.
 - **T7-AC-03:** Given seeded task files plus daily notes before, inside, and after the active horizon, search reads the five task files, daily files from `today - 30 days` onward, today, and all existing future daily notes; it excludes daily files older than the 30-day lookback and ignores non-date daily paths.
 - **T7-AC-04:** Missing task or daily files do not throw; `searchedFiles` contains only files actually read.
-- **T7-AC-05:** Multiple candidate hits inside overlapping or near-adjacent context windows are merged into one block with the union of matching candidate strings.
-- **T7-AC-06:** Output contains raw Markdown evidence only: `searchedFiles` and `blocks[]` with `file`, `line`, `candidates`, `rawBlock`; no derived classifier/status/date/surface fields are present.
+- **T7-AC-05:** Multiple candidate hits inside overlapping or near-adjacent context windows are merged into one block without repeating matched-candidate metadata.
+- **T7-AC-06:** Output contains raw Markdown evidence only: `searchedFiles` and `blocks[]` with `file`, `line`, `rawBlock`; no matched-candidate or derived classifier/status/date/surface fields are present.
 - **T7-AC-07:** `buildTools` exposes `find_task_occurrences` with exactly one input property, `candidates: string[]`; there are no scope, date-range, status, intent, or regex parameters.
 - **T7-AC-08:** The tool uses the injected `now` clock from `buildTools` so a test can pin `today` and verify the 30-day daily horizon without relying on wall-clock time.
 - **T7-AC-09:** A regression fixture for "Rasen" in a future daily note proves the tool returns the future Daily Plan evidence that Task 8 will require the model to inspect before a second Daily Plan write.

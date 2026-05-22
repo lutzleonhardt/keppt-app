@@ -14,6 +14,7 @@ import {
 } from "./gtd-layout.js";
 import { type Logger, NoopLogger, safeLog } from "./logging.js";
 import { formatToday } from "./search.js";
+import { findTaskOccurrences } from "./task-occurrences.js";
 import type { SearchResult } from "./file-repository.js";
 
 const filePathSchema = z.string();
@@ -462,17 +463,27 @@ export function buildTools(
       execute: async ({ query, scope }) =>
         searchFilesTool(repo, query, scope ?? "active", today()),
     }),
+    find_task_occurrences: tool({
+      description:
+        "Literal task-occurrence evidence search. Searches exactly the five task files; " +
+        "daily/YYYY-MM-DD.md from today minus 30 days through today; and all existing future " +
+        "date-formatted daily notes. Provide one task-like item as candidates: the user's wording " +
+        "plus close variants. Returns raw Markdown context blocks only, not status or classifier truth. " +
+        "A negative result means not found in this bounded placement horizon; use search_files/read_file for broader history questions.",
+      inputSchema: z.object({
+        candidates: z.array(z.string().min(1)).min(1),
+      }),
+      execute: async ({ candidates }) =>
+        findTaskOccurrences(repo, today(), candidates),
+    }),
     suggest_quick_replies: tool({
       description:
-        "Terminal UI tool: surface 2–5 short follow-up answers under a question. The `question` field is REQUIRED and renders as the prose line above the chips — it must be a complete sentence naming the choice you offer (e.g. \"Soll ich Rasen morgen auch in Focus aufnehmen?\"), not a label or topic noun. Use only when the user's next step has discrete, anticipatable options (yes/no, choose-one-of-three, accept/decline/defer). Do NOT use for open-ended questions, and NEVER as a substitute for an informational answer the user asked for: a listing question like \"Was steht morgen an?\" gets the list in prose, not chips.",
+        'Terminal UI tool: surface 2–5 short follow-up answers under a question. The `question` field is REQUIRED and renders as the prose line above the chips — it must be a complete sentence naming the choice you offer (e.g. "Soll ich Rasen morgen auch in Focus aufnehmen?"), not a label or topic noun. Use only when the user\'s next step has discrete, anticipatable options (yes/no, choose-one-of-three, accept/decline/defer). Do NOT use for open-ended questions, and NEVER as a substitute for an informational answer the user asked for: a listing question like "Was steht morgen an?" gets the list in prose, not chips.',
       inputSchema: z.object({
         question: z.string().min(1).max(200),
         options: z.array(z.string().min(1).max(60)).min(2).max(5),
       }),
-      execute: async ({
-        question,
-        options,
-      }): Promise<QuickRepliesResult> => ({
+      execute: async ({ question, options }): Promise<QuickRepliesResult> => ({
         question,
         options,
       }),

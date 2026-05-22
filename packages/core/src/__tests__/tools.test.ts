@@ -19,6 +19,7 @@ import type {
 import type { EditResult, SearchReplaceEdit } from "../edit.js";
 import { InMemoryFileRepository } from "../in-memory-file-repository.js";
 import { MemoryLogger, type LogEvent, type Logger } from "../logging.js";
+import type { TaskOccurrenceSearchResult } from "../task-occurrences.js";
 import { buildTools, TASK_FILE_REMINDER } from "../tools.js";
 
 class TrapRepository implements FileRepository {
@@ -335,6 +336,100 @@ describe("buildTools — suggest_quick_replies", () => {
     expect(tools.suggest_quick_replies.description).toContain(
       'a listing question like "Was steht morgen an?" gets the list in prose, not chips',
     );
+  });
+});
+
+describe("buildTools — find_task_occurrences", () => {
+  async function runOccurrenceCall(
+    repo: FileRepository,
+    input: unknown,
+    now: () => Date = () => FIXED_NOW,
+  ): Promise<{
+    toolErrors: unknown[];
+    toolResults: unknown[];
+  }> {
+    const model = sequencedMockModel([
+      streamResult(toolCallChunks("find_task_occurrences", "call-1", input)),
+      streamResult(textChunks("done")),
+    ]);
+    const result = streamText({
+      model,
+      tools: buildTools(repo, { now }),
+      stopWhen: isStepCount(3),
+      messages: [{ role: "user", content: "go" }],
+    });
+    const toolErrors: unknown[] = [];
+    const toolResults: unknown[] = [];
+    for await (const part of result.fullStream) {
+      if (part.type === "tool-error") toolErrors.push(part.error);
+      else if (part.type === "tool-result") toolResults.push(part.output);
+      else if (part.type === "error") throw part.error;
+    }
+    return { toolErrors, toolResults };
+  }
+
+  it("exposes exactly the candidates input property", () => {
+    const tools = buildTools(
+      new InMemoryFileRepository({ now: () => FIXED_NOW }),
+    );
+    const inputSchema = tools.find_task_occurrences.inputSchema as {
+      shape: Record<string, unknown>;
+    };
+
+    expect(Object.keys(inputSchema.shape)).toEqual(["candidates"]);
+    expect(tools.find_task_occurrences.description).toContain(
+      "Literal task-occurrence evidence search",
+    );
+    expect(tools.find_task_occurrences.description).toContain(
+      "today minus 30 days through today",
+    );
+    expect(tools.find_task_occurrences.description).toContain(
+      "all existing future date-formatted daily notes",
+    );
+    expect(tools.find_task_occurrences.description).toContain(
+      "raw Markdown context blocks only",
+    );
+    expect(tools.find_task_occurrences.description).toContain(
+      "not found in this bounded placement horizon",
+    );
+  });
+
+  it("rejects missing or empty candidates before execute", async () => {
+    const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+
+    for (const input of [{}, { candidates: [] }, { candidates: [""] }]) {
+      const { toolErrors, toolResults } = await runOccurrenceCall(repo, input);
+      expect(toolResults).toEqual([]);
+      expect(toolErrors).toHaveLength(1);
+    }
+  });
+
+  it("uses the buildTools injected clock for the 30-day daily horizon", async () => {
+    const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
+    await repo.write("daily/2026-04-21.md", "- [ ] Rasen alt\n", "seed");
+    await repo.write("daily/2026-04-22.md", "- [ ] Rasen cutoff\n", "seed");
+    await repo.write("daily/2026-05-22.md", "- [ ] Rasen heute\n", "seed");
+    await repo.write("daily/2026-07-01.md", "- [ ] Rasen future\n", "seed");
+
+    const { toolErrors, toolResults } = await runOccurrenceCall(
+      repo,
+      { candidates: ["Rasen"] },
+      () => new Date("2026-05-22T23:59:00Z"),
+    );
+
+    expect(toolErrors).toEqual([]);
+    expect(toolResults).toHaveLength(1);
+    const output = toolResults[0] as TaskOccurrenceSearchResult;
+    expect(output.searchedFiles).toEqual([
+      "daily/2026-04-22.md",
+      "daily/2026-05-22.md",
+      "daily/2026-07-01.md",
+    ]);
+    expect(output.blocks.map((block) => block.file)).toEqual([
+      "daily/2026-04-22.md",
+      "daily/2026-05-22.md",
+      "daily/2026-07-01.md",
+    ]);
   });
 });
 

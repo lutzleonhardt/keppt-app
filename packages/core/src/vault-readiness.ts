@@ -18,14 +18,9 @@
 // know about `changedBy` and won't second-guess what the caller built.
 
 import { FileNotFoundError, type FileRepository } from "./file-repository.js";
+import { GTD_TASK_FILES } from "./gtd-task-files.js";
 
-export const GTD_TASK_FILES: readonly string[] = [
-  "tasks/inbox.md",
-  "tasks/focus.md",
-  "tasks/next-actions.md",
-  "tasks/waiting.md",
-  "tasks/someday-maybe.md",
-];
+export { GTD_TASK_FILES } from "./gtd-task-files.js";
 
 const FIRST_RUN_SUMMARY = "first-run task-file init";
 
@@ -54,7 +49,10 @@ export async function ensureGtdTaskFiles(
   return { created };
 }
 
-async function exists(repo: FileRepository, filePath: string): Promise<boolean> {
+async function exists(
+  repo: FileRepository,
+  filePath: string,
+): Promise<boolean> {
   try {
     await repo.read(filePath);
     return true;

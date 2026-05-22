@@ -46,8 +46,13 @@ export {
   isInArchiveScope,
 } from "./gtd-layout.js";
 export {
-  ensureGtdTaskFiles,
   GTD_TASK_FILES,
+  GTD_TASK_FILE_PATHS,
+  TASK_OCCURRENCE_TASK_FILES,
+  type GtdTaskFilePath,
+} from "./gtd-task-files.js";
+export {
+  ensureGtdTaskFiles,
   type EnsureGtdTaskFilesResult,
 } from "./vault-readiness.js";
 export {
@@ -64,6 +69,11 @@ export {
   buildSystemPrompt,
   type BuildSystemPromptContext,
 } from "./system-prompt.js";
+export {
+  findTaskOccurrences,
+  type TaskOccurrenceBlock,
+  type TaskOccurrenceSearchResult,
+} from "./task-occurrences.js";
 export {
   buildRequest,
   type BuildRequestInput,

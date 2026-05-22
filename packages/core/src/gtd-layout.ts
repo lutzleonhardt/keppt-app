@@ -1,12 +1,7 @@
 import { validateFilePath } from "./file-repository.js";
+import { GTD_TASK_FILES } from "./gtd-task-files.js";
 
-const TASK_FILES: ReadonlySet<string> = new Set([
-  "tasks/inbox.md",
-  "tasks/focus.md",
-  "tasks/next-actions.md",
-  "tasks/waiting.md",
-  "tasks/someday-maybe.md",
-]);
+const TASK_FILE_SET: ReadonlySet<string> = new Set(GTD_TASK_FILES);
 
 const DAILY_RE = /^daily\/\d{4}-\d{2}-\d{2}\.md$/;
 const ARCHIVE_DAILY_RE = /^archive\/daily\/\d{4}-\d{2}-\d{2}\.md$/;
@@ -27,7 +22,7 @@ const ARCHIVE_DAILY_RE = /^archive\/daily\/\d{4}-\d{2}-\d{2}\.md$/;
 // the tools layer can distinguish "invalid_path" from "out_of_scope".
 export function canRead(filePath: string, _today: string): boolean {
   validateFilePath(filePath);
-  if (TASK_FILES.has(filePath)) return true;
+  if (TASK_FILE_SET.has(filePath)) return true;
   if (DAILY_RE.test(filePath)) return true;
   return false;
 }
@@ -40,7 +35,7 @@ export function canRead(filePath: string, _today: string): boolean {
 // corrections still go through.
 export function canWrite(filePath: string, _today: string): boolean {
   validateFilePath(filePath);
-  if (TASK_FILES.has(filePath)) return true;
+  if (TASK_FILE_SET.has(filePath)) return true;
   if (DAILY_RE.test(filePath)) return true;
   return false;
 }
@@ -61,7 +56,7 @@ export function isPastDaily(filePath: string, today: string): boolean {
 // is shape: these are pure predicates with no validateFilePath side effect,
 // because search iterates over already-listed paths.
 export function isInActiveScope(filePath: string, _today: string): boolean {
-  if (TASK_FILES.has(filePath)) return true;
+  if (TASK_FILE_SET.has(filePath)) return true;
   if (DAILY_RE.test(filePath)) return true;
   return false;
 }
@@ -76,7 +71,7 @@ export function isInArchiveScope(filePath: string): boolean {
 // alter the tool's error surface. Single source of truth so writeFileTool
 // and editFileTool cannot drift from each other or from canWrite.
 export function isCanonicalTaskFile(filePath: string, today: string): boolean {
-  if (TASK_FILES.has(filePath)) return true;
+  if (TASK_FILE_SET.has(filePath)) return true;
   if (filePath === `daily/${today}.md`) return true;
   return false;
 }
