@@ -33,25 +33,15 @@ const scopeSchema = z.enum(["active", "archive", "all"]).optional();
 
 // Salience hint attached to successful writes/edits on canonical task files
 // (the five tasks/*.md plus today's daily note). Byte-stable on purpose: tests
-// pin equality against this exported constant rather than re-stating the
-// literal. Not a determinism layer — the R5 crosscheck still depends on the
-// model honouring it. See docs/plans/phase-1-cli.md Task 4.3 Key Discoveries.
-//
-// Wording carries an explicit once-per-turn clause because the reminder
-// fires on every successful canonical-file edit; without it, models with
-// elevated reasoning effort re-read all four files between sequential
-// edits in the same turn (observed on gpt-5.4-mini @ high — turn-008
-// 2026-05-21 read focus/next-actions/waiting twice for a single user
-// action). The "skip if already done after the previous edit" line is
-// what stops that loop without sacrificing the crosscheck itself.
+// pin equality against this exported constant. Task 8 keeps this small: the
+// main safety path is occurrence evidence plus targeted matched-file reads,
+// not routine loading of broad task surfaces.
 export const TASK_FILE_REMINDER =
-  "Task-relevant file modified. R5 crosscheck runs ONCE per turn, before your FINAL response — not between sequential edits.\n" +
-  "- Re-read tasks/focus.md, tasks/next-actions.md, tasks/waiting.md, and today's daily/ ONLY for files you have not already read this turn. Files you just edited need no extra read of the OTHER three if they were already read this turn.\n" +
-  "- Mirror Focus↔Next-Actions on every status toggle.\n" +
-  "- Done = check off `[x]` in place across Focus + Next Actions + Waiting; do NOT remove (R8 Weekly Review tidies `[x]` later).\n" +
-  "- Waiting removes from Focus + Next Actions.\n" +
-  "- Report any drift.\n" +
-  "If you already completed this crosscheck after a previous edit in this same turn, skip — do not redo it.";
+  "Task graph file modified. Before your final response, validate only the item(s) you touched.\n" +
+  "- Reuse this turn's find_task_occurrences/read_file evidence when it already covers the item.\n" +
+  "- For a Focus/Daily scheduling, move, or sync decision with no evidence yet, call find_task_occurrences for that one item.\n" +
+  "- Read only matched or directly affected files when raw evidence is insufficient; do not routine-load Focus, Next Actions, Waiting, and today's daily.\n" +
+  "- Report unresolved drift or ask for the user's choice instead of guessing.";
 
 export type ReadFileResult =
   | { ok: true; content: string }

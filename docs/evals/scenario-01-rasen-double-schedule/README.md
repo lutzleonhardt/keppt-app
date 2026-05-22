@@ -4,27 +4,28 @@
 
 **Source:** Real session log `kept-vault/.keppt/logs/sessions/2026-05-21/turn-002.json` (DeepSeek V4 Pro, 2026-05-21). The model added "Rasen" to today's daily plan on user request without checking that it was already scheduled for the next day, producing a duplicate that only surfaced after the user manually pointed it out.
 
-**Rule under test:** Daily-plan double-scheduling check. Before adding an
-existing task to a daily Plan, inspect the current ISO week's daily plans
-(today through Sunday). If the task is already planned on another in-week
-daily, surface that existing date to the user before writing.
+**Rule under test:** Task-entity placement evidence loop. Before adding a
+task-like item to a Daily Plan, call
+`find_task_occurrences({ candidates })`, inspect the raw Markdown evidence, and
+ask before adding a second open DailyPlanItem when a future Daily Plan hit
+already exists.
 
-This is deliberately **not** a broad "search all task lists and dailies before
-any placement" rule. Focus and Next Actions may mirror the same canonical task,
-and daily Plan lines are allowed planning copies of canonical task-list items.
-The bug under test is narrower: silently placing the same task into two daily
-plans in the same week.
+This is deliberately **not** a broad "read all task files and all dailies"
+rule. Focus and Daily Plan lines may duplicate canonical task text because they
+are overlay/schedule views. The bug under test is narrower: silently creating a
+second open Daily Plan occurrence instead of asking whether to move, duplicate,
+or repeat the existing plan item.
 
 **Pre-fix baseline:** model silently double-schedules (FAIL).
-**Post-fix expectation:** model checks in-week dailies before writing (preferably
-via `find_task_occurrences`), surfaces the existing 22.05. scheduling, and asks
-the user before writing.
+**Post-fix expectation:** model calls `find_task_occurrences` before writing,
+surfaces the existing 22.05. scheduling, and asks the user whether to move,
+duplicate, or repeat before writing.
 
 ---
 
 ## Setup
 
-- **Today (R13 date):** Thursday, 21. May 2026.
+- **System prompt date:** Thursday, 21. May 2026.
 - **Vault root:** `./vault/` in this scenario directory.
 - **Model under test:** any (the eval is model-agnostic; run against the model tier you want to validate).
 - **System prompt:** current `buildSystemPrompt({ today: new Date("2026-05-21") })`.
@@ -33,17 +34,17 @@ the user before writing.
 
 Files present at session start (see `vault/` directory for verbatim content):
 
-| Path | Relevant content |
-|---|---|
-| `tasks/focus.md` | Contains `Rasen sehr kurz schneiden + lüften` under "Haus & Garten" + 3 other open items + 1 in-progress weekly-review header. |
-| `tasks/next-actions.md` | Contains the same Rasen line under its "Haus & Garten" section (Focus↔NA exception per R2). |
-| `tasks/waiting.md` | Unrelated to Rasen. Present so R5 routine load has all four canonical files. |
-| `tasks/inbox.md` | Empty (header + frontmatter only). |
-| `tasks/someday-maybe.md` | Empty (header + frontmatter only). |
-| `daily/2026-05-21.md` | Today's plan: 4 items, none containing "Rasen". |
-| `daily/2026-05-22.md` | Tomorrow's plan: 1 item — `Rasen sehr kurz schneiden + lüften (Vertikutieren mit Eisenfeder-Lüfter)`. |
+| Path                     | Relevant content                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `tasks/focus.md`         | Contains `Rasen sehr kurz schneiden + lüften` under "Haus & Garten" + 3 other open items + 1 in-progress weekly-review header.  |
+| `tasks/next-actions.md`  | Contains the same Rasen canonical task text under its "Haus & Garten" section; Focus is an overlay, so this duplicate is valid. |
+| `tasks/waiting.md`       | Unrelated to Rasen. Present because the pre-Task-8 failure trace loaded it during legacy post-edit checking.                    |
+| `tasks/inbox.md`         | Empty (header + frontmatter only).                                                                                              |
+| `tasks/someday-maybe.md` | Empty (header + frontmatter only).                                                                                              |
+| `daily/2026-05-21.md`    | Today's plan: 4 items, none containing "Rasen".                                                                                 |
+| `daily/2026-05-22.md`    | Tomorrow's plan: 1 item — `Rasen sehr kurz schneiden + lüften (Vertikutieren mit Eisenfeder-Lüfter)`.                           |
 
-No other in-week dailies exist (Sa 23.05. / So 24.05. would be valid drafts but are absent in this scenario).
+No other future daily drafts exist in this scenario.
 
 ---
 
@@ -59,20 +60,22 @@ mit Eisenfeder-Lüfter)`. A deterministic planner should connect these via
 conservative bidirectional substring matching before writing; exact-line-only
 matching would miss the bug this scenario exists to catch.
 
-**Implicit warm-up context** (not part of the eval — represents the prior conversation state the real session had): the model has not yet read `daily/2026-05-22.md`. Conversation history for the eval should be empty or contain only the user's `Was steht heute an?` plus the assistant's response from `turn-001` if a warm-up is desired. The hard assertion below is keyed to *this turn's* tool calls, so warm-up choice does not change the pass/fail signal as long as the warm-up did not itself read `daily/2026-05-22.md`.
+**Implicit warm-up context** (not part of the eval — represents the prior conversation state the real session had): the model has not yet read `daily/2026-05-22.md`. Conversation history for the eval should be empty or contain only the user's `Was steht heute an?` plus the assistant's response from `turn-001` if a warm-up is desired. The hard assertion below is keyed to _this turn's_ tool calls, so warm-up choice does not change the pass/fail signal as long as the warm-up did not itself read `daily/2026-05-22.md` or call occurrence search for Rasen.
 
 ---
 
 ## Expected behavior (human description)
 
 1. Model recognises the user request as a placement (adding Rasen to a daily plan).
-2. **Before any `edit_file` on `daily/2026-05-21.md`,** model checks the
-   in-week daily horizon. With the occurrence-search tool this is one
-   `find_task_occurrences({ candidates: [...] })` call; with the legacy tools it
-   means reading at least `daily/2026-05-22.md`.
-3. Model finds the existing Rasen line in `daily/2026-05-22.md`.
-4. Model surfaces the conflict in plain language to the user — e.g. "Rasen ist schon für morgen eingeplant. Statt heute zusätzlich oder soll der Termin auf heute wandern?"
-5. Model does NOT write to `daily/2026-05-21.md` in this turn. (Pending user disposition.)
+2. **Before any `edit_file` on `daily/2026-05-21.md`,** model calls
+   `find_task_occurrences({ candidates: [...] })` for the Rasen task.
+3. Model inspects the raw block and finds the existing open Rasen line in
+   `daily/2026-05-22.md`.
+4. Model surfaces the conflict in plain language to the user, e.g. "Rasen ist
+   schon für morgen eingeplant. Soll ich den Termin auf heute verschieben, heute
+   zusätzlich eintragen, oder als wiederholten zweiten Einsatz behandeln?"
+5. Model does NOT write to `daily/2026-05-21.md` in this turn. (Pending user
+   disposition.)
 
 ---
 
@@ -89,19 +92,14 @@ FAIL if:
     AND C.input.file_path == "daily/2026-05-21.md"
     AND C.input.edits[*].replace contains substring "Rasen"
     AND NOT exists a prior call P in tool_calls where
-      (
-        P.toolName == "find_task_occurrences"
-        AND P.input.candidates[*] contains substring "Rasen"
-      )
-      OR (
-        P.toolName == "read_file"
-        AND P.input.file_path == "daily/2026-05-22.md"
-      )
+      P.toolName == "find_task_occurrences"
+      AND P.input.candidates[*] contains substring "Rasen"
 ```
 
-That is: **no `edit_file` adding "Rasen" to today's daily before either
-occurrence-searching for "Rasen" or reading tomorrow's daily.** This is the
-minimum in-week daily-plan check required for this vault state.
+That is: **no `edit_file` adding "Rasen" to today's daily before
+occurrence-searching for "Rasen".** A direct `read_file` of tomorrow's daily is
+not sufficient for this task-model eval because the prompt contract now routes
+placement checks through `find_task_occurrences`.
 
 ### Soft signal (preferred behavior — record but do not auto-fail)
 
@@ -109,7 +107,7 @@ minimum in-week daily-plan check required for this vault state.
 PASS-with-quality if all of:
   (a) Hard fail does not trigger.
   (b) At least one find_task_occurrences call with a "Rasen" candidate occurred before any edit_file in this turn.
-  (c) The final assistant text block contains a substring matching /(22|morgen|tomorrow)/i AND a substring matching /(Rasen|rasen)/.
+  (c) The final assistant text block contains a substring matching /(22|morgen|tomorrow)/i AND a substring matching /(Rasen|rasen)/ AND a move/duplicate/repeat choice.
   (d) No edit_file on daily/2026-05-21.md occurred in this turn at all (model waited for user disposition before writing).
 
 PASS-but-noisy if:
@@ -122,11 +120,13 @@ Distinguishing PASS-with-quality from PASS-but-noisy lets the eval track stylist
 ### Tool-call hygiene (informational — not part of pass/fail)
 
 Record these for analysis:
+
 - Total `find_task_occurrences` and `read_file` calls in turn.
 - Did occurrence search cover `daily/2026-05-22.md` in `searchedFiles`?
-- If using legacy `read_file` fallback, were `daily/2026-05-23.md` /
-  `daily/2026-05-24.md` attempted (and got not_found or empty-content)?
-- Did the model also re-read `tasks/focus.md` and `tasks/next-actions.md`, or rely on cached results from a warm-up turn (T-C6 behavior)?
+- Did the model read `daily/2026-05-22.md` after the occurrence block because
+  the raw context was insufficient?
+- Did the model also read `tasks/focus.md` and `tasks/next-actions.md`, or rely
+  on cached results from a warm-up turn (T-C6 behavior)?
 
 ---
 
@@ -135,17 +135,17 @@ Record these for analysis:
 ### Pre-fix FAIL trace (DeepSeek V4 Pro, 2026-05-21, real session)
 
 ```
-1. edit_file daily/2026-05-21.md { add Rasen line }     ← HARD FAIL: no prior read of 2026-05-22.md
-2. read_file tasks/next-actions.md                       (post-edit R5 crosscheck — does not catch it)
-3. read_file tasks/waiting.md                            (post-edit R5 crosscheck — does not catch it)
+1. edit_file daily/2026-05-21.md { add Rasen line }     ← HARD FAIL: no prior occurrence search
+2. read_file tasks/next-actions.md                       (legacy post-edit routine read — does not catch it)
+3. read_file tasks/waiting.md                            (legacy post-edit routine read — does not catch it)
 4. assistant: "Crosscheck ist sauber, keine Dopplungen." ← false statement
 ```
 
 ### Hypothetical PASS-with-quality trace (post-fix)
 
 ```
-1. find_task_occurrences { candidates: ["Rasen", ...] }  (in-week daily-plan check)
-2. assistant: "Rasen steht schon für morgen (22.05.) im Plan. Heute zusätzlich, oder verschieben wir morgen auf heute?"
+1. find_task_occurrences { candidates: ["Rasen", ...] }  (placement evidence)
+2. assistant: "Rasen steht schon für morgen (22.05.) im Plan. Soll ich den Termin auf heute verschieben, heute zusätzlich eintragen, oder als wiederholten zweiten Einsatz behandeln?"
    (no edit_file call yet — waiting for user)
 ```
 
@@ -154,7 +154,9 @@ Record these for analysis:
 ## Notes for future eval-runner implementation
 
 - The vault snapshot in `vault/` is the canonical initial state. A runner should copy it into a temp dir per run so the test is idempotent.
-- The R13 date line must be pinned to 2026-05-21 in the runner's system-prompt build call — otherwise the "in-week" range shifts and the duplicate detection horizon changes.
+- The system-prompt date must be pinned to 2026-05-21 in the runner's
+  `buildSystemPrompt` call; the occurrence-search daily horizon is
+  date-dependent.
 - T-C6 (tool-result reuse) means a warm-up turn that already read
   `daily/2026-05-22.md` or searched matching task occurrences would invalidate
   the test (the model legitimately answers from cache). Either: skip warm-up,

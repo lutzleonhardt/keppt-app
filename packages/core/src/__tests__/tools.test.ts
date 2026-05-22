@@ -886,12 +886,11 @@ describe("buildTools — Logger seams", () => {
   });
 });
 
-// Task 4.3: the `reminder` field on the success-path return of write_file
-// and edit_file. Salience hint for the R5 crosscheck; attached only when
-// the write lands on a canonical task file (the five tasks/*.md plus
-// today's daily note). Absent on every error path and on non-canonical
-// success paths.
-describe("buildTools — Task 4.3 reminder field", () => {
+// Task-file reminder on the success-path return of write_file and edit_file.
+// Salience hint for touched task-graph items; attached only when the write
+// lands on a canonical task file (the five tasks/*.md plus today's daily
+// note). Absent on every error path and on non-canonical success paths.
+describe("buildTools — task-file reminder field", () => {
   const TODAY_STR = "2026-05-08"; // matches FIXED_NOW's UTC date
   const CANONICAL_PATHS = [
     "tasks/inbox.md",
@@ -1121,22 +1120,19 @@ describe("buildTools — Task 4.3 reminder field", () => {
     }
   });
 
-  // The constant in tools.ts pins the canonical reminder wording.
-  // Byte-stability across refactors is the contract — when the wording
-  // legitimately needs to change (e.g. the once-per-turn clause added
-  // 2026-05-21 to stop re-reads between sequential edits on
-  // gpt-5.4-mini @ reasoningEffort=high, or the Done-checks-off-not-
-  // removes clause added 2026-05-21 to align R3/R5/R21 with R8 Weekly
-  // Review semantics), update both sides at once.
-  it("TASK_FILE_REMINDER carries the once-per-turn crosscheck clause", () => {
+  // The constant in tools.ts pins the reminder wording. Task 8 makes the
+  // reminder evidence-driven instead of a broad routine-read instruction.
+  it("TASK_FILE_REMINDER carries the task-graph evidence reminder (T8-AC-07)", () => {
     expect(TASK_FILE_REMINDER).toBe(
-      "Task-relevant file modified. R5 crosscheck runs ONCE per turn, before your FINAL response — not between sequential edits.\n" +
-        "- Re-read tasks/focus.md, tasks/next-actions.md, tasks/waiting.md, and today's daily/ ONLY for files you have not already read this turn. Files you just edited need no extra read of the OTHER three if they were already read this turn.\n" +
-        "- Mirror Focus↔Next-Actions on every status toggle.\n" +
-        "- Done = check off `[x]` in place across Focus + Next Actions + Waiting; do NOT remove (R8 Weekly Review tidies `[x]` later).\n" +
-        "- Waiting removes from Focus + Next Actions.\n" +
-        "- Report any drift.\n" +
-        "If you already completed this crosscheck after a previous edit in this same turn, skip — do not redo it.",
+      "Task graph file modified. Before your final response, validate only the item(s) you touched.\n" +
+        "- Reuse this turn's find_task_occurrences/read_file evidence when it already covers the item.\n" +
+        "- For a Focus/Daily scheduling, move, or sync decision with no evidence yet, call find_task_occurrences for that one item.\n" +
+        "- Read only matched or directly affected files when raw evidence is insufficient; do not routine-load Focus, Next Actions, Waiting, and today's daily.\n" +
+        "- Report unresolved drift or ask for the user's choice instead of guessing.",
     );
+    expect(TASK_FILE_REMINDER).not.toContain(
+      "Re-read tasks/focus.md, tasks/next-actions.md, tasks/waiting.md",
+    );
+    expect(TASK_FILE_REMINDER).not.toContain("R5 crosscheck");
   });
 });

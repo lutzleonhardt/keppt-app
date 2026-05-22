@@ -17,7 +17,7 @@ describe("buildRequest", () => {
   // `result.system` is now a SystemModelMessage (not a raw string) — its
   // `content` field carries the prompt text. The cache marker on its
   // providerOptions is what triggers Anthropic prompt caching.
-  it("returns a system prompt that carries the R-anchors plus the optional profile", () => {
+  it("returns a system prompt that carries the compact rule anchors plus the optional profile", () => {
     const result = buildRequest({
       today: TODAY,
       profile: "Prefers brevity. Works in Berlin time.",
@@ -29,7 +29,8 @@ describe("buildRequest", () => {
     expect(result.system.role).toBe("system");
     const text = result.system.content as string;
     expect(text).toContain("[R1]");
-    expect(text).toContain("[R13]");
+    expect(text).toContain("[R12]");
+    expect(text).toContain("find_task_occurrences");
     expect(text).toContain("## User profile");
     expect(text).toContain("Prefers brevity.");
   });
@@ -179,9 +180,7 @@ describe("buildRequest", () => {
     );
     expect(toolMessages).toHaveLength(11);
     // Oldest is age-stubbed.
-    expect(
-      (toolMessages[0]!.content[0] as ToolResultPart).output,
-    ).toEqual({
+    expect((toolMessages[0]!.content[0] as ToolResultPart).output).toEqual({
       type: "text",
       value:
         "[Previous read_file result — superseded by current state; re-call if needed]",
@@ -317,7 +316,7 @@ describe("buildRequest", () => {
     });
 
     const last = result.messages.at(-1)!;
-    expect((last.content as string)).toBe("what now?");
+    expect(last.content as string).toBe("what now?");
   });
 
   it("T4.2-AC-12: does not mutate the caller's messages array when injecting a note", () => {
