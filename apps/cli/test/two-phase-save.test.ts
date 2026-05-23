@@ -390,7 +390,7 @@ describe("two-phase save", () => {
     expect(editPart.output).toEqual({ type: "text", value: "ok" });
   });
 
-  it("T4.1-AC-14: day-rollover — two turns across UTC midnight land in separate per-day session files", async () => {
+  it("T4.1-AC-14: day-rollover — two turns across a calendar boundary land in separate per-day session files", async () => {
     // Models the CLI's `if (todayKey !== session.date) session = await
     // store.loadOrCreate(todayKey)` guard.
     const vault = await makeVault();
@@ -401,7 +401,7 @@ describe("two-phase save", () => {
     session.appendTurn([{ role: "user", content: "before midnight" }], 1_000);
     await store.save(session);
 
-    // Turn 2: just after midnight UTC — day key changes; the CLI loads the
+    // Turn 2: just after midnight — day key changes; the CLI loads the
     // new day's session and appends there.
     const todayKey = "2026-05-20";
     if (todayKey !== session.date) {

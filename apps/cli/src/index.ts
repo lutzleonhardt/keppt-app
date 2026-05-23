@@ -19,6 +19,7 @@ import { announceSessionBoundary } from "./session-boundary.js";
 import { handleTurn, type TurnDeps, type TurnRefs } from "./turn-loop.js";
 import { expandQuickReplyLine } from "./quick-replies.js";
 import { apiKeyEnvName } from "./model-provider.js";
+import { maybeRunAutoReplanOpener } from "./auto-replan-opener.js";
 
 const DEBUG = process.env.DEBUG === "1";
 
@@ -39,7 +40,7 @@ async function main(): Promise<void> {
   const cliLogger = createCliLogger({ vaultPath, terminal });
 
   // Shared turn clock. Rebuilt at the start of every turn so a session
-  // crossing UTC midnight doesn't end up with a prompt date that disagrees
+  // crossing local midnight doesn't end up with a prompt date that disagrees
   // with what canRead / canWrite / repo.search enforce — which would turn
   // normal "today's daily note" reads into out_of_scope failures, drop the
   // turn day's daily from search hits, and hide the file the prompt just
@@ -95,6 +96,8 @@ async function main(): Promise<void> {
     cliLogger,
     terminal,
   };
+
+  await maybeRunAutoReplanOpener(deps, refs);
 
   const rl = createInterface({ input: stdin, output: stdout, prompt: "> " });
 

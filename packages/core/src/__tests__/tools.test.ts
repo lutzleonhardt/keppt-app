@@ -414,7 +414,7 @@ describe("buildTools — find_task_occurrences", () => {
     const { toolErrors, toolResults } = await runOccurrenceCall(
       repo,
       { candidates: ["Rasen"] },
-      () => new Date("2026-05-22T23:59:00Z"),
+      () => new Date("2026-05-22T10:00:00Z"),
     );
 
     expect(toolErrors).toEqual([]);
@@ -544,7 +544,7 @@ describe("buildTools — GTD layout gate", () => {
   });
 
   // Regression for the third Codex review round: even after the gate uses
-  // an injected clock, search_files must not drift across a UTC midnight
+  // an injected clock, search_files must not drift across a local calendar
   // rollover. After the Task 5 redesign the gate accepts any date-formatted
   // daily, so both 2026-05-08 and 2026-05-09 now sit in active scope no
   // matter which clock is in the lead. The test purpose mutates from
@@ -552,9 +552,9 @@ describe("buildTools — GTD layout gate", () => {
   // dropped by repo/tool clock disagreement" — i.e. the threaded `today`
   // still prevents silent false negatives from a repo that picks a
   // different reference date than the tool layer.
-  it("search_files does not drop date-formatted dailies across a UTC rollover", async () => {
-    const turnDate = new Date("2026-05-08T23:59:00Z"); // turn's snapshot
-    const repoClock = new Date("2026-05-09T00:01:00Z"); // repo "today" drifts
+  it("search_files does not drop date-formatted dailies across a local rollover", async () => {
+    const turnDate = new Date("2026-05-08T21:59:00Z"); // turn's snapshot
+    const repoClock = new Date("2026-05-08T22:01:00Z"); // repo "today" drifts in Berlin
     const repo = new InMemoryFileRepository({ now: () => repoClock });
     await repo.write("daily/2026-05-08.md", "ate sushi for lunch", "seed");
     await repo.write(
@@ -585,7 +585,7 @@ describe("buildTools — GTD layout gate", () => {
   // the canonical-task-file reminder. This pins that the injected clock
   // still flows through buildTools to the today-sensitive surface.
   it("buildTools honors the injected clock for the today-reminder gate", async () => {
-    const sessionDate = new Date("2026-05-08T23:59:00Z");
+    const sessionDate = new Date("2026-05-08T21:59:00Z");
     const repo = new InMemoryFileRepository({ now: () => sessionDate });
 
     // Today's daily — gets the reminder.
@@ -891,7 +891,7 @@ describe("buildTools — Logger seams", () => {
 // lands on a canonical task file (the five tasks/*.md plus today's daily
 // note). Absent on every error path and on non-canonical success paths.
 describe("buildTools — task-file reminder field", () => {
-  const TODAY_STR = "2026-05-08"; // matches FIXED_NOW's UTC date
+  const TODAY_STR = "2026-05-08"; // matches FIXED_NOW's local date
   const CANONICAL_PATHS = [
     "tasks/inbox.md",
     "tasks/focus.md",

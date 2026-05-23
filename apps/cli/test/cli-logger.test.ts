@@ -24,9 +24,10 @@ function captureTerminal(): CapturedTerminal {
     info: (message) => events.push({ kind: "info", payload: message }),
     sessionBanner: (message) =>
       events.push({ kind: "sessionBanner", payload: message }),
+    autoReplanBanner: (message) =>
+      events.push({ kind: "autoReplanBanner", payload: message }),
     replayLine: (line) => events.push({ kind: "replayLine", payload: line }),
-    quickReplies: (payload) =>
-      events.push({ kind: "quickReplies", payload }),
+    quickReplies: (payload) => events.push({ kind: "quickReplies", payload }),
     errorSummary: (message) =>
       events.push({ kind: "errorSummary", payload: message }),
     endStream: () => events.push({ kind: "endStream", payload: undefined }),

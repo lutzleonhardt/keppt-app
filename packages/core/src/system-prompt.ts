@@ -35,10 +35,10 @@ export interface BuildSystemPromptContext {
 
 export function buildSystemPrompt(ctx: BuildSystemPromptContext): string {
   const { today } = ctx;
-  const weekday = WEEKDAYS[today.getUTCDay()];
-  const month = MONTHS[today.getUTCMonth()];
-  const day = today.getUTCDate();
-  const year = today.getUTCFullYear();
+  const weekday = WEEKDAYS[today.getDay()];
+  const month = MONTHS[today.getMonth()];
+  const day = today.getDate();
+  const year = today.getFullYear();
   const dateLine = `Today is ${weekday}, ${day}. ${month} ${year}.`;
 
   return [
@@ -84,13 +84,13 @@ export function buildSystemPrompt(ctx: BuildSystemPromptContext): string {
     `If Focus would exceed about five open items, explain the overflow plainly and let the user decide; do not enforce a cap unilaterally.`,
     ``,
     `## R6 - Daily notes  [R6]`,
-    `Every daily note lives at \`daily/YYYY-MM-DD.md\` - past, today, future. There is no archive move. Daily sections are **Plan** (intent: DailyPlanItem or DailyOnlyEntry; checkbox state is provisional), **Log** (what happened), and **Notes** (free text). Future dailies are writable for planning; on the first write into an empty future draft, add Plan / Log / Notes. When touching a daily note, if its frontmatter title or top H1 date conflicts with the file path date, correct that metadata in the same edit. Past daily notes default read-only: only correct boxes or entries that are objectively wrong; do not rewrite past plans for tidiness. \`[x]\` in a daily Plan means "closed out of this day's plan", not necessarily completed; canonical completion lives in task files.`,
+    `Every daily note lives at \`daily/YYYY-MM-DD.md\` - past, today, future. There is no archive move. Daily sections are **Plan** (intent: DailyPlanItem or DailyOnlyEntry), **Log** (what happened), and **Notes** (free text). Daily Plan boxes: \`[ ]\` open, \`[x]\` done, \`[-]\` closed without completion. Canonical completion lives in task files. Future dailies are writable for planning; on the first write into an empty future draft, add Plan / Log / Notes. When touching a daily note, if its frontmatter title or top H1 date conflicts with the file path date, correct that metadata in the same edit. Past daily notes default read-only: only correct boxes or entries that are objectively wrong; do not rewrite past plans for tidiness.`,
     ``,
     `## R7 - Task files and formats  [R7]`,
-    `Markdown checkboxes: \`- [ ] Task\` open, \`- [x] Task\` done; sub-tasks tab-indented; wiki links are allowed. Next Actions lives in \`tasks/next-actions.md\`, grouped by category/project headings; no \`projects/\` directory. Waiting means blocked/awaiting someone and is not directly actionable until the blocker is gone. Someday means no current commitment. Done = check off \`[x]\` in place wherever the task graph legitimately contains the task; Weekly Review tidies completed task-list items later.`,
+    `Task-file checkboxes: \`- [ ] Task\` open, \`- [x] Task\` done; sub-tasks tab-indented; wiki links are allowed. Next Actions lives in \`tasks/next-actions.md\`, grouped by category/project headings; no \`projects/\` directory. Waiting means blocked/awaiting someone and is not directly actionable until the blocker is gone. Someday means no current commitment. Done = check off \`[x]\` in place wherever the task graph legitimately contains the task; Weekly Review tidies completed task-list items later.`,
     ``,
     `## R8 - Completion, Log, and cross-day disposition  [R8]`,
-    `When the user marks a task done or asks you to check it off, append one condensed line to that date's Log even if no extra outcome context was supplied: \`- <kurzer Bezug>: erledigt\`. If the turn includes outcome context (with whom, how, result), condense that instead of generic "erledigt". Do not log pure structural moves or non-completion status updates. When the user acts today on an open item from a past daily Plan, close that past Plan item with \`[x]\`, update the canonical task according to the disposition, and add today's Log line with the source date, e.g. \`(Plan von 19.05.)\`. If the user says it was actually done on the past date and merely forgotten, correct the past daily inline and log there instead.`,
+    `When the user marks a task done or asks you to check it off, append one condensed line to that date's Log even if no extra outcome context was supplied: \`- <kurzer Bezug>: erledigt\`. If the turn includes outcome context (with whom, how, result), condense that instead of generic "erledigt". Do not log pure structural moves or non-completion status updates. When the user acts today on an open item from a past daily Plan, set the source box to \`[x]\` if completed, or \`[-]\` if deferred, moved, dropped, or left for later; then update the canonical task accordingly and add today's Log line with the source date, e.g. \`(Plan von 19.05.)\`. If the user says it was actually done on the past date and merely forgotten, correct the past daily inline as \`[x]\` and log there instead.`,
     ``,
     `## R9 - Weekly Review and proactive hints  [R9]`,
     `Weekly Review processes Inbox, reviews Waiting/Someday, tidies completed task-list items, refreshes Focus, and may prepare future dailies. After completion, write/replace the header marker at the top of \`tasks/focus.md\` exactly as \`**Last Weekly Review: YYYY-MM-DD (Weekday)**\`. On Friday, or when the marker is missing/outside the current ISO week, suggest a review once. Other hints (empty vault, Inbox > 5, no daily plan, old Waiting items, long gap since last session) are situational and never block the user's request.`,

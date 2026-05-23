@@ -56,9 +56,10 @@ function captureTerminal(): CapturedTerminal {
     info: (message) => events.push({ kind: "info", payload: message }),
     sessionBanner: (message) =>
       events.push({ kind: "sessionBanner", payload: message }),
+    autoReplanBanner: (message) =>
+      events.push({ kind: "autoReplanBanner", payload: message }),
     replayLine: (line) => events.push({ kind: "replayLine", payload: line }),
-    quickReplies: (payload) =>
-      events.push({ kind: "quickReplies", payload }),
+    quickReplies: (payload) => events.push({ kind: "quickReplies", payload }),
     errorSummary: (message) =>
       events.push({ kind: "errorSummary", payload: message }),
     endStream: () => events.push({ kind: "endStream", payload: undefined }),
@@ -251,15 +252,18 @@ describe("quick replies", () => {
     await handleTurn(deps, refs, "weiter", new AbortController());
 
     expect(refs.lastQuickReplies).toBeNull();
-    expect(
-      terminal.events.some((e) => e.kind === "quickReplies"),
-    ).toBe(false);
+    expect(terminal.events.some((e) => e.kind === "quickReplies")).toBe(false);
   });
 
   it("clears stale suggestions when the next model turn does not call the tool (T6-AC-07)", async () => {
     const { deps, refs } = await makeHarness();
     modelState.model = sequencedMockModel([
-      streamResult(quickReplyChunks("Was als nächstes?", ["Tag planen", "Warten auf zeigen"])),
+      streamResult(
+        quickReplyChunks("Was als nächstes?", [
+          "Tag planen",
+          "Warten auf zeigen",
+        ]),
+      ),
       streamResult(textChunks("ok")),
     ]);
 

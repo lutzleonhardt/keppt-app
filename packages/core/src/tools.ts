@@ -191,7 +191,7 @@ async function searchFilesTool(
   scope: "active" | "archive" | "all",
   today: string,
 ): Promise<SearchResult[]> {
-  // Share `today` with the repo so a UTC-midnight session can't drop the
+  // Share `today` with the repo so a local-midnight session can't drop the
   // turn day's daily note before the tool-layer postfilter runs.
   const hits = await repo.search(query, scope, today);
   // Defense-in-depth: never surface a path read_file would deny, even if
@@ -321,7 +321,7 @@ async function editFileTool(
 export interface BuildToolsOptions {
   // Caller should share this clock with the system-prompt builder so the
   // prompt's daily-note path and the GTD gate cannot disagree across a
-  // UTC-midnight rollover within a long-running session.
+  // local-midnight rollover within a long-running session.
   now?: () => Date;
   // Operational diagnostics for tool-layer events: edit retry-budget
   // exhaustion, structured edit failures, and InvalidPathError catches.

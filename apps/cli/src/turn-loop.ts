@@ -1,6 +1,6 @@
 // Per-turn orchestration extracted from `main()`. Each REPL iteration runs
 // `handleTurn(deps, refs, line, controller)` which: snapshots the turn
-// clock, swaps the session at UTC midnight, persists the user message
+// clock, swaps the session at local midnight, persists the user message
 // (Phase 1), drives `streamText`, persists the response (Phase 2) and
 // writes the per-turn debug artifact. Early failures (rollover, Phase-1
 // save) print the standard error summary and return so the REPL's
@@ -34,6 +34,7 @@ import { appendCliErrorLog } from "./cli-error-log.js";
 import { formatCliError } from "./cli-errors.js";
 import type { TerminalOutput } from "./terminal-output.js";
 import { announceSessionBoundary } from "./session-boundary.js";
+import { maybeRunAutoReplanOpener } from "./auto-replan-opener.js";
 
 const MAX_STEPS = 10;
 const DEBUG = process.env.DEBUG === "1";
@@ -110,6 +111,7 @@ export async function handleTurn(
   });
 
   if (!(await dayRolloverGuard(deps, refs))) return;
+  refs.lastQuickReplies = null;
 
   const turnStartedAt = Date.now();
   if (!(await phase1Save(deps, refs, line, turnStartedAt))) return;
@@ -260,7 +262,7 @@ function makeFileVersionAt(
   };
 }
 
-// Day-rollover guard. If the CLI has been running across UTC midnight,
+// Day-rollover guard. If the CLI has been running across local midnight,
 // the session loaded at startup belongs to yesterday — new turns must
 // land in today's `<vault>/.keppt/sessions/<today>.json`, not
 // yesterday's. Returns false when the load failed (caller skips the turn).
@@ -282,6 +284,7 @@ async function dayRolloverGuard(
         refs.session.date,
       );
     }
+    await maybeRunAutoReplanOpener(deps, refs);
     return true;
   } catch (err) {
     const log = await appendCliErrorLog(deps.vaultPath, err, {

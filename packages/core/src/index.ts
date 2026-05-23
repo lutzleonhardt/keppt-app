@@ -75,6 +75,10 @@ export {
   type TaskOccurrenceSearchResult,
 } from "./task-occurrences.js";
 export {
+  gatherAutoReplanContext,
+  type AutoReplanContext,
+} from "./auto-replan.js";
+export {
   buildRequest,
   type BuildRequestInput,
   type BuildRequestResult,

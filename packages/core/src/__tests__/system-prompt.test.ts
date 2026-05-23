@@ -1,8 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildSystemPrompt } from "../system-prompt.js";
 
 describe("buildSystemPrompt", () => {
+  let savedTZ: string | undefined;
+
+  beforeEach(() => {
+    savedTZ = process.env.TZ;
+    process.env.TZ = "Europe/Berlin";
+  });
+
+  afterEach(() => {
+    if (savedTZ === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = savedTZ;
+    }
+  });
+
   it("contains the injected date line, compact rule anchors, and tool anchors", () => {
     const prompt = buildSystemPrompt({ today: new Date("2026-04-24") });
 
@@ -16,6 +31,14 @@ describe("buildSystemPrompt", () => {
     for (let i = 1; i <= 6; i++) {
       expect(prompt).toContain(`[T-C${i}]`);
     }
+  });
+
+  it("renders the local calendar day after Berlin midnight", () => {
+    const prompt = buildSystemPrompt({
+      today: new Date("2026-05-22T22:30:00.000Z"),
+    });
+
+    expect(prompt).toContain("Today is Saturday, 23. May 2026.");
   });
 
   it("opens with the active tool surface, including occurrence search and quick replies", () => {
@@ -130,14 +153,18 @@ describe("buildSystemPrompt", () => {
     );
     expect(prompt).toContain("correct that metadata in the same edit");
     expect(prompt).toContain("Past daily notes default read-only");
+    expect(prompt).toContain("Daily Plan boxes");
+    expect(prompt).toContain("`[ ]` open, `[x]` done, `[-]` closed without completion");
+    expect(prompt).toContain("Task-file checkboxes");
     expect(prompt).toContain(
       "append one condensed line to that date's Log even if no extra outcome context was supplied",
     );
     expect(prompt).toContain("`- <kurzer Bezug>: erledigt`");
     expect(prompt).not.toContain("check-offs with no user-supplied context");
-    expect(prompt).toContain("closed out of this day's plan");
+    expect(prompt).toContain("set the source box to `[x]` if completed");
+    expect(prompt).toContain("`[-]` if deferred, moved, dropped, or left for later");
     expect(prompt).toContain("(Plan von 19.05.)");
-    expect(prompt).toContain("correct the past daily inline");
+    expect(prompt).toContain("correct the past daily inline as `[x]`");
   });
 
   it("preserves quick replies, voice tolerance, skepticism, no-leak, boundary, self-edit, and tone coverage (T8-AC-11)", () => {

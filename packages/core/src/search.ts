@@ -4,9 +4,9 @@ import { isInActiveScope, isInArchiveScope } from "./gtd-layout.js";
 const SNIPPET_CONTEXT = 40; // chars either side of the match → ~80-char window
 
 export function formatToday(d: Date): string {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
 

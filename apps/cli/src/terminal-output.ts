@@ -24,12 +24,15 @@ export interface TerminalOutput {
   // "(Press Ctrl+C again to exit.)". Framed with a leading and trailing \n.
   info(message: string): void;
   // Session boundary banner — printed once at CLI start and again whenever a
-  // UTC-midnight rollover moves new turns into a fresh session file. Without
+  // local-midnight rollover moves new turns into a fresh session file. Without
   // this, a CLI left open across midnight silently loses its conversational
   // context (next turn starts an empty session for the new date) and the
   // user only notices via odd "I don't remember that" replies. The banner
   // makes the boundary visible.
   sessionBanner(message: string): void;
+  // Auto-Replan kickoff banner. Printed before the synthetic stream starts
+  // so the user sees why the CLI is talking before the first prompt.
+  autoReplanBanner(message: string): void;
   // One line of replayed prior conversation, written right after a
   // `resumed session` banner so the user immediately sees what context the
   // CLI just loaded — instead of staring at a blank prompt and guessing
@@ -41,10 +44,7 @@ export interface TerminalOutput {
   // choice is answering — schema-enforced replacement for the "model just
   // dumped chips with no context" failure mode observed on cheap models
   // (see formatQuickReplies + 2026-05-21 design note).
-  quickReplies(payload: {
-    question: string;
-    options: readonly string[];
-  }): void;
+  quickReplies(payload: { question: string; options: readonly string[] }): void;
   // One-line user-facing error summary written to stderr. Caller composes
   // the full message (prefix + formatCliError + log suffix); the sink only
   // appends a trailing newline.
@@ -97,6 +97,9 @@ export function createStdTerminalOutput(): TerminalOutput {
     },
     sessionBanner: (message) => {
       stdout.write(`\n─── ${message} ───\n`);
+    },
+    autoReplanBanner: (message) => {
+      stdout.write(`${message}\n`);
     },
     replayLine: (line) => {
       stdout.write(`${line}\n`);

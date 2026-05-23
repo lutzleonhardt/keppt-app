@@ -73,6 +73,17 @@ describe("Session", () => {
     expect(s.createdAtOf(b)).toBeUndefined();
   });
 
+  it("snapshot() restores the auto-replan marker too", () => {
+    const s = Session.createEmpty("2026-05-19");
+    s.setAutoReplanRanFor("2026-05-19");
+    const restore = s.snapshot();
+    s.setAutoReplanRanFor("2026-05-20");
+
+    restore();
+
+    expect(s.autoReplanRanFor).toBe("2026-05-19");
+  });
+
   it("toJSON returns the on-disk shape and JSON.stringify uses it", () => {
     const s = Session.createEmpty("2026-05-19");
     const u = USER("hi");
@@ -91,6 +102,7 @@ describe("Session", () => {
     const original = Session.createEmpty("2026-05-19");
     original.appendTurn([USER("a")], 1_000);
     original.appendTurn([ASSISTANT("b")], 2_000);
+    original.setAutoReplanRanFor("2026-05-19");
 
     const round = Session.fromJSON(JSON.parse(JSON.stringify(original)));
     expect(round.date).toBe("2026-05-19");
@@ -98,6 +110,7 @@ describe("Session", () => {
     expect(round.messages[0]).toEqual(USER("a"));
     expect(round.createdAtOf(round.messages[0]!)).toBe(1_000);
     expect(round.createdAtOf(round.messages[1]!)).toBe(2_000);
+    expect(round.autoReplanRanFor).toBe("2026-05-19");
   });
 
   it("fromJSON rejects malformed input — not an object", () => {
@@ -138,5 +151,24 @@ describe("Session", () => {
         createdAt: [1, 2],
       }),
     ).toThrow(/invariant violation/);
+  });
+
+  it("fromJSON rejects malformed input — invalid autoReplanRanFor marker", () => {
+    expect(() =>
+      Session.fromJSON({
+        date: "2026-05-19",
+        messages: [],
+        createdAt: [],
+        autoReplanRanFor: "",
+      }),
+    ).toThrow(/autoReplanRanFor/);
+    expect(() =>
+      Session.fromJSON({
+        date: "2026-05-19",
+        messages: [],
+        createdAt: [],
+        autoReplanRanFor: 123,
+      }),
+    ).toThrow(/autoReplanRanFor/);
   });
 });

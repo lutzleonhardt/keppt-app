@@ -4,6 +4,7 @@ interface SessionJSON {
   date: string;
   messages: ModelMessage[];
   createdAt: number[];
+  autoReplanRanFor?: string;
 }
 
 /**
@@ -26,15 +27,18 @@ export class Session {
   // without translation.
   private readonly _messages: ModelMessage[];
   private readonly _createdAt: number[];
+  private _autoReplanRanFor: string | undefined;
 
   private constructor(
     date: string,
     messages: ModelMessage[],
     createdAt: number[],
+    autoReplanRanFor?: string,
   ) {
     this.date = date;
     this._messages = messages;
     this._createdAt = createdAt;
+    this._autoReplanRanFor = autoReplanRanFor;
   }
 
   static createEmpty(date: string): Session {
@@ -51,7 +55,7 @@ export class Session {
       throw new Error("Session.fromJSON: expected an object");
     }
     const obj = raw as Record<string, unknown>;
-    const { date, messages, createdAt } = obj;
+    const { date, messages, createdAt, autoReplanRanFor } = obj;
     if (typeof date !== "string" || date.length === 0) {
       throw new Error("Session.fromJSON: missing or invalid `date`");
     }
@@ -71,15 +75,32 @@ export class Session {
         `Session.fromJSON: invariant violation — messages.length (${messages.length}) !== createdAt.length (${createdAt.length})`,
       );
     }
+    if (
+      autoReplanRanFor !== undefined &&
+      (typeof autoReplanRanFor !== "string" || autoReplanRanFor.length === 0)
+    ) {
+      throw new Error(
+        "Session.fromJSON: `autoReplanRanFor` must be a non-empty string when present",
+      );
+    }
     return new Session(
       date,
       (messages as ModelMessage[]).slice(),
       createdAt.slice(),
+      autoReplanRanFor,
     );
   }
 
   get messages(): readonly ModelMessage[] {
     return this._messages;
+  }
+
+  get autoReplanRanFor(): string | undefined {
+    return this._autoReplanRanFor;
+  }
+
+  setAutoReplanRanFor(date: string): void {
+    this._autoReplanRanFor = date;
   }
 
   /**
@@ -114,9 +135,11 @@ export class Session {
   snapshot(): () => void {
     const mLen = this._messages.length;
     const tLen = this._createdAt.length;
+    const autoReplanRanFor = this._autoReplanRanFor;
     return () => {
       this._messages.length = mLen;
       this._createdAt.length = tLen;
+      this._autoReplanRanFor = autoReplanRanFor;
     };
   }
 
@@ -126,11 +149,15 @@ export class Session {
    * a separate mapper.
    */
   toJSON(): SessionJSON {
-    return {
+    const json: SessionJSON = {
       date: this.date,
       messages: this._messages,
       createdAt: this._createdAt,
     };
+    if (this._autoReplanRanFor !== undefined) {
+      json.autoReplanRanFor = this._autoReplanRanFor;
+    }
+    return json;
   }
 }
 

@@ -1,6 +1,6 @@
 // What the CLI prints when it crosses a session boundary — either at startup
 // (the implicit "load whatever today's session is" boundary) or when a
-// long-running REPL crosses UTC midnight and the day-rollover guard swaps in
+// long-running REPL crosses local midnight and the day-rollover guard swaps in
 // a fresh `<date>.json`. Both surfaces share: a one-line banner identifying
 // the date + new/resumed state, and (for resumed sessions) a full replay of
 // prior user/assistant text plus tool-call status lines.
