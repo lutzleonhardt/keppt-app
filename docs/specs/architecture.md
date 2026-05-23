@@ -571,6 +571,8 @@ const TIER_LIMITS = {
 
 **No LLM mocking in development.** API costs with Haiku are negligible (~$0.001-0.002 per interaction). Mocking for dev would be more effort than benefit. Only in unit/integration tests is the LLM provider mocked, to test deterministic tool-call chains.
 
+**Real-model evals are review artifacts, not green unit tests.** Prompt behavior is LLM-variable by design, so Phase 1 validates realistic behavior through documented `docs/evals/` scenarios run against the real CLI with `DEBUG=1`. The default evidence is the generated turn artifact (`.keppt/logs/sessions/<date>/turn-NNN.json`), optionally judged by a stronger model against the scenario rubric. Concrete eval runs stay out of git and can become release-review artifacts later.
+
 ### Endpoints (MVP)
 
 ```
@@ -1230,7 +1232,7 @@ Primary write tool. Applies one or more search/replace edits to an existing file
   - 1 match → `replace` is applied.
   - 0 matches or >1 matches → defined error returned to the LLM with the current file content + which `search` failed. The LLM then extends the search block by a few lines of context before/after and tries again. Just like Aider.
 - **Atomic:** All edits are applied transactionally. If a search block in a multi-edit fails, none of the edits are written.
-- **Retry budget (LLM policy, enforced by system prompt):** On `ok: false`, the LLM may attempt **max. 2 corrections** on the **same file within a user message** — typically by extending the search block with more context lines (Aider pattern). After the **3rd failure** on the same file: abort the tool loop for this file, present the user with the current file state + a concrete follow-up question ("I can't unambiguously place the change in the current state of the file — is it this line: `…`?"). **Do not** fall back to `write_file` — that would bring back the silent-drift risk that `edit_file` is precisely avoiding. Rationale: three attempts are signal enough that the file state looks different than the LLM thinks; further attempts only burn tokens and latency. Phase 1 enforces this purely on the prompt side (rule in the system prompt). If E2E testing shows the prompt alone doesn't reliably hold, an explicit counter is added in the tool handler (map `filePath → failedAttempts` per user message, the 4th call on the same file returns an error with `reason: "retry_budget_exhausted"` + current file content). The counter lives in the handler, not in the repository — the repository remains stateless per call.
+- **Retry budget (LLM policy, enforced by system prompt):** On `ok: false`, the LLM may attempt **max. 2 corrections** on the **same file within a user message** — typically by extending the search block with more context lines (Aider pattern). After the **3rd failure** on the same file: abort the tool loop for this file, present the user with the current file state + a concrete follow-up question ("I can't unambiguously place the change in the current state of the file — is it this line: `…`?"). **Do not** fall back to `write_file` — that would bring back the silent-drift risk that `edit_file` is precisely avoiding. Rationale: three attempts are signal enough that the file state looks different than the LLM thinks; further attempts only burn tokens and latency. Phase 1 enforces this purely on the prompt side (rule in the system prompt). If real-model eval turn evidence shows the prompt alone doesn't reliably hold, an explicit counter is added in the tool handler (map `filePath → failedAttempts` per user message, the 4th call on the same file returns an error with `reason: "retry_budget_exhausted"` + current file content). The counter lives in the handler, not in the repository — the repository remains stateless per call.
 - Automatically creates a history entry (Supabase: `file_history` table, local: JSON log).
 - Internally: `fileRepository.edit(filePath, edits, changeSummary)`
 - **Known limitation (`LocalFileRepository`, Phase 1):** `edit()` does perform a CAS recheck (re-read directly before commit, abort on mismatch), but between recheck and final `rename()` a race window of ~10ms remains (history append + temp write + rename). A perfectly timed external writer (Obsidian autosave, parallel tool call) in exactly this window will be overwritten. We accept this deliberately: `LocalFileRepository` is primarily a stepping stone for CLI dev and dogfooding server against the vault — production runs against `SupabaseFileRepository`, where row-level transactions eliminate the problem. Only address it when an actual collision occurs (per-path mutex + lockfile).
@@ -1506,7 +1508,7 @@ The product intent is two-tier routing: a small/cheap model handles trivial CRUD
 
 **Phase 1 stance:** the CLI is single-model (Haiku) — no router, no model picker, no classification surface. Phase 1's goal is to validate the GTD prompts under realistic conditions, and a one-model run isolates prompt quality from routing quality. The Phase-1 plan (`docs/work/main/plan.md`, Task 4) records the deferral and the reasoning so a future "let's just keyword-match it" pass does not silently re-land the rejected design.
 
-**Revisit trigger:** once Phase 2a backend has a user-tier model wired (the obvious cheap discriminator) or Phase 1 smoke shows specific request classes where a single model is materially worse than two — whichever comes first. Until then, no `packages/core/model-router.ts` exists.
+**Revisit trigger:** once Phase 2a backend has a user-tier model wired (the obvious cheap discriminator) or Phase 1 eval reports show specific request classes where a single model is materially worse than two — whichever comes first. Until then, no `packages/core/model-router.ts` exists.
 
 ## Cost Model: Cross-Subsidization
 
@@ -1705,7 +1707,7 @@ Validate the core hypothesis: do the prompts work? Is the GTD system usable via 
 
 **Deliverable:** A CLI that does everything the later app can do, minus UI. Daily dogfooding against the own Obsidian vault.
 
-**Validation Checkpoint:** If the prompts don't work reliably in the CLI, no UI will help. This phase proves or kills the product thesis.
+**Validation Checkpoint:** If the prompts don't work reliably in the CLI, no UI will help. This phase proves or kills the product thesis through dogfooding plus real-model eval scenarios. Deterministic tests cover tool invariants; eval runs capture `DEBUG=1` turn artifacts and are judged against broad scenario rubrics rather than brittle exact-output assertions.
 
 ---
 
