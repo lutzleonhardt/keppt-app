@@ -312,6 +312,50 @@ Use these concrete UI states from the reference mock:
 - The reference assistant prose is unframed and inline in the conversation, with chips beneath the response.
 - The reference composer is a rounded white input bar with subtle line/shadow, fixed near the bottom of the app shell.
 
+## Task 3.5: Establish Angular Component Spec Harness With `ng-mocks`
+
+### Instructions
+
+Add a reusable Angular component-spec harness for the Web app before the drawer, polish, and UI playground work expands the component surface.
+
+Add `ng-mocks` as a Web dev dependency and configure the Web test setup so Angular standalone components can be rendered under Vitest. The current Web test runner is direct Vitest with `environment: "node"`; component specs need an intentional DOM/Angular test setup. Keep pure logic tests in plain Vitest.
+
+Add one shallow component spec that becomes the template for future Angular specs. Prefer `ChatScreenComponent` or `ChatMessageListComponent`, because those components sit on the chat/store boundary and are representative of upcoming component tests. Use `MockBuilder`, `MockRender`, `MockProvider`, and/or `ngMocks` helpers instead of hand-written `TestBed.configureTestingModule` boilerplate.
+
+Mock Angular DI boundaries through runtime tokens. `ChatService` is an abstract class, not a TypeScript interface, so it can be used as a DI token with `MockProvider`. Do not introduce a pattern where every component spec hand-wires `createEnvironmentInjector`, `Injector.create`, or direct `TestBed` setup.
+
+Keep the test strategy split:
+
+- Pure state and mock-service tests stay plain Vitest.
+- Angular component and DI-heavy specs use `ng-mocks`.
+- The existing chat/store tests should keep passing.
+- No backend, Supabase, SSE, Capacitor, or real speech integration is introduced by this task.
+
+### Acceptance
+
+- **T3.5-AC-01** — The Web test setup can render at least one standalone Angular component under Vitest with a DOM-capable Angular test environment.
+- **T3.5-AC-02** — `ng-mocks` is available as a Web dev dependency and the new component spec uses `ng-mocks` helpers instead of hand-written `TestBed.configureTestingModule` boilerplate.
+- **T3.5-AC-03** — The new shallow component spec mocks the `ChatService` or `ChatStore` boundary through Angular DI rather than importing production mock arrays directly.
+- **T3.5-AC-04** — Existing pure logic tests remain plain Vitest tests and do not need `ng-mocks` to execute.
+- **T3.5-AC-05** — The Web test command runs both existing logic tests and the new Angular component spec.
+
+### Key Locations
+
+- Web test config: `apps/web/vitest.config.ts`
+- Optional test setup file: `apps/web/src/test-setup.ts` or equivalent
+- Web package dependencies/scripts: `apps/web/package.json`, `pnpm-lock.yaml`
+- Candidate component spec: `apps/web/src/app/chat/chat-screen*.test.ts` or `apps/web/src/app/chat/components/chat-message-list*.test.ts`
+- Chat DI boundary: `apps/web/src/app/chat/chat.service.ts`, `apps/web/src/app/chat/chat.store.ts`
+- Existing tests to preserve: `apps/web/src/app/chat/chat-ui-state.test.ts`, `apps/web/src/app/chat/chat.store.test.ts`, `apps/web/src/app/mock/mock-chat.service.test.ts`
+
+### Key Discoveries
+
+- The Web app currently has only three test files, and only `chat.store.test.ts` touches Angular DI directly.
+- There are no direct `TestBed` imports in the Web specs today.
+- The Web app already has a growing Angular surface with standalone chat components; this task establishes the testing style before Task 4, Task 5, and Task 6 add more component states.
+- `ng-mocks` wraps Angular's test infrastructure; the value is hiding TestBed boilerplate behind a stable testing style, not avoiding Angular's test runtime entirely.
+- `ng-mocks` currently documents Angular 21 support for standalone components and Signals. `defer` behavior is not part of this task and should not be relied on without separate verification.
+
 ## Task 4: Add Drawer Navigation Surface
 
 ### Instructions
@@ -471,4 +515,4 @@ The playground may use a compact fixture file, but it must not introduce a separ
 
 - **XC-01** — The Angular UI remains mock-first: no backend, Supabase, SSE, Capacitor plugin, or real speech-recognition integration is introduced. **Touches:** T1, T2, T3, T4
 - **XC-02** — Presentational UI remains product-owned and typed; no arbitrary generated UI/widget framework becomes the default chat renderer. **Touches:** T2, T3, T6
-- **XC-03** — `pnpm -r build`, `pnpm -r typecheck`, and `pnpm -r test` pass after the planned web app work. **Touches:** T1, T2, T3, T4, T5, T6
+- **XC-03** — `pnpm -r build`, `pnpm -r typecheck`, and `pnpm -r test` pass after the planned web app work. **Touches:** T1, T2, T3, T3.5, T4, T5, T6

@@ -263,6 +263,40 @@ This is intentionally lighter than Storybook. Storybook may be added later if th
 - **AC-08:** The dev UI playground shows the core components in isolated states.
 - **AC-09:** The app builds through the repo's package manager scripts.
 
+## Follow-Up Tasks
+
+### Task: Adopt `ng-mocks` for Angular Component and DI Specs
+
+Add `ng-mocks` when the Web UI starts adding real Angular component specs or deeper DI-bound specs.
+
+Current repo finding from 2026-06-06:
+
+- The Web app currently has only three test files: `chat-ui-state.test.ts`, `chat.store.test.ts`, and `mock-chat.service.test.ts`.
+- Only `chat.store.test.ts` touches Angular DI directly, via `createEnvironmentInjector`; there are no direct `TestBed` imports in the Web specs.
+- The Web app already has a growing Angular surface: 14 standalone components and one injectable store/service boundary. This is the likely trigger for `ng-mocks`, not the current pure logic tests.
+- The current Web test runner is direct Vitest with `environment: "node"`. Real Angular component specs will need an intentional DOM/Angular test setup before `ng-mocks` can carry the component tree.
+
+Decision:
+
+- Keep pure logic tests in plain Vitest.
+- Use `ng-mocks` for Angular component specs and DI-heavy specs once the first shallow component test is introduced.
+- Prefer `MockBuilder`, `MockRender`, `MockProvider`, and `ngMocks` helpers over hand-written `TestBed.configureTestingModule` boilerplate.
+- Do not add `ng-mocks` just to hide the single current `createEnvironmentInjector` store test unless that test becomes a pattern.
+
+First implementation task:
+
+- Add `ng-mocks` as a Web dev dependency.
+- Configure the Web test environment for Angular component tests under Vitest.
+- Add one shallow component spec for either `ChatScreenComponent` or `ChatMessageListComponent`.
+- Mock the `ChatService`/`ChatStore` boundary through `ng-mocks` instead of hand-wiring providers.
+- Keep this as the template for future Angular specs.
+
+Notes:
+
+- `ChatService` is an abstract class, not a TypeScript interface, which makes it usable as a runtime DI token for `MockProvider`.
+- `ng-mocks` is a wrapper around Angular's test infrastructure, not a replacement for it. The value is that it hides the TestBed setup behind a stable, terse testing style.
+- The current `ng-mocks` compatibility table lists Angular 21 with standalone components and Signals support; `defer` support is not listed. Avoid relying on `ng-mocks` for defer-block behavior until verified.
+
 ## Deferred Work
 
 - Backend SSE chat integration.
