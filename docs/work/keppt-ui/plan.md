@@ -312,6 +312,64 @@ Use these concrete UI states from the reference mock:
 - The reference assistant prose is unframed and inline in the conversation, with chips beneath the response.
 - The reference composer is a rounded white input bar with subtle line/shadow, fixed near the bottom of the app shell.
 
+## Task 3.4: Add Runtime i18n With Transloco (Signal API)
+
+### Instructions
+
+Introduce runtime internationalization for the Web app before the string-heavy drawer/list/polish tasks (Task 4, Task 5) add more hardcoded German. Add **Transloco** (`@jsverse/transloco`) as the i18n library and migrate the existing static UI-chrome strings from Task 1–3 into JSON translation catalogs.
+
+Scope is **UI chrome only** — the static runtime text the app itself owns (header subtitle, mic overlay copy, composer placeholder, empty-state copy, and icon-only `aria-label`s). The mock conversation content in `apps/web/src/app/mock/chat-mock-data.ts` (assistant responses, voice transcript, tool-row text, quick-reply labels) is **out of scope**: it simulates dynamic backend/LLM output that production would return already in the user's language. Do not move it into the catalogs and do not author an English mock dataset in this task.
+
+Use Transloco's **signal API** (`translateSignal` / the `transloco` pipe + structural directive), not the Observable/`subscribe` API. The app runs zone-less (`provideZonelessChangeDetection()`), so signal-based translations integrate with change detection without `zone.js` and without manual `toSignal` bridging.
+
+Set up:
+
+- `provideTransloco(...)` in `apps/web/src/app/app.config.ts` alongside the existing `provideMarkdown()`, configured with available langs `['de', 'en']`, default + fallback lang `de`, and `reRenderOnLangChange: true`.
+- A small HTTP loader that fetches JSON catalogs at runtime (e.g. `GET /i18n/${lang}.json`). Catalogs live at `apps/web/public/i18n/de.json` and `apps/web/public/i18n/en.json`. JSON only — no XLIFF/XMB/XML and no per-locale build.
+- Only the active language is fetched; switching to `en` lazy-loads `en.json` at runtime with no page reload and no rebuild.
+
+Migrate these existing chrome strings into the catalogs and replace the hardcoded literals with translation keys (use a nested key namespace such as `chat.*`, `mic.*`, `composer.*`, `a11y.*`):
+
+- `apps/web/src/app/chat/components/session-header.ts` — the `subtitle` computed (`"Heute · Mittwoch, 6. Mai"` / `"Bereit zum Erfassen"`).
+- `apps/web/src/app/chat/chat-ui-state.ts` — `micOverlayStatus()` strings (`"Höre zu …"`, `"Verarbeite …"`, `"Nichts gehört"`, `"Bereit"`).
+- `apps/web/src/app/chat/components/mic-overlay.html` (+ `mic-overlay.ts` `hintLabel`) — heading `Erfassen`, the three prompt variants, and the `aria-label`s (`Abbrechen`, `Aufnahme übernehmen`, `Erneut aufnehmen`).
+- `apps/web/src/app/chat/components/chat-message-list.html` — empty-state title `Was liegt dir im Kopf?`, hint `Halte den Mic-Button gedrückt — oder schreib einfach.`, and the `aria-label="Unterhaltung"`.
+- `apps/web/src/app/chat/components/chat-input.html` — placeholder `Frag Keppt …` and the `aria-label`s (`Nachricht verfassen`, `Nachricht`, `Spracheingabe öffnen`, `Nachricht senden`).
+
+Author both `de.json` (the current German wording, verbatim) and `en.json` (a faithful English translation) for every migrated key.
+
+Keep `chat-ui-state.ts` pure: `micOverlayStatus()` (and similar pure helpers) should return a stable **translation key**, not a translated string. Translation happens at the component/template edge where an injection context exists. Update `chat-ui-state.test.ts` to assert on keys rather than German literals.
+
+Wire the Vitest setup so the existing specs keep passing: provide `TranslocoTestingModule` (or the standalone `provideTransloco` test equivalent) wherever a migrated component/helper is exercised. Pure logic specs that now assert on keys do not need the Transloco runtime.
+
+### Acceptance
+
+- **T3.4-AC-01** — Transloco is a Web dependency; `provideTransloco` is configured in `app.config.ts` with langs `de`/`en`, default `de`, and runtime language switching enabled.
+- **T3.4-AC-02** — Translation catalogs are JSON files under `apps/web/public/i18n/` loaded at runtime via HTTP; no XLIFF/XML files and no per-locale build are introduced.
+- **T3.4-AC-03** — Switching the active language between `de` and `en` updates the migrated chrome strings without a page reload, driven by Transloco's signal API.
+- **T3.4-AC-04** — The migrated files (`session-header.ts`, `chat-ui-state.ts`, `mic-overlay.*`, `chat-message-list.html`, `chat-input.html`) contain no hardcoded German chrome strings; each resolves through a translation key present in both `de.json` and `en.json`.
+- **T3.4-AC-05** — `apps/web/src/app/mock/chat-mock-data.ts` is unchanged; mock conversation content is not added to the catalogs.
+- **T3.4-AC-06** — `pnpm -r typecheck` and `pnpm -r test` pass; existing chat/store/mock specs remain green, with pure helpers asserting on keys and component specs using the Transloco test setup.
+
+### Key Locations
+
+- Provider setup: `apps/web/src/app/app.config.ts`
+- Transloco HTTP loader: new file under `apps/web/src/app/` (e.g. `transloco-loader.ts`)
+- Catalogs: `apps/web/public/i18n/de.json`, `apps/web/public/i18n/en.json`
+- Strings to migrate: `apps/web/src/app/chat/components/session-header.ts`, `apps/web/src/app/chat/chat-ui-state.ts`, `apps/web/src/app/chat/components/mic-overlay.html`, `apps/web/src/app/chat/components/mic-overlay.ts`, `apps/web/src/app/chat/components/chat-message-list.html`, `apps/web/src/app/chat/components/chat-input.html`
+- Test setup: `apps/web/vitest.config.ts`, `apps/web/src/app/chat/chat-ui-state.test.ts`
+- Out of scope (do not modify): `apps/web/src/app/mock/chat-mock-data.ts`
+- Dependencies: `apps/web/package.json`, `pnpm-lock.yaml`
+
+### Key Discoveries
+
+- The app is zone-less (`provideZonelessChangeDetection()` in `app.config.ts`), so the Transloco **signal API** (`translateSignal`, `transloco` pipe/directive) is the natural fit; avoid the Observable/`subscribe` path and `toSignal` bridging.
+- `public/` is already mapped as a build asset in `apps/web/angular.json` (`input: "public"`), so catalogs placed in `apps/web/public/i18n/` are served at `/i18n/*.json` without extra config.
+- Transloco loads JSON catalogs at runtime and lazy-loads per language; this avoids the `@angular/localize` compile-time model (one build per locale, XLIFF extraction) the team wants to avoid.
+- `micOverlayStatus()` in `chat-ui-state.ts` is a pure helper with no injection context, so it cannot call `translateSignal` directly. Return a translation key and translate at the component edge; this keeps the helper pure and lets `chat-ui-state.test.ts` assert on keys.
+- This task front-loads i18n on purpose: Task 4 (drawer + six list screens + daily notes) and Task 5 (icon `aria-label`s like `Menü öffnen`, `Mehr`, `Zurück`, `Senden`) add the bulk of chrome strings. From Task 4 onward, new chrome strings should be added as translation keys with `de`/`en` entries rather than hardcoded literals.
+- An English **mock conversation dataset** (translating `chat-mock-data.ts`) is intentionally deferred as an open question; only chrome is localized here.
+
 ## Task 3.5: Establish Angular Component Spec Harness With `ng-mocks`
 
 ### Instructions
@@ -515,4 +573,4 @@ The playground may use a compact fixture file, but it must not introduce a separ
 
 - **XC-01** — The Angular UI remains mock-first: no backend, Supabase, SSE, Capacitor plugin, or real speech-recognition integration is introduced. **Touches:** T1, T2, T3, T4
 - **XC-02** — Presentational UI remains product-owned and typed; no arbitrary generated UI/widget framework becomes the default chat renderer. **Touches:** T2, T3, T6
-- **XC-03** — `pnpm -r build`, `pnpm -r typecheck`, and `pnpm -r test` pass after the planned web app work. **Touches:** T1, T2, T3, T3.5, T4, T5, T6
+- **XC-03** — `pnpm -r build`, `pnpm -r typecheck`, and `pnpm -r test` pass after the planned web app work. **Touches:** T1, T2, T3, T3.4, T3.5, T4, T5, T6
