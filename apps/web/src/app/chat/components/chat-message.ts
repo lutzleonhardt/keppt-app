@@ -2,16 +2,20 @@ import { ChangeDetectionStrategy, Component, computed, input } from "@angular/co
 
 import {
   isAssistantContentMessage,
-  isAssistantToolMessage,
   isAssistantTypingMessage,
   isUserChatMessage,
 } from "../chat.types";
 import type { ChatMessage } from "../chat.types";
-import { AssistantContentMessageComponent } from "./assistant-content-message";
+import { AssistantMessageComponent } from "./assistant-message";
+import { UserMessageComponent } from "./user-message";
 
+/**
+ * Renders a single non-tool message. Tool calls never reach here — the list
+ * groups them into `keppt-tool-group` before this component sees them.
+ */
 @Component({
   selector: "keppt-chat-message",
-  imports: [AssistantContentMessageComponent],
+  imports: [AssistantMessageComponent, UserMessageComponent],
   templateUrl: "./chat-message.html",
   styleUrl: "./chat-message.scss",
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -22,11 +26,6 @@ export class ChatMessageComponent {
   protected readonly userMessage = computed(() => {
     const message = this.message();
     return isUserChatMessage(message) ? message : undefined;
-  });
-
-  protected readonly toolMessage = computed(() => {
-    const message = this.message();
-    return isAssistantToolMessage(message) ? message : undefined;
   });
 
   protected readonly typingMessage = computed(() => {

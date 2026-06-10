@@ -1,0 +1,17 @@
+<header class="session-header">
+  <button class="icon-button" type="button" aria-label="Menü öffnen">
+    <svg lucideMenu size="18" strokeWidth="2" aria-hidden="true"></svg>
+  </button>
+
+  <div class="session-title">
+    <keppt-monogram [size]="26" />
+    <span class="subtitle">
+      <keppt-status-dot />
+      <span>{{ subtitle() }}</span>
+    </span>
+  </div>
+
+  <button class="icon-button" type="button" aria-label="Weitere Optionen">
+    <svg lucideMoreHorizontal size="18" strokeWidth="2" aria-hidden="true"></svg>
+  </button>
+</header>

@@ -1,0 +1,47 @@
+<footer class="composer" aria-label="Nachricht verfassen">
+  <label class="composer-pill">
+    <span class="visually-hidden">Nachricht</span>
+    <textarea
+      #composerInput
+      [value]="draft()"
+      rows="1"
+      placeholder="Frag Keppt …"
+      (input)="updateDraft($event)"
+      (keydown.enter)="submitFromEnter($event)"
+    ></textarea>
+
+    <div class="composer-actions">
+      @if (busy()) {
+        <button
+          class="action-button stop"
+          type="button"
+          aria-label="Antwort abbrechen"
+          (click)="cancelMessage.emit()"
+        >
+          <svg lucideX size="16" strokeWidth="2" aria-hidden="true"></svg>
+        </button>
+      } @else {
+        <button
+          class="action-button mic"
+          type="button"
+          aria-label="Spracheingabe öffnen"
+          (click)="openMic.emit()"
+        >
+          <svg lucideMic size="16" strokeWidth="2" aria-hidden="true"></svg>
+        </button>
+
+        @if (hasDraft()) {
+          <button
+            class="action-button"
+            type="button"
+            aria-label="Nachricht senden"
+            [disabled]="!canSubmit()"
+            (click)="submitMessage.emit()"
+          >
+            <svg lucideArrowRight size="16" strokeWidth="2" aria-hidden="true"></svg>
+          </button>
+        }
+      }
+    </div>
+  </label>
+</footer>

@@ -1,0 +1,86 @@
+:host {
+  display: block;
+  min-height: 0;
+}
+
+.conversation {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 20px 0;
+  scrollbar-width: none;
+}
+
+.conversation::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Show a native, slim scrollbar on devices with a precise pointer (desktop). */
+@media (pointer: fine) {
+  .conversation {
+    scrollbar-width: thin;
+    scrollbar-color: var(--keppt-ink-4) transparent;
+  }
+
+  .conversation::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .conversation::-webkit-scrollbar-thumb {
+    background-color: var(--keppt-ink-4);
+    border-radius: 999px;
+  }
+
+  .conversation::-webkit-scrollbar-thumb:hover {
+    background-color: var(--keppt-ink-3);
+  }
+}
+
+.message-stack {
+  display: grid;
+  gap: 12px;
+  max-width: 760px;
+  margin: 0 auto;
+  padding-bottom: 12px;
+}
+
+.empty-chat {
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  min-height: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.empty-chat .empty-title,
+.empty-chat .empty-hint {
+  margin: 0;
+}
+
+.empty-chat .empty-title {
+  color: var(--keppt-ink);
+  font-family: var(--keppt-font-serif);
+  font-style: italic;
+  font-size: 32px;
+  line-height: 1.15;
+  letter-spacing: -0.5px;
+}
+
+.empty-chat .empty-hint {
+  max-width: 280px;
+  margin-inline: auto;
+  color: var(--keppt-ink-3);
+  font-size: 13.5px;
+  line-height: 1.4;
+  letter-spacing: -0.1px;
+}
+
+@media (max-width: 420px) {
+  .conversation {
+    padding-inline: 16px;
+  }
+}

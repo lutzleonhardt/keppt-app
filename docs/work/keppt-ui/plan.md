@@ -7,6 +7,8 @@ This plan builds the first mock-first Angular UI for Keppt as a mobile chat app.
 
 Post-Task-2 amendment: Task 2 implemented a temporary typed assistant block model because the original plan asked for it. Task 2.5 supersedes that part of the contract. From Task 2.5 onward, assistant prose is Markdown rendered through `ngx-markdown`; typed data remains for product UI patterns such as tool rows and quick replies.
 
+Post-Task-3 amendment (2026-06-08): Task 3 shipped a redesigned voice/mic and composer model that supersedes the original mic/composer wording. The mic overlay no longer exposes idle/listening/transcript states; it opens directly into recording and runs `recording → transcribing → error`, inserting the captured transcript into the composer draft instead of displaying or auto-sending it (cancel/confirm/retry controls). The composer keeps the mic button always visible and *adds* a send button when the draft has text, rather than switching mic↔send. T3-AC-04, T3-AC-05, the Task 3 "concrete UI states" instructions, and the Task 6 mic-overlay playground state (T6-AC-06) are updated to match. The upstream spec `docs/specs/angular-chat-ui.md` has been amended to this model: a separate `VoiceCaptureService` boundary, the `busy` signal and `cancel()` on the `ChatService` contract, the recording → transcribing → error overlay that inserts the transcript into the composer (no auto-send), and the always-visible-mic + additive-send composer.
+
 > The executing agent may adjust scope and ordering based on more
 > up-to-date context discovered during implementation, as long as
 > each task still satisfies the sizing rules above.
@@ -274,7 +276,7 @@ Implement these components or equivalent standalone components:
 - `AssistantMessageComponent` for Markdown assistant content and attached quick replies.
 - `ToolStatusRowComponent` for `"Keppt checked..."` style rows and expandable file lists.
 - `QuickRepliesComponent` for wrapping chip rows.
-- `ChatInputComponent` for text input and mic/send state switch.
+- `ChatInputComponent` for text input with an always-visible mic button and an additive send button shown once the draft has text.
 - `MicOverlayComponent` for simulated capture overlay.
 
 Render assistant prose through `ngx-markdown`. Keep tool/status rows, typing state, and quick replies as typed Angular UI components. Use familiar icon affordances for menu, more, back, close, mic, send, file, and expand/collapse. Use `lucide-angular` or similarly narrow icon dependency if icons are not already available; do not add a broad UI component library.
@@ -286,15 +288,15 @@ Use these concrete UI states from the reference mock:
 - Input placeholder is `Frag Keppt …`.
 - Tool rows should show an inline file icon, muted text, and a chevron only when files exist. Expanded state shows each file path in monospace.
 - Typing state uses three pulsing dots.
-- Mic overlay heading is `Erfassen`; statuses are `Höre zu …` and `Bereit`; idle prompt is `Sprich einfach drauflos. Ich schreibe mit.`
+- Mic overlay heading is `Erfassen`. It opens directly into recording and runs through recording (status `Höre zu …`, prompt `Sprich einfach drauflos. Ich schreibe mit.`), transcribing (status `Verarbeite …`, prompt `Einen Moment — ich schreibe es auf.`), and error (status `Nichts gehört`, prompt `Ich habe nichts verstanden. Probier es nochmal.`). The captured transcript is appended to the composer draft, not shown in the overlay.
 
 ### Acceptance
 
 - **T3-AC-01** — The chat screen renders header, independent scroll area, message list, quick replies, and bottom composer without viewport overflow.
 - **T3-AC-02** — Tool rows can expand to show file paths such as `tasks/inbox.md`, `tasks/focus.md`, and `daily/2026-05-06.md`.
 - **T3-AC-03** — Chips wrap on narrow screens and never force horizontal scrolling.
-- **T3-AC-04** — The composer switches from mic to send when text is entered.
-- **T3-AC-05** — The mic overlay shows idle, listening, and transcript states.
+- **T3-AC-04** — The composer keeps the mic button always visible and adds a send button when the draft contains text, so voice stays reachable while editing.
+- **T3-AC-05** — The mic overlay opens directly into recording and shows recording, transcribing, and error states with cancel/confirm/retry controls; the captured transcript is inserted into the composer draft and is never displayed in the overlay.
 
 ### Key Locations
 
@@ -539,7 +541,7 @@ Render all of these fixed states using the same components and typed mock data s
 - Tool status row: collapsed and expanded.
 - Quick replies: 2, 3, and 5 chips.
 - Chat input: empty, with text, and focused.
-- Mic overlay: idle, listening, and transcript.
+- Mic overlay: recording, transcribing, and error.
 - Drawer/list rows: normal, badge, and dashed.
 
 The playground may use a compact fixture file, but it must not introduce a separate component API that diverges from the production components.
@@ -551,7 +553,7 @@ The playground may use a compact fixture file, but it must not introduce a separ
 - **T6-AC-03** — `/dev/ui` shows collapsed and expanded tool rows.
 - **T6-AC-04** — `/dev/ui` shows quick replies with 2, 3, and 5 chips.
 - **T6-AC-05** — `/dev/ui` shows chat input empty, with text, and focused.
-- **T6-AC-06** — `/dev/ui` shows mic overlay idle, listening, and transcript states.
+- **T6-AC-06** — `/dev/ui` shows mic overlay recording, transcribing, and error states.
 - **T6-AC-07** — `/dev/ui` shows drawer/list rows in normal, badge, and dashed states.
 
 ### Key Locations

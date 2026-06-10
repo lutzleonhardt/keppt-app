@@ -1,0 +1,23 @@
+<section
+  #scrollViewport
+  class="conversation"
+  aria-label="Unterhaltung"
+  (scroll)="updateScrollAnchor()"
+>
+  @if (messages().length === 0) {
+    <div class="empty-chat">
+      <p class="empty-title">Was liegt dir<br>im Kopf?</p>
+      <span class="empty-hint">Tippe auf das Mikrofon — oder schreib einfach.</span>
+    </div>
+  } @else {
+    <div class="message-stack">
+      @for (item of renderItems(); track item.id) {
+        @if (item.kind === "tool-group") {
+          <keppt-tool-group [tools]="item.tools" />
+        } @else {
+          <keppt-chat-message [message]="item.message" />
+        }
+      }
+    </div>
+  }
+</section>

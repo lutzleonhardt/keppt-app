@@ -1,0 +1,7 @@
+<div class="quick-replies" aria-label="Schnellantworten">
+  @for (reply of replies(); track reply.id) {
+    <button type="button" (click)="replySelected.emit(reply.label)">
+      {{ reply.label }}
+    </button>
+  }
+</div>

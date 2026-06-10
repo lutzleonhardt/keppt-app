@@ -2,6 +2,8 @@
 
 > Source context: `docs/specs/context/ui-mock.md`, `docs/specs/architecture.md`, and the landing mock at `/home/lutz/projects/keppt/keppt-landing/`.
 
+**Implementation amendment (Task 3, 2026-06-08):** The voice/mic and composer model below was redesigned during implementation, and this spec has been updated to match. Voice capture moved out of `ChatService` into a dedicated `VoiceCaptureService` (`startRecording`/`stopRecording`/`cancelRecording`), and `ChatService` gained a `busy` signal. `ChatService` also gained `cancel()` to abort the in-flight turn, and the composer shows a Stop affordance while busy. The mic overlay no longer exposes idle/listening/transcript states; it opens directly into recording and runs `recording → transcribing → error`, inserting the captured transcript into the composer draft instead of displaying or auto-sending it. The composer keeps the mic button always visible and *adds* a send button when the draft has text, rather than switching mic↔send. (The assistant tool/status row shape was also restructured during a separate tool-lifecycle redesign — the `Message and Widget Shape` section below has been updated to the structured `{ tool, target, summary?, state }` form with derived client-side display. See `docs/work/keppt-ui/task-log/task-3-render-chat-conversation-surface.md`.)
+
 ## Goal
 
 Build the first Angular UI for keppt as a mock-first mobile chat application. The result should make the core app experience tangible before the backend, Supabase, Capacitor plugins, and real LLM streaming are wired.
@@ -75,8 +77,8 @@ The first Angular UI must cover these surfaces:
 - Assistant prose responses rendered from compact Markdown.
 - User message bubble.
 - Quick-reply chips.
-- Composer with text input and mic/send button.
-- Simulated mic overlay with idle, listening, and transcript states.
+- Composer with text input, an always-visible mic button, and a send button added when text is entered.
+- Simulated mic overlay with recording, transcribing, and error states; the captured transcript is inserted into the composer.
 - Drawer navigation.
 - Mock list screens for Inbox, Focus, Next Actions, Waiting, Someday/Maybe, and Daily Notes.
 - Optional internal dev UI playground route for component states.
@@ -97,7 +99,7 @@ Recommended Angular components:
 | `AssistantMessageComponent` | Assistant prose and attached chips/widgets. |
 | `ToolStatusRowComponent` | "Keppt checked..." row plus expandable file list. |
 | `QuickRepliesComponent` | Responsive chip row. |
-| `ChatInputComponent` | Text input, send/mic state switch. |
+| `ChatInputComponent` | Text input, always-visible mic, additive send button. |
 | `MicOverlayComponent` | Simulated capture overlay. |
 | `AppDrawerComponent` | Navigation and counts. |
 | `ListScreenComponent` | Reusable list screen for GTD lists. |
@@ -118,12 +120,19 @@ export type ChatStatus = 'idle' | 'thinking' | 'streaming' | 'error';
 export interface ChatService {
   readonly messages: Signal<ChatMessage[]>;
   readonly status: Signal<ChatStatus>;
+  readonly busy: Signal<boolean>; // status() !== 'idle'; one definition of "a turn is in flight"
   readonly currentScreen: Signal<AppScreen>;
   sendMessage(content: string): Promise<void>;
   chooseQuickReply(label: string): Promise<void>;
-  startVoiceCapture(): void;
-  cancelVoiceCapture(): void;
+  cancel(): void; // abort the in-flight turn: the user message stays, the whole assistant response is discarded, the underlying work stops; no-op when idle
   navigate(screen: AppScreen): void;
+}
+
+// Voice capture is a separate boundary — a turn no longer auto-sends from voice:
+export interface VoiceCaptureService {
+  startRecording(): void;
+  stopRecording(): Promise<string>; // MUST reject promptly if cancelled mid-flight
+  cancelRecording(): void;
 }
 ```
 
@@ -133,10 +142,11 @@ The first implementation is `MockChatService`. It should simulate:
 - typing indicator,
 - final assistant message,
 - quick replies,
-- mic transcript capture,
 - simple keyword routing for planning, today, waiting, inbox, and acknowledge flows.
 
-The later real implementation can wrap backend SSE and Vercel AI SDK response events. UI components should not need to know which implementation is active.
+Voice capture is simulated by a separate `MockVoiceCaptureService`: it produces a transcript string that the UI inserts into the composer draft (it does not auto-send a message), and honors an abort contract so a cancelled capture rejects rather than leaking a late transcript.
+
+The later real implementation can wrap backend SSE and Vercel AI SDK response events for chat, and `MediaRecorder` plus a speech-to-text client for voice. UI components should not need to know which implementation is active.
 
 ## Message and Widget Shape
 
@@ -156,12 +166,28 @@ export interface UserChatMessage {
   createdAt: string;
 }
 
+// Tool vocabulary mirrors the backend's work tools; the displayed verb + icon
+// are derived client-side from the structured call, not sent by the backend.
+// `suggest_quick_replies` is intentionally NOT a ToolName — the adapter maps it
+// to a content message's quick replies, so it can never become a tool row.
+export type ToolName =
+  | 'read_file'
+  | 'list_files'
+  | 'search_files'
+  | 'find_task_occurrences'
+  | 'edit_file'
+  | 'write_file';
+
+export type ToolState = 'running' | 'done';
+
 export interface AssistantToolMessage {
   id: string;
   role: 'assistant';
   kind: 'tool';
-  text: string;
-  files?: string[];
+  tool: ToolName;   // structured tool name — drives the verb and icon
+  target: string;   // file_path, search query, list prefix, or joined candidates
+  summary?: string; // model-authored change_summary (edit_file / write_file only)
+  state: ToolState;
   createdAt: string;
 }
 
@@ -197,6 +223,8 @@ export type AppScreen =
   | 'daily'
   | 'daily-detail';
 ```
+
+Tool/status rows carry a structured `{ tool, target, summary?, state }` shape rather than a pre-rendered label: the backend emits the tool name and its arguments, and the UI derives the displayed verb, icon, and any collapsed-group header client-side (see `apps/web/src/app/chat/chat-tool-registry.ts`). Consecutive tool messages run-length-group into one collapsible row at render time; grouping is a view concern, not domain state.
 
 Do not model widgets as arbitrary generated UI. Model only product-known UI patterns. Add new widget types deliberately when a concrete use case needs them.
 
@@ -246,7 +274,7 @@ It should render important components in fixed states:
 - tool status row: collapsed and expanded;
 - quick replies: 2, 3, and 5 chips;
 - chat input: empty, with text, focused;
-- mic overlay: idle, listening, transcript;
+- mic overlay: recording, transcribing, error;
 - drawer/list rows: normal, badge, dashed.
 
 This is intentionally lighter than Storybook. Storybook may be added later if the component set becomes a shared design system, but it is not required for the mock-first phase.
@@ -254,7 +282,7 @@ This is intentionally lighter than Storybook. Storybook may be added later if th
 ## Acceptance Criteria
 
 - **AC-01:** The Angular app opens directly into the Keppt chat experience, not a landing page.
-- **AC-02:** The main mock flow from the landing mock is reproducible in Angular: greeting, status row, quick replies, voice capture simulation, capture confirmation, planning response.
+- **AC-02:** The main mock flow from the landing mock is reproducible in Angular: greeting, status row, quick replies, voice capture that inserts a transcript into the composer draft, and the planning response. (The landing mock's auto-send "capture confirmation" step is superseded by the insert-into-composer voice model.)
 - **AC-03:** The UI is implemented with Angular standalone components and Signals.
 - **AC-04:** Chat components depend on a `ChatService` abstraction; replacing `MockChatService` with a future backend implementation must not require rewriting presentational components.
 - **AC-05:** Hashbrown, AG-UI, and A2UI are absent from runtime dependencies and implementation.

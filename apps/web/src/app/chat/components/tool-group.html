@@ -1,0 +1,43 @@
+@if (tools().length > 1) {
+  <article class="tool-group">
+    <button
+      class="group-header"
+      type="button"
+      [attr.aria-expanded]="expanded()"
+      (click)="toggle()"
+    >
+      @if (running()) {
+        <svg
+          class="spin"
+          lucideLoaderCircle
+          size="14"
+          strokeWidth="2"
+          aria-hidden="true"
+        ></svg>
+      } @else {
+        <svg [lucideIcon]="icon()" size="14" strokeWidth="2" aria-hidden="true"></svg>
+      }
+      <span class="label">{{ header() }}</span>
+      <svg
+        class="chevron"
+        [class.expanded]="expanded()"
+        lucideChevronDown
+        size="14"
+        strokeWidth="2"
+        aria-hidden="true"
+      ></svg>
+    </button>
+
+    @if (expanded()) {
+      <ul class="group-lines" aria-label="Ausgeführte Schritte">
+        @for (tool of tools(); track tool.id) {
+          <li><keppt-tool-status-row [message]="tool" /></li>
+        }
+      </ul>
+    }
+  </article>
+} @else if (tools()[0]; as only) {
+  <article class="tool-group single">
+    <keppt-tool-status-row [message]="only" />
+  </article>
+}

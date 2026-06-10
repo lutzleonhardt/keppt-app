@@ -1,0 +1,78 @@
+.composer {
+  padding: 8px 12px 18px;
+  background: transparent;
+}
+
+.composer-pill {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 6px 6px 6px 18px;
+  border: 1px solid var(--keppt-line);
+  border-radius: 26px;
+  background: #fff;
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.02),
+    0 14px 30px -22px rgba(26, 24, 20, 0.18);
+}
+
+.composer-pill textarea {
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  max-height: 112px;
+  resize: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--keppt-ink);
+  font: inherit;
+  font-size: 15px;
+  letter-spacing: -0.1px;
+  line-height: 1.4;
+  outline: none;
+}
+
+.composer-pill textarea::placeholder {
+  color: var(--keppt-ink-3);
+}
+
+.composer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.action-button {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--keppt-ink);
+  color: var(--keppt-paper);
+  cursor: pointer;
+}
+
+.action-button:disabled {
+  background: var(--keppt-ink-5);
+  color: var(--keppt-ink-3);
+  cursor: default;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

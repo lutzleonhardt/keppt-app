@@ -1,3 +1,9 @@
+import type { ToolName, ToolState } from "./chat-tool-registry";
+
+// The tool vocabulary lives in chat-tool-registry.ts (the single source of truth
+// for tools); re-exported here so chat.types stays the chat domain's type barrel.
+export type { ToolName, ToolState } from "./chat-tool-registry";
+
 export type ChatStatus = "idle" | "thinking" | "streaming" | "error";
 export type ChatMessageRole = "user" | "assistant";
 export type ChatMessageKind = "user" | "tool" | "typing" | "content";
@@ -24,8 +30,13 @@ export interface UserChatMessage extends BaseChatMessage {
 export interface AssistantToolMessage extends BaseChatMessage {
   role: "assistant";
   kind: "tool";
-  text: string;
-  files?: string[];
+  /** Structured tool name — drives the displayed verb and icon. */
+  tool: ToolName;
+  /** Primary argument: file_path, search query, list prefix, or joined candidates. */
+  target: string;
+  /** Model-authored change_summary — only `edit_file` / `write_file` carry it. */
+  summary?: string;
+  state: ToolState;
 }
 
 export interface AssistantTypingMessage extends BaseChatMessage {

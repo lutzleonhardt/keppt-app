@@ -1,0 +1,50 @@
+.session-header {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 36px;
+  align-items: center;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--keppt-hairline);
+  background: rgba(246, 243, 238, 0.92);
+  backdrop-filter: blur(8px);
+}
+
+.session-title {
+  display: inline-flex;
+  align-items: center;
+  justify-self: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.subtitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--keppt-ink-2);
+  font-size: 12.5px;
+  letter-spacing: 0.1px;
+}
+
+.subtitle > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--keppt-ink-4);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--keppt-ink);
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: rgba(255, 255, 255, 0.75);
+}

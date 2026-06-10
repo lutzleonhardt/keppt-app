@@ -1,3 +1,52 @@
+/*
+ * Self-hosted fonts — no runtime/build dependency on Google Fonts (hermetic CI,
+ * GDPR-friendly). Files live in public/fonts and are served at /fonts/*.
+ * Inter Tight is a variable font: one woff2 per subset covers weights 400–700.
+ * latin covers German (ä ö ü ß) + common typography; latin-ext is only fetched
+ * when extended-Latin glyphs actually appear (unicode-range), so it costs
+ * nothing for German-only content. Ranges copied verbatim from Google's CSS.
+ */
+@font-face {
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/inter-tight-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter Tight";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/inter-tight-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/instrument-serif-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/instrument-serif-latin-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   --keppt-paper: #f6f3ee;
   --keppt-paper-alt: #efebe3;
@@ -12,16 +61,16 @@
   --keppt-accent: #b07a52;
   --keppt-accent-soft: rgba(176, 122, 82, 0.1);
   --keppt-accent-soft-2: rgba(176, 122, 82, 0.18);
+  --keppt-sage: #465c53;
+  --keppt-sage-soft: rgba(70, 92, 83, 0.1);
+  --keppt-sage-soft-2: rgba(70, 92, 83, 0.16);
+  --keppt-font-ui: "Inter Tight", -apple-system, BlinkMacSystemFont, system-ui,
+    "Segoe UI", sans-serif;
+  --keppt-font-serif: "Instrument Serif", "Times New Roman", Georgia, serif;
+  --keppt-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco,
+    monospace;
   color-scheme: light;
-  font-family:
-    "Inter Tight",
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: var(--keppt-font-ui);
   background: var(--keppt-paper);
   color: var(--keppt-ink);
 }
@@ -47,7 +96,8 @@ body {
 }
 
 button,
-textarea {
+textarea,
+input {
   font: inherit;
 }
 
@@ -56,36 +106,97 @@ button {
 }
 
 button:focus-visible,
-textarea:focus-visible {
+textarea:focus-visible,
+input:focus-visible {
   outline: 2px solid var(--keppt-accent);
   outline-offset: 3px;
 }
 
+/* ── Assistant Markdown — scoped typography for ngx-markdown output */
 .assistant-markdown,
 .assistant-markdown markdown {
   display: grid;
-  gap: 10px;
+  gap: 4px;
   min-width: 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  letter-spacing: -0.05px;
+  color: var(--keppt-ink);
 }
 
 .assistant-markdown :where(p, h1, h2, h3, h4, h5, h6, ol, ul, pre) {
   margin: 0;
 }
 
+.assistant-markdown :where(p) {
+  margin: 0 0 6px;
+}
+
+.assistant-markdown :where(p:last-child) {
+  margin-bottom: 0;
+}
+
 .assistant-markdown :where(h1, h2, h3, h4, h5, h6) {
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.25;
+  margin: 8px 0 2px;
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.05px;
 }
 
-.assistant-markdown :where(ol, ul) {
+.assistant-markdown :where(h1, h2, h3, h4, h5, h6):first-child {
+  margin-top: 0;
+}
+
+.assistant-markdown :where(ol) {
   display: grid;
-  gap: 7px;
-  padding-left: 1.2em;
+  gap: 4px;
+  margin: 2px 0 8px;
+  padding-left: 22px;
 }
 
-.assistant-markdown :where(li) {
-  padding-left: 2px;
+.assistant-markdown :where(ul) {
+  display: grid;
+  gap: 4px;
+  margin: 2px 0 8px;
+  padding-left: 0;
+  list-style: none;
+}
+
+.assistant-markdown :where(ul) > li {
+  position: relative;
+  padding-left: 14px;
+}
+
+.assistant-markdown :where(ul) > li::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  left: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--keppt-ink-3);
+}
+
+.assistant-markdown :where(ol) > li::marker {
+  color: var(--keppt-ink-2);
+}
+
+.assistant-markdown :where(li) > :where(p):only-child {
+  margin: 0;
+}
+
+.assistant-markdown :where(strong) {
+  font-weight: 600;
+}
+
+.assistant-markdown :where(em) {
+  font-family: var(--keppt-font-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1;
 }
 
 .assistant-markdown :where(a) {
@@ -95,11 +206,13 @@ textarea:focus-visible {
 }
 
 .assistant-markdown :where(code) {
-  border-radius: 5px;
-  padding: 1px 4px;
+  border-radius: 6px;
+  padding: 1.5px 7px;
   background: var(--keppt-accent-soft);
-  font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.92em;
+  color: var(--keppt-accent);
+  font-family: var(--keppt-font-mono);
+  font-size: 12.5px;
+  letter-spacing: 0;
 }
 
 .assistant-markdown :where(pre) {
@@ -111,4 +224,93 @@ textarea:focus-visible {
   display: block;
   padding: 10px 11px;
   white-space: pre;
+}
+
+/* ── Mock animations — ported from keppt-landing */
+@keyframes keppt-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes keppt-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes keppt-typing {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+@keyframes keppt-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 0.25;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+}
+
+@keyframes keppt-pulse-tight {
+  0% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+}
+
+@keyframes keppt-bar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.keppt-fade-up {
+  animation: keppt-fade-up 0.45s ease both;
+}
+
+.keppt-fade {
+  animation: keppt-fade 0.6s ease both;
+}
+
+.keppt-pulse-1 {
+  animation: keppt-pulse 2.4s ease-in-out infinite;
+}
+
+.keppt-pulse-2 {
+  animation: keppt-pulse-tight 2.4s ease-in-out infinite;
+  animation-delay: 0.3s;
 }

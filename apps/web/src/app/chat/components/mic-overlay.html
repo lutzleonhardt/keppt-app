@@ -1,0 +1,102 @@
+<section
+  #overlayRoot
+  class="mic-overlay keppt-fade"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="mic-overlay-title"
+  tabindex="-1"
+>
+  <header class="overlay-header">
+    <span class="icon-spacer" aria-hidden="true"></span>
+
+    <div class="overlay-title">
+      <keppt-monogram [size]="22" />
+      <div class="title-stack">
+        <span id="mic-overlay-title" class="heading">Erfassen</span>
+        <span class="status">
+          <keppt-status-dot />
+          <span>{{ status() }}</span>
+        </span>
+      </div>
+    </div>
+
+    <span class="icon-spacer" aria-hidden="true"></span>
+  </header>
+
+  <div class="capture-stage">
+    <p class="prompt">
+      @switch (state()) {
+        @case ("transcribing") {
+          Einen Moment — ich schreibe es auf.
+        }
+        @case ("error") {
+          Ich habe nichts verstanden. Probier es nochmal.
+        }
+        @default {
+          Sprich einfach drauflos. Ich schreibe mit.
+        }
+      }
+    </p>
+
+    <div class="mic-visual" aria-hidden="true">
+      <span
+        class="halo halo-outer"
+        [class.keppt-pulse-1]="recording()"
+      ></span>
+      <span
+        class="halo halo-inner"
+        [class.keppt-pulse-2]="recording()"
+      ></span>
+      <span class="core" [class.listening]="recording()">
+        @if (recording()) {
+          <span class="waveform">
+            @for (bar of waveformBars; track $index) {
+              <span
+                class="bar"
+                [style.height.px]="bar"
+                [style.animation-delay.s]="$index * 0.09"
+              ></span>
+            }
+          </span>
+        } @else if (transcribing()) {
+          <span class="spinner"></span>
+        } @else {
+          <svg lucideMic size="28" strokeWidth="2"></svg>
+        }
+      </span>
+    </div>
+
+    <span class="hint">{{ hintLabel() }}</span>
+  </div>
+
+  <div class="overlay-actions">
+    <button
+      class="capture-button cancel"
+      type="button"
+      aria-label="Abbrechen"
+      (click)="cancel.emit()"
+    >
+      <svg lucideX size="20" strokeWidth="2" aria-hidden="true"></svg>
+    </button>
+
+    @if (recording()) {
+      <button
+        class="capture-button confirm"
+        type="button"
+        aria-label="Aufnahme übernehmen"
+        (click)="stop.emit()"
+      >
+        <svg lucideCheck size="22" strokeWidth="2.4" aria-hidden="true"></svg>
+      </button>
+    } @else if (errored()) {
+      <button
+        class="capture-button confirm retry"
+        type="button"
+        aria-label="Erneut aufnehmen"
+        (click)="retry.emit()"
+      >
+        <svg lucideMic size="20" strokeWidth="2" aria-hidden="true"></svg>
+      </button>
+    }
+  </div>
+</section>

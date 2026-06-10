@@ -1,0 +1,21 @@
+:host {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--keppt-monogram-size, 26px);
+  height: var(--keppt-monogram-size, 26px);
+  border-radius: 999px;
+  background: var(--keppt-ink);
+}
+
+.glyph {
+  font-family: var(--keppt-font-serif);
+  font-style: italic;
+  font-weight: 500;
+  font-size: var(--keppt-monogram-glyph-size, 18px);
+  line-height: 1;
+  letter-spacing: -1px;
+  color: var(--keppt-paper);
+  /* Optical centering — pull glyph slightly up-left to compensate for italic K */
+  transform: translate(-1px, -1px);
+}

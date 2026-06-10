@@ -1,0 +1,23 @@
+<span
+  class="tool-line"
+  [class.running]="message().state === 'running'"
+  [attr.aria-label]="message().state === 'running' ? label() + ' – läuft' : null"
+>
+  @if (message().state === "running") {
+    <svg
+      class="spin"
+      lucideLoaderCircle
+      size="14"
+      strokeWidth="2"
+      aria-hidden="true"
+    ></svg>
+  } @else {
+    <svg
+      [lucideIcon]="icon()"
+      size="14"
+      strokeWidth="2"
+      aria-hidden="true"
+    ></svg>
+  }
+  <span class="label">{{ label() }}</span>
+</span>

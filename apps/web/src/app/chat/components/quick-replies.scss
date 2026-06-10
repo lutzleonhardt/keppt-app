@@ -1,0 +1,30 @@
+.quick-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 18px 6px;
+}
+
+.quick-replies button {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  max-width: 100%;
+  padding: 0 13px;
+  border: 1px solid var(--keppt-ink-4);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--keppt-ink);
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: -0.05px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.quick-replies button:hover {
+  background: rgba(255, 255, 255, 0.78);
+}
