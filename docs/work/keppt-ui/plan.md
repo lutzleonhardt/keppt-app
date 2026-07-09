@@ -372,49 +372,54 @@ Wire the Vitest setup so the existing specs keep passing: provide `TranslocoTest
 - This task front-loads i18n on purpose: Task 4 (drawer + six list screens + daily notes) and Task 5 (icon `aria-label`s like `Menü öffnen`, `Mehr`, `Zurück`, `Senden`) add the bulk of chrome strings. From Task 4 onward, new chrome strings should be added as translation keys with `de`/`en` entries rather than hardcoded literals.
 - An English **mock conversation dataset** (translating `chat-mock-data.ts`) is intentionally deferred as an open question; only chrome is localized here.
 
-## Task 3.5: Establish Angular Component Spec Harness With `ng-mocks`
+## Task 3.5: Establish Angular Component Spec Harness With Angular Testing Library
 
 ### Instructions
 
 Add a reusable Angular component-spec harness for the Web app before the drawer, polish, and UI playground work expands the component surface.
 
-Add `ng-mocks` as a Web dev dependency and configure the Web test setup so Angular standalone components can be rendered under Vitest. The current Web test runner is direct Vitest with `environment: "node"`; component specs need an intentional DOM/Angular test setup. Keep pure logic tests in plain Vitest.
+Move the Web test setup to Angular's official Vitest runner (`ng test` via the `@angular/build:unit-test` builder, stable since Angular 21) so standalone components with external `templateUrl`/`.scss` compile under test. The current direct `vitest run` with `environment: "node"` cannot compile Angular components; the builder replaces it and provides the DOM environment (jsdom or happy-dom). Update the Web `test` script so `pnpm -r test` still works, and align or remove the standalone `apps/web/vitest.config.ts` in favor of the builder's configuration (test include patterns must cover the existing `*.test.ts` naming — the builder defaults to `*.spec.ts`).
 
-Add one shallow component spec that becomes the template for future Angular specs. Prefer `ChatScreenComponent` or `ChatMessageListComponent`, because those components sit on the chat/store boundary and are representative of upcoming component tests. Use `MockBuilder`, `MockRender`, `MockProvider`, and/or `ngMocks` helpers instead of hand-written `TestBed.configureTestingModule` boilerplate.
+Add `@testing-library/angular` as a Web dev dependency and use its zoneless entry point (`@testing-library/angular/zoneless`), matching the app's `provideZonelessChangeDetection()` setup.
 
-Mock Angular DI boundaries through runtime tokens. `ChatService` is an abstract class, not a TypeScript interface, so it can be used as a DI token with `MockProvider`. Do not introduce a pattern where every component spec hand-wires `createEnvironmentInjector`, `Injector.create`, or direct `TestBed` setup.
+Add one component spec that becomes the template for future Angular specs. Prefer `ChatScreenComponent` or `ChatMessageListComponent`, because those components sit on the chat/store boundary and are representative of upcoming component tests. Use ATL's `render()` and assert through Testing Library DOM queries (what the user sees), not through component internals. Render child components for real — no shallow rendering and no component mocking; the standalone `imports` arrays keep the rendered tree small and explicit.
+
+Mock at the DI boundary through runtime tokens. `ChatService` is an abstract class, not a TypeScript interface, so it can be used as a DI token; provide it via ATL's `vitest-utils` (`provideMock` / `provideMockWithValues`, built on `vi.fn()`) or a plain provider object in `render(..., { providers: [...] })`. Do not introduce a pattern where every component spec hand-wires `createEnvironmentInjector`, `Injector.create`, or direct `TestBed.configureTestingModule` setup.
 
 Keep the test strategy split:
 
-- Pure state and mock-service tests stay plain Vitest.
-- Angular component and DI-heavy specs use `ng-mocks`.
+- Pure state and mock-service tests stay plain Vitest tests with no Angular runtime imports.
+- Angular component and DI-heavy specs use ATL `render` + DOM queries.
 - The existing chat/store tests should keep passing.
 - No backend, Supabase, SSE, Capacitor, or real speech integration is introduced by this task.
 
 ### Acceptance
 
-- **T3.5-AC-01** — The Web test setup can render at least one standalone Angular component under Vitest with a DOM-capable Angular test environment.
-- **T3.5-AC-02** — `ng-mocks` is available as a Web dev dependency and the new component spec uses `ng-mocks` helpers instead of hand-written `TestBed.configureTestingModule` boilerplate.
-- **T3.5-AC-03** — The new shallow component spec mocks the `ChatService` or `ChatStore` boundary through Angular DI rather than importing production mock arrays directly.
-- **T3.5-AC-04** — Existing pure logic tests remain plain Vitest tests and do not need `ng-mocks` to execute.
-- **T3.5-AC-05** — The Web test command runs both existing logic tests and the new Angular component spec.
+- **T3.5-AC-01** — The Web test setup can render at least one standalone Angular component (with external `templateUrl`/`.scss`) under the official `ng test` Vitest runner with a DOM-capable Angular test environment.
+- **T3.5-AC-02** — `@testing-library/angular` is available as a Web dev dependency and the new component spec uses ATL `render()` (zoneless entry point) with Testing Library DOM queries instead of hand-written `TestBed.configureTestingModule` boilerplate; child components are rendered for real, not mocked.
+- **T3.5-AC-03** — The new component spec mocks the `ChatService` or `ChatStore` boundary through Angular DI (e.g. ATL `vitest-utils` `provideMock`) rather than importing production mock arrays directly.
+- **T3.5-AC-04** — Existing pure logic tests remain plain Vitest tests with no Angular runtime imports and keep passing under the new runner.
+- **T3.5-AC-05** — The Web test command (`pnpm -r test`) runs both existing logic tests and the new Angular component spec in one invocation.
 
 ### Key Locations
 
-- Web test config: `apps/web/vitest.config.ts`
+- Web test config: `apps/web/vitest.config.ts` (to be replaced/aligned with the `ng test` builder config in `apps/web/angular.json`)
 - Optional test setup file: `apps/web/src/test-setup.ts` or equivalent
-- Web package dependencies/scripts: `apps/web/package.json`, `pnpm-lock.yaml`
+- Web package dependencies/scripts: `apps/web/package.json` (`test` script, `vitest` version bump, `@testing-library/angular`, DOM environment package), `pnpm-lock.yaml`
 - Candidate component spec: `apps/web/src/app/chat/chat-screen*.test.ts` or `apps/web/src/app/chat/components/chat-message-list*.test.ts`
 - Chat DI boundary: `apps/web/src/app/chat/chat.service.ts`, `apps/web/src/app/chat/chat.store.ts`
 - Existing tests to preserve: `apps/web/src/app/chat/chat-ui-state.test.ts`, `apps/web/src/app/chat/chat.store.test.ts`, `apps/web/src/app/mock/mock-chat.service.test.ts`
 
 ### Key Discoveries
 
-- The Web app currently has only three test files, and only `chat.store.test.ts` touches Angular DI directly.
-- There are no direct `TestBed` imports in the Web specs today.
+- Decision 2026-07-09: Angular Testing Library replaces the originally planned `ng-mocks`. ng-mocks has an open Angular 21 bug breaking `MockProvider` (help-me-mom/ng-mocks#12725), a recurring 3–4 month support lag on new Angular majors, bus factor 1, and no official Vitest support. ATL tracks Angular releases within days, ships a dedicated zoneless entry point, and provides Vitest mock helpers.
+- Testing philosophy shift accepted with this decision: mock at the service/DI boundary, render children for real, assert via DOM queries. Shallow rendering was a workaround for the NgModule era; standalone `imports` make it unnecessary. If a genuine shallow-rendering need appears later, ATL and ng-mocks are composable — decide then, not now.
+- The Web app currently has only three test files, and only `chat.store.test.ts` touches Angular DI directly. There are no direct `TestBed` imports in the Web specs today.
 - The Web app already has a growing Angular surface with standalone chat components; this task establishes the testing style before Task 4, Task 5, and Task 6 add more component states.
-- `ng-mocks` wraps Angular's test infrastructure; the value is hiding TestBed boilerplate behind a stable testing style, not avoiding Angular's test runtime entirely.
-- `ng-mocks` currently documents Angular 21 support for standalone components and Signals. `defer` behavior is not part of this task and should not be relied on without separate verification.
+- Chat templates use the Transloco pipe since Task 3.4 with an HTTP loader; component specs must provide Transloco statically (e.g. `TranslocoTestingModule` with the real `de.json`/`en.json` catalogs) — the HTTP loader does not work under test. Decide deliberately whether specs assert translated strings or keys.
+- `vi.mock` module mocking does not work under the `ng test` builder (angular/angular-cli#31609); mock at the DI level instead — ATL's `provideMock` is built on `vi.fn()` and is unaffected.
+- The Web `vitest` devDependency is `^1.4.0`; the `@angular/build:unit-test` builder requires a newer Vitest major — bump it as part of this task (verify against the builder's peer range).
+- `fakeAsync`/`waitForAsync` rely on zone.js and are not available in this zoneless setup; use Vitest fake timers where timing control is needed.
 
 ## Task 4: Add Drawer Navigation Surface
 
