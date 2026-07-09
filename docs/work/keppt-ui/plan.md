@@ -9,6 +9,8 @@ Post-Task-2 amendment: Task 2 implemented a temporary typed assistant block mode
 
 Post-Task-3 amendment (2026-06-08): Task 3 shipped a redesigned voice/mic and composer model that supersedes the original mic/composer wording. The mic overlay no longer exposes idle/listening/transcript states; it opens directly into recording and runs `recording → transcribing → error`, inserting the captured transcript into the composer draft instead of displaying or auto-sending it (cancel/confirm/retry controls). The composer keeps the mic button always visible and *adds* a send button when the draft has text, rather than switching mic↔send. T3-AC-04, T3-AC-05, the Task 3 "concrete UI states" instructions, and the Task 6 mic-overlay playground state (T6-AC-06) are updated to match. The upstream spec `docs/specs/angular-chat-ui.md` has been amended to this model: a separate `VoiceCaptureService` boundary, the `busy` signal and `cancel()` on the `ChatService` contract, the recording → transcribing → error overlay that inserts the transcript into the composer (no auto-send), and the always-visible-mic + additive-send composer.
 
+Pre-Task-4 amendment (2026-07-09): Task 4's list surfaces were redefined from typed-row ports of the landing mock to markdown-file views over the product's real vault model, which `packages/core` already fixes (`gtd-layout.ts` allowlist: `tasks/inbox.md`, `tasks/focus.md`, `tasks/next-actions.md`, `tasks/waiting.md`, `tasks/someday-maybe.md`, `daily/YYYY-MM-DD.md`; system-prompt R9 checkbox task format, R7 category-heading grouping for next-actions, R10 Plan/Log/Notes daily sections). List screens render these files as markdown behind an abstract `VaultService`; the reference-mock rows survive as seed content converted into that format, and the landing mock's dashed-bullet/badge row optics are deliberately dropped in favor of data honesty. The original typed `ListEntry` row model and T4-AC-02's "typed data" wording are superseded. Editing is split into new Task 4.5 (full-document textarea with autosave — safe because the backend will persist every file change as revertable history); tappable checkboxes in the rendered view are deferred to a later task. The upstream spec's list-surface section should be amended alongside Task 4 execution.
+
 > The executing agent may adjust scope and ordering based on more
 > up-to-date context discovered during implementation, as long as
 > each task still satisfies the sizing rules above.
@@ -425,14 +427,23 @@ Keep the test strategy split:
 
 ### Instructions
 
-Implement the app drawer and reusable list screens for Inbox, Focus, Next Actions, Waiting, Someday/Maybe, and Daily Notes. Drawer navigation must call the chat service's `navigate` method and must close the drawer after selection.
+Implement the app drawer and the vault-file screens for Inbox, Focus, Next Actions, Waiting, Someday/Maybe, and Daily Notes. Drawer navigation must call the chat service's `navigate` method and must close the drawer after selection. All screens are read-only in this task — the editor mode is Task 4.5.
 
 Implement these surfaces:
 
-- `AppDrawerComponent` with brand/date area, nav rows, counts, and user/trial footer.
-- `ListScreenComponent` for Inbox, Focus, Waiting, and Someday/Maybe.
-- Group support in `ListScreenComponent` for Next Actions.
-- `DailyNotesComponent` with list and detail states for daily notes.
+- `AppDrawerComponent` with brand/date area, nav rows, derived counts, and user/trial footer.
+- An abstract `VaultService` contract (+ mock implementation under `apps/web/src/app/mock/`) exposing each vault file's markdown content as a `Signal<string>`: the five task files `tasks/inbox.md`, `tasks/focus.md`, `tasks/next-actions.md`, `tasks/waiting.md`, `tasks/someday-maybe.md`, plus a daily index and per-day `daily/YYYY-MM-DD.md` contents. The UI consumes file content through this contract — no typed row models, no direct `mock/` imports in components.
+- A vault-file screen component rendering screen chrome (title, subtitle, hint) plus the file's markdown through `ngx-markdown`, used for Inbox, Focus, Next Actions, Waiting, and Someday/Maybe. Next Actions needs no dedicated group support — its `##` category headings render as groups for free.
+- `DailyNotesComponent` with a typed day-card index (weekday/date/summary) and a detail state that renders the day's markdown file.
+
+Vault seed format (mirrors `packages/core` system-prompt R7/R9/R10):
+
+- Tasks are markdown checkboxes — `- [ ] Task` open, `- [x] Task` done; the reference mock's row metas become trailing text on the line (e.g. `- [ ] Feedback von Max zur Rechnung (seit 3 Tagen · sanft nachfragen?)`).
+- `tasks/next-actions.md` groups via `##` category headings: `## Arbeit`, `## Haus & Garten`, `## Persönlich`.
+- Daily files use `## Plan` (checkboxes), `## Log` (chronological lines), and `## Notizen` (free text; omit the section for days without notes).
+- Drawer counts derive from the vault: open checkboxes per task file, number of day entries for Daily Notes.
+
+All screen chrome (drawer labels, titles, subtitles, hints, aria-labels) follows the Task 3.4 i18n convention — keys in both catalogs. Vault file contents are mock content and stay German.
 
 Use these drawer labels:
 
@@ -451,7 +462,7 @@ Use these screen headers and hints:
 - Someday: title `Vielleicht irgendwann`, subtitle `Ohne Zeitdruck · ohne schlechtes Gewissen`, hint `Hier landen Ideen. Wir schauen beim Weekly Review gemeinsam drauf.`
 - Daily: title `Daily Notes`, subtitle `Tagesplan & Protokoll`
 
-Use these mock rows:
+Seed the mock vault from these reference rows and days (converted per the vault format above):
 
 - Inbox: `Anna wegen Angebot schreiben`, `Steuerunterlagen sortieren`, `YouTube-Idee — „AI Apps"`, `Geschenk für Mama recherchieren`.
 - Focus: `Anna wegen Angebot schreiben`, `AI-Apps-Video gliedern`, `Auftrag VW abschließen`.
@@ -464,26 +475,61 @@ Ask-in-chat actions should route back to chat and trigger the related mock respo
 
 ### Acceptance
 
-- **T4-AC-01** — Drawer shows Chat, Ask Today, Inbox, Focus, Next Actions, Waiting, Someday/Maybe, and Daily Notes with mock counts.
-- **T4-AC-02** — Each list screen renders its title, subtitle, hint, and mock rows from typed data.
+- **T4-AC-01** — Drawer shows Chat, Ask Today, Inbox, Focus, Next Actions, Waiting, Someday/Maybe, and Daily Notes with counts derived from the mock vault (4 / 3 / 7 / 2 / 4 / 4).
+- **T4-AC-02** — Each vault screen renders its title, subtitle, and hint (i18n keys) plus its file's markdown rendered via `ngx-markdown` (checkbox rows; `##` groups on Next Actions), sourced from `VaultService` signals.
 - **T4-AC-03** — Ask-in-chat actions return to chat and trigger the matching mock response for today, inbox cleanup, waiting, or next-action context.
-- **T4-AC-04** — Daily Notes opens a detail surface with plan, log, and notes sections.
+- **T4-AC-04** — Daily Notes renders the four day cards and opens a detail surface rendering the day's markdown with Plan, Log, and — where present — Notizen sections.
 
 ### Key Locations
 
-- Drawer/list components: `apps/web/src/app/navigation/` or `apps/web/src/app/lists/`
+- Drawer/vault-screen components: `apps/web/src/app/navigation/` and `apps/web/src/app/vault/`
 - Router config: `apps/web/src/app/app.routes.ts`
-- Mock list data: `apps/web/src/app/mock/`
+- Vault contract + mock vault content: `apps/web/src/app/vault/`, `apps/web/src/app/mock/`
+- Vault model and file formats: `packages/core/src/gtd-layout.ts`, `packages/core/src/system-prompt.ts` (R7/R9/R10)
 - Reference mock data and strings: `/home/lutz/projects/keppt/keppt-landing/src/components/mock/strings.tsx`
 - Reference drawer/list/daily rendering: `/home/lutz/projects/keppt/keppt-landing/src/components/mock/screens.tsx`
 - Reference route state behavior: `/home/lutz/projects/keppt/keppt-landing/src/components/mock/MockDevice.tsx`
 
 ### Key Discoveries
 
-- `AppScreen` should use `daily-detail` for the opened daily note state.
-- List rows support normal, dashed, and badge states.
-- Next Actions is grouped; the other list screens are flat.
-- Daily Notes detail must show plan, log, and notes sections, not only the daily note summary.
+- The real vault model already exists in `packages/core`: `gtd-layout.ts` allowlists exactly the five task files + `daily/YYYY-MM-DD.md`; system-prompt R9 fixes the checkbox task format, R7 the category-heading grouping, R10 the Plan/Log/Notes daily sections.
+- `AppScreen` in `chat.types.ts` already contains all eight screens incl. `daily-detail` (the React mock's key is `dailyDetail`; the drawer never targets it — detail is reached from the daily list, and back returns to the list).
+- Drawer counts are derived, not authored: open checkboxes per file (inbox 4, focus 3, next 3+2+2=7, waiting 2, someday 4), daily = number of day entries (4). Chat and "Heute fragen" carry no count.
+- "Heute fragen" is a chat action, not a screen: navigate to chat + send "Was steht heute an?" (today flow). Ask-in-chat links ("im Chat fragen →") exist only on Inbox ("Räum die Inbox auf" → inbox flow), Next Actions ("Was passt jetzt zu mir?" → needs a new `nextContext` mock flow; the React mock only had a generic acknowledge fallback), and Waiting ("Worauf warte ich?" → waiting flow).
+- List screens show a hamburger header (drawer trigger); a back button exists only on the daily-note detail.
+- `ChatService`/`VoiceCaptureService`/`ChatStore` must hoist from `ChatScreenComponent` providers to `app.config.ts` so chat state and `currentScreen` survive navigation (explicitly deferred to this task by Task 3.5).
+
+## Task 4.5: Add Vault Editor Mode With Autosave
+
+### Instructions
+
+Add an edit mode to the Task-4 vault screens: an edit (pencil) toggle in the screen header swaps the rendered markdown view for a full-document textarea holding the raw file content. There are no save/cancel buttons — changes autosave through the vault contract.
+
+- Extend `VaultService` with `saveFile(path, content)`; the mock writes the in-memory signal so the rendered view reflects edits immediately after toggling back.
+- Autosave: debounce while typing and flush on leaving edit mode or navigating away. Rationale (document it on the contract): the real backend persists every file change as revertable history (planned NoSQL-backed), so intermediate saves are safe and an explicit confirm/cancel model would duplicate what history/revert already provides.
+- Editable surfaces: the five task files and today's daily note. Past dailies show no edit affordance — a full-document save is a `write_file`-style full rewrite, which `packages/core` blocks for past dailies (`isPastDaily`).
+- Plain `<textarea>` only — no WYSIWYG or code-editor dependency. Tappable checkboxes in the rendered view are a separate later task.
+- Derived state must react: drawer counts recompute when edits add/remove/check checkbox lines.
+- New chrome (edit toggle label/aria, any editing hint) gets keys in both `de.json` and `en.json`.
+
+### Acceptance
+
+- **T4.5-AC-01** — The edit toggle switches rendered ⇄ raw editing on the five task screens and today's daily note; past dailies expose no edit affordance.
+- **T4.5-AC-02** — Edits autosave via `VaultService.saveFile` (debounced, flushed on exit/navigation); toggling back renders the edited markdown without any manual save action.
+- **T4.5-AC-03** — Edits survive navigating away and back (service-held state), and drawer counts recompute when checkbox lines change.
+- **T4.5-AC-04** — No save/cancel buttons exist; the editor is a plain textarea with its chrome present in both catalogs.
+
+### Key Locations
+
+- Vault screens/components from Task 4: `apps/web/src/app/vault/`
+- Vault contract + mock: `apps/web/src/app/vault/`, `apps/web/src/app/mock/`
+- Past-daily gate reference: `packages/core/src/gtd-layout.ts` (`isPastDaily`)
+- Catalogs: `apps/web/public/i18n/de.json`, `apps/web/public/i18n/en.json`
+
+### Key Discoveries
+
+- Autosave is safe by product design: the backend will keep per-change file history with revert, so the UI must not invent a parallel confirm/cancel model.
+- Full rewrites of past dailies are blocked in core (`write_file` gate); the UI mirrors this by keeping past dailies read-only.
 
 ## Task 5: Polish Mobile App Behavior
 
