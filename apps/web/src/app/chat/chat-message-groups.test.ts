@@ -55,8 +55,8 @@ describe("groupMessagesForRender", () => {
 
     expect(ids(items)).toEqual(["u1", "t1", "c1"]);
     const group = items[1];
-    expect(group.kind).toBe("tool-group");
-    if (group.kind === "tool-group") {
+    expect(group?.kind).toBe("tool-group");
+    if (group?.kind === "tool-group") {
       expect(group.tools.map((t) => t.id)).toEqual(["t1", "t2", "t3"]);
     }
   });
@@ -101,6 +101,6 @@ describe("groupMessagesForRender", () => {
     const items = groupMessagesForRender([toolMsg("t1"), toolMsg("t2")]);
 
     expect(items).toHaveLength(1);
-    expect(items[0].kind).toBe("tool-group");
+    expect(items[0]?.kind).toBe("tool-group");
   });
 });

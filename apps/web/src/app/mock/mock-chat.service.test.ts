@@ -68,7 +68,7 @@ describe("MockChatService", () => {
     expect(service.messages().some(isAssistantTypingMessage)).toBe(false);
     const running = runningTools(service.messages());
     expect(running).toHaveLength(1);
-    expect(running[0].tool).toBe("edit_file");
+    expect(running[0]?.tool).toBe("edit_file");
 
     // 3. Composing — the tool settled and the indicator returns before the answer.
     await vi.advanceTimersToNextTimerAsync();
@@ -107,7 +107,7 @@ describe("MockChatService", () => {
     await vi.advanceTimersToNextTimerAsync();
     expect(service.messages().some(isAssistantTypingMessage)).toBe(false);
     expect(runningTools(service.messages())).toHaveLength(1);
-    expect(runningTools(service.messages())[0].tool).toBe("read_file");
+    expect(runningTools(service.messages())[0]?.tool).toBe("read_file");
 
     // read → read boundary: no typing indicator between consecutive tools.
     await vi.advanceTimersToNextTimerAsync();
@@ -117,12 +117,12 @@ describe("MockChatService", () => {
     // read → search boundary: still no flicker, now the search runs.
     await vi.advanceTimersToNextTimerAsync();
     expect(service.messages().some(isAssistantTypingMessage)).toBe(false);
-    expect(runningTools(service.messages())[0].tool).toBe("find_task_occurrences");
+    expect(runningTools(service.messages())[0]?.tool).toBe("find_task_occurrences");
 
     // search → write boundary (cross-family): still no flicker.
     await vi.advanceTimersToNextTimerAsync();
     expect(service.messages().some(isAssistantTypingMessage)).toBe(false);
-    expect(runningTools(service.messages())[0].tool).toBe("write_file");
+    expect(runningTools(service.messages())[0]?.tool).toBe("write_file");
 
     // Finish: answer lands, indicator gone, idle.
     await vi.runAllTimersAsync();

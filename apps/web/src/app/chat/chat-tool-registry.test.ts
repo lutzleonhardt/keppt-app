@@ -17,6 +17,7 @@ function tool(
     kind: "tool",
     target: "",
     state: "done",
+    createdAt: "2026-05-06T09:00:00.000Z",
     ...overrides,
   };
 }
