@@ -1,7 +1,11 @@
 <span
   class="tool-line"
   [class.running]="message().state === 'running'"
-  [attr.aria-label]="message().state === 'running' ? label() + ' – läuft' : null"
+  [attr.aria-label]="
+    message().state === 'running'
+      ? ('a11y.toolRunning' | transloco: { label: label() })
+      : null
+  "
 >
   @if (message().state === "running") {
     <svg

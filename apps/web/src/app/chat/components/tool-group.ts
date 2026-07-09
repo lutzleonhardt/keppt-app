@@ -5,6 +5,7 @@ import {
   input,
   signal,
 } from "@angular/core";
+import { translateSignal, TranslocoPipe } from "@jsverse/transloco";
 import {
   LucideChevronDown,
   LucideDynamicIcon,
@@ -31,6 +32,7 @@ import { ToolStatusRowComponent } from "./tool-status-row";
     LucideChevronDown,
     LucideDynamicIcon,
     LucideLoaderCircle,
+    TranslocoPipe,
   ],
   templateUrl: "./tool-group.html",
   styleUrl: "./tool-group.scss",
@@ -40,7 +42,16 @@ export class ToolGroupComponent {
   readonly tools = input.required<readonly AssistantToolMessage[]>();
 
   protected readonly expanded = signal(false);
-  protected readonly header = computed(() => toolGroupSummary(this.tools()));
+  // The registry hands back a translation key + params (it is pure and cannot
+  // translate). translateSignal subscribes eagerly, so the empty-group fallback
+  // IS evaluated (the template's ≥2 guard only gates rendering) — "" is safe
+  // because Transloco returns empty keys as-is without invoking the missing-key
+  // handler. Don't swap it for a real-looking sentinel key.
+  private readonly headerCopy = computed(() => toolGroupSummary(this.tools()));
+  protected readonly header = translateSignal(
+    computed(() => this.headerCopy()?.key ?? ""),
+    computed(() => this.headerCopy()?.params ?? {}),
+  );
   protected readonly icon = computed(() => TOOL_ICON[toolGroupIcon(this.tools())]);
   protected readonly running = computed(() =>
     this.tools().some((tool) => tool.state === "running"),

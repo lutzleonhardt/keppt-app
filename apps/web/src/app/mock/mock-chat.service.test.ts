@@ -139,7 +139,10 @@ describe("MockChatService", () => {
     expect(lastGroup?.kind).toBe("tool-group");
     if (lastGroup?.kind === "tool-group") {
       expect(lastGroup.tools).toHaveLength(5);
-      expect(toolGroupSummary(lastGroup.tools)).toBe("5 Schritte");
+      expect(toolGroupSummary(lastGroup.tools)).toEqual({
+        key: "tools.group.mixed.done",
+        params: { count: 5 },
+      });
     }
   });
 

@@ -29,7 +29,7 @@
     </button>
 
     @if (expanded()) {
-      <ul class="group-lines" aria-label="Ausgeführte Schritte">
+      <ul class="group-lines" [attr.aria-label]="'a11y.toolSteps' | transloco">
         @for (tool of tools(); track tool.id) {
           <li><keppt-tool-status-row [message]="tool" /></li>
         }

@@ -1,0 +1,79 @@
+{
+  "chat": {
+    "subtitle": {
+      "session": "Heute · Mittwoch, 6. Mai",
+      "empty": "Bereit zum Erfassen"
+    },
+    "empty": {
+      "title": "Was liegt dir\nim Kopf?",
+      "hint": "Tippe auf das Mikrofon — oder schreib einfach."
+    }
+  },
+  "mic": {
+    "title": "Erfassen",
+    "status": {
+      "recording": "Höre zu …",
+      "transcribing": "Verarbeite …",
+      "error": "Nichts gehört",
+      "ready": "Bereit"
+    },
+    "prompt": {
+      "recording": "Sprich einfach drauflos. Ich schreibe mit.",
+      "transcribing": "Einen Moment — ich schreibe es auf.",
+      "error": "Ich habe nichts verstanden. Probier es nochmal."
+    },
+    "hint": {
+      "recording": "Tippe ✓, wenn du fertig bist",
+      "transcribing": "Wird verarbeitet …"
+    },
+    "a11y": {
+      "cancel": "Abbrechen",
+      "confirm": "Aufnahme übernehmen",
+      "retry": "Erneut aufnehmen"
+    }
+  },
+  "composer": {
+    "placeholder": "Frag Keppt …",
+    "a11y": {
+      "region": "Nachricht verfassen",
+      "message": "Nachricht",
+      "mic": "Spracheingabe öffnen",
+      "send": "Nachricht senden",
+      "stop": "Antwort abbrechen"
+    }
+  },
+  "tools": {
+    "line": {
+      "plain": "{{value}}",
+      "allFiles": "alle Dateien",
+      "query": "„{{query}}“"
+    },
+    "group": {
+      "read": {
+        "running": "Liest {{count}} Dateien …",
+        "done": "{{count}} Dateien gelesen"
+      },
+      "search": {
+        "running": "Sucht ({{count}}) …",
+        "done": "{{count}} Suchen"
+      },
+      "write": {
+        "running": "Schreibt {{count}} Änderungen …",
+        "done": "{{count}} Änderungen"
+      },
+      "mixed": {
+        "running": "{{count}} Schritte …",
+        "done": "{{count}} Schritte"
+      }
+    }
+  },
+  "a11y": {
+    "chatScreen": "Keppt Chat",
+    "conversation": "Unterhaltung",
+    "quickReplies": "Schnellantworten",
+    "menu": "Menü öffnen",
+    "moreOptions": "Weitere Optionen",
+    "toolSteps": "Ausgeführte Schritte",
+    "toolRunning": "{{label}} – läuft"
+  }
+}

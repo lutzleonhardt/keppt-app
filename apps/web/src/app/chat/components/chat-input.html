@@ -1,11 +1,11 @@
-<footer class="composer" aria-label="Nachricht verfassen">
+<footer class="composer" [attr.aria-label]="'composer.a11y.region' | transloco">
   <label class="composer-pill">
-    <span class="visually-hidden">Nachricht</span>
+    <span class="visually-hidden">{{ "composer.a11y.message" | transloco }}</span>
     <textarea
       #composerInput
       [value]="draft()"
       rows="1"
-      placeholder="Frag Keppt …"
+      [placeholder]="'composer.placeholder' | transloco"
       (input)="updateDraft($event)"
       (keydown.enter)="submitFromEnter($event)"
     ></textarea>
@@ -15,7 +15,7 @@
         <button
           class="action-button stop"
           type="button"
-          aria-label="Antwort abbrechen"
+          [attr.aria-label]="'composer.a11y.stop' | transloco"
           (click)="cancelMessage.emit()"
         >
           <svg lucideX size="16" strokeWidth="2" aria-hidden="true"></svg>
@@ -24,7 +24,7 @@
         <button
           class="action-button mic"
           type="button"
-          aria-label="Spracheingabe öffnen"
+          [attr.aria-label]="'composer.a11y.mic' | transloco"
           (click)="openMic.emit()"
         >
           <svg lucideMic size="16" strokeWidth="2" aria-hidden="true"></svg>
@@ -34,7 +34,7 @@
           <button
             class="action-button"
             type="button"
-            aria-label="Nachricht senden"
+            [attr.aria-label]="'composer.a11y.send' | transloco"
             [disabled]="!canSubmit()"
             (click)="submitMessage.emit()"
           >

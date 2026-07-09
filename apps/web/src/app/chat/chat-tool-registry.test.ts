@@ -22,28 +22,30 @@ function tool(
 }
 
 describe("toolLineLabel", () => {
-  it("shows the file path for reads", () => {
-    expect(toolLineLabel(tool({ tool: "read_file", target: "tasks/focus.md" }))).toBe(
-      "tasks/focus.md",
-    );
+  it("passes the file path through for reads", () => {
+    expect(toolLineLabel(tool({ tool: "read_file", target: "tasks/focus.md" }))).toEqual({
+      key: "tools.line.plain",
+      params: { value: "tasks/focus.md" },
+    });
   });
 
-  it("quotes the query for searches with symmetric German quotes", () => {
+  it("keys the query for searches so quote marks can localize", () => {
     expect(
       toolLineLabel(tool({ tool: "search_files", target: "offene Rechnung" })),
-    ).toBe("„offene Rechnung“");
+    ).toEqual({ key: "tools.line.query", params: { query: "offene Rechnung" } });
     expect(
       toolLineLabel(tool({ tool: "find_task_occurrences", target: "Anna" })),
-    ).toBe("„Anna“");
+    ).toEqual({ key: "tools.line.query", params: { query: "Anna" } });
   });
 
-  it("falls back to a friendly label when list_files has no prefix", () => {
-    expect(toolLineLabel(tool({ tool: "list_files", target: "" }))).toBe(
-      "alle Dateien",
-    );
-    expect(toolLineLabel(tool({ tool: "list_files", target: "daily/" }))).toBe(
-      "daily/",
-    );
+  it("falls back to a friendly key when list_files has no prefix", () => {
+    expect(toolLineLabel(tool({ tool: "list_files", target: "" }))).toEqual({
+      key: "tools.line.allFiles",
+    });
+    expect(toolLineLabel(tool({ tool: "list_files", target: "daily/" }))).toEqual({
+      key: "tools.line.plain",
+      params: { value: "daily/" },
+    });
   });
 
   it("prefers the change_summary for writes, falling back to the path", () => {
@@ -55,10 +57,16 @@ describe("toolLineLabel", () => {
           summary: "Plan für morgen eingetragen",
         }),
       ),
-    ).toBe("Plan für morgen eingetragen");
+    ).toEqual({
+      key: "tools.line.plain",
+      params: { value: "Plan für morgen eingetragen" },
+    });
     expect(
       toolLineLabel(tool({ tool: "edit_file", target: "tasks/next-actions.md" })),
-    ).toBe("tasks/next-actions.md");
+    ).toEqual({
+      key: "tools.line.plain",
+      params: { value: "tasks/next-actions.md" },
+    });
   });
 });
 
@@ -77,7 +85,7 @@ describe("toolGroupSummary", () => {
   it("renders a single-tool group as its own line", () => {
     expect(
       toolGroupSummary([tool({ tool: "read_file", target: "tasks/waiting.md" })]),
-    ).toBe("tasks/waiting.md");
+    ).toEqual({ key: "tools.line.plain", params: { value: "tasks/waiting.md" } });
   });
 
   it("counts a homogeneous read group, with running vs done copy", () => {
@@ -86,12 +94,18 @@ describe("toolGroupSummary", () => {
       tool({ tool: "read_file", target: "b.md" }),
       tool({ tool: "list_files", target: "" }),
     ];
-    expect(toolGroupSummary(reads)).toBe("3 Dateien gelesen");
+    expect(toolGroupSummary(reads)).toEqual({
+      key: "tools.group.read.done",
+      params: { count: 3 },
+    });
 
     const running = reads.map((t, i) =>
       i === 2 ? { ...t, state: "running" as const } : t,
     );
-    expect(toolGroupSummary(running)).toBe("Liest 3 Dateien …");
+    expect(toolGroupSummary(running)).toEqual({
+      key: "tools.group.read.running",
+      params: { count: 3 },
+    });
   });
 
   it("counts write and search groups distinctly, running vs done", () => {
@@ -99,19 +113,25 @@ describe("toolGroupSummary", () => {
       tool({ tool: "write_file", target: "a.md" }),
       tool({ tool: "edit_file", target: "b.md" }),
     ];
-    expect(toolGroupSummary(writes)).toBe("2 Änderungen");
+    expect(toolGroupSummary(writes)).toEqual({
+      key: "tools.group.write.done",
+      params: { count: 2 },
+    });
     expect(
       toolGroupSummary(writes.map((t) => ({ ...t, state: "running" as const }))),
-    ).toBe("Schreibt 2 Änderungen …");
+    ).toEqual({ key: "tools.group.write.running", params: { count: 2 } });
 
     const searches = [
       tool({ tool: "search_files", target: "x" }),
       tool({ tool: "find_task_occurrences", target: "y" }),
     ];
-    expect(toolGroupSummary(searches)).toBe("2 Suchen");
+    expect(toolGroupSummary(searches)).toEqual({
+      key: "tools.group.search.done",
+      params: { count: 2 },
+    });
     expect(
       toolGroupSummary(searches.map((t) => ({ ...t, state: "running" as const }))),
-    ).toBe("Sucht (2) …");
+    ).toEqual({ key: "tools.group.search.running", params: { count: 2 } });
   });
 
   it("falls back to a neutral step count for mixed families, running vs done", () => {
@@ -119,14 +139,17 @@ describe("toolGroupSummary", () => {
       tool({ tool: "read_file", target: "a.md" }),
       tool({ tool: "write_file", target: "b.md" }),
     ];
-    expect(toolGroupSummary(mixed)).toBe("2 Schritte");
+    expect(toolGroupSummary(mixed)).toEqual({
+      key: "tools.group.mixed.done",
+      params: { count: 2 },
+    });
     expect(
       toolGroupSummary(mixed.map((t) => ({ ...t, state: "running" as const }))),
-    ).toBe("2 Schritte …");
+    ).toEqual({ key: "tools.group.mixed.running", params: { count: 2 } });
   });
 
-  it("fails soft on an empty group rather than printing a zero count", () => {
-    expect(toolGroupSummary([])).toBe("");
+  it("fails soft on an empty group rather than emitting a zero count", () => {
+    expect(toolGroupSummary([])).toBeNull();
   });
 });
 

@@ -12,7 +12,7 @@
     <div class="overlay-title">
       <keppt-monogram [size]="22" />
       <div class="title-stack">
-        <span id="mic-overlay-title" class="heading">Erfassen</span>
+        <span id="mic-overlay-title" class="heading">{{ "mic.title" | transloco }}</span>
         <span class="status">
           <keppt-status-dot />
           <span>{{ status() }}</span>
@@ -24,19 +24,7 @@
   </header>
 
   <div class="capture-stage">
-    <p class="prompt">
-      @switch (state()) {
-        @case ("transcribing") {
-          Einen Moment — ich schreibe es auf.
-        }
-        @case ("error") {
-          Ich habe nichts verstanden. Probier es nochmal.
-        }
-        @default {
-          Sprich einfach drauflos. Ich schreibe mit.
-        }
-      }
-    </p>
+    <p class="prompt">{{ prompt() }}</p>
 
     <div class="mic-visual" aria-hidden="true">
       <span
@@ -66,14 +54,18 @@
       </span>
     </div>
 
-    <span class="hint">{{ hintLabel() }}</span>
+    <span class="hint">
+      @if (hintKey(); as key) {
+        {{ key | transloco }}
+      }
+    </span>
   </div>
 
   <div class="overlay-actions">
     <button
       class="capture-button cancel"
       type="button"
-      aria-label="Abbrechen"
+      [attr.aria-label]="'mic.a11y.cancel' | transloco"
       (click)="cancel.emit()"
     >
       <svg lucideX size="20" strokeWidth="2" aria-hidden="true"></svg>
@@ -83,7 +75,7 @@
       <button
         class="capture-button confirm"
         type="button"
-        aria-label="Aufnahme übernehmen"
+        [attr.aria-label]="'mic.a11y.confirm' | transloco"
         (click)="stop.emit()"
       >
         <svg lucideCheck size="22" strokeWidth="2.4" aria-hidden="true"></svg>
@@ -92,7 +84,7 @@
       <button
         class="capture-button confirm retry"
         type="button"
-        aria-label="Erneut aufnehmen"
+        [attr.aria-label]="'mic.a11y.retry' | transloco"
         (click)="retry.emit()"
       >
         <svg lucideMic size="20" strokeWidth="2" aria-hidden="true"></svg>

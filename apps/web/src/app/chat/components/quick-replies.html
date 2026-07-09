@@ -1,4 +1,4 @@
-<div class="quick-replies" aria-label="Schnellantworten">
+<div class="quick-replies" [attr.aria-label]="'a11y.quickReplies' | transloco">
   @for (reply of replies(); track reply.id) {
     <button type="button" (click)="replySelected.emit(reply.label)">
       {{ reply.label }}

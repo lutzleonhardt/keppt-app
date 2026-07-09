@@ -7,13 +7,14 @@ import {
   output,
   viewChild,
 } from "@angular/core";
+import { TranslocoPipe } from "@jsverse/transloco";
 import { LucideArrowRight, LucideMic, LucideX } from "@lucide/angular";
 
 import { hasComposerText } from "../chat-ui-state";
 
 @Component({
   selector: "keppt-chat-input",
-  imports: [LucideArrowRight, LucideMic, LucideX],
+  imports: [LucideArrowRight, LucideMic, LucideX, TranslocoPipe],
   templateUrl: "./chat-input.html",
   styleUrl: "./chat-input.scss",
   changeDetection: ChangeDetectionStrategy.OnPush,

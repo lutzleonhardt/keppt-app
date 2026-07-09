@@ -1,5 +1,5 @@
 <header class="session-header">
-  <button class="icon-button" type="button" aria-label="Menü öffnen">
+  <button class="icon-button" type="button" [attr.aria-label]="'a11y.menu' | transloco">
     <svg lucideMenu size="18" strokeWidth="2" aria-hidden="true"></svg>
   </button>
 
@@ -11,7 +11,7 @@
     </span>
   </div>
 
-  <button class="icon-button" type="button" aria-label="Weitere Optionen">
+  <button class="icon-button" type="button" [attr.aria-label]="'a11y.moreOptions' | transloco">
     <svg lucideMoreHorizontal size="18" strokeWidth="2" aria-hidden="true"></svg>
   </button>
 </header>

@@ -8,6 +8,7 @@ import {
   output,
   viewChild,
 } from "@angular/core";
+import { translateSignal, TranslocoPipe } from "@jsverse/transloco";
 import { LucideCheck, LucideMic, LucideX } from "@lucide/angular";
 
 import { micOverlayStatus, type MicCaptureState } from "../chat-ui-state";
@@ -22,6 +23,7 @@ import { StatusDotComponent } from "../../ui/status-dot";
     LucideMic,
     LucideX,
     StatusDotComponent,
+    TranslocoPipe,
   ],
   templateUrl: "./mic-overlay.html",
   styleUrl: "./mic-overlay.scss",
@@ -49,19 +51,36 @@ export class MicOverlayComponent {
     afterNextRender(() => this.overlayRoot().nativeElement.focus());
   }
 
-  protected readonly status = computed(() => micOverlayStatus(this.state()));
+  protected readonly status = translateSignal(
+    computed(() => micOverlayStatus(this.state())),
+  );
   protected readonly recording = computed(() => this.state() === "recording");
   protected readonly transcribing = computed(() => this.state() === "transcribing");
   protected readonly errored = computed(() => this.state() === "error");
 
-  protected readonly hintLabel = computed(() => {
+  protected readonly prompt = translateSignal(
+    computed(() => {
+      switch (this.state()) {
+        case "transcribing":
+          return "mic.prompt.transcribing";
+        case "error":
+          return "mic.prompt.error";
+        default:
+          return "mic.prompt.recording";
+      }
+    }),
+  );
+
+  // Nullable key (no hint in the error state), so the template guards with
+  // @if instead of asking Transloco to translate an empty key.
+  protected readonly hintKey = computed<string | null>(() => {
     switch (this.state()) {
       case "recording":
-        return "Tippe ✓, wenn du fertig bist";
+        return "mic.hint.recording";
       case "transcribing":
-        return "Wird verarbeitet …";
+        return "mic.hint.transcribing";
       default:
-        return "";
+        return null;
     }
   });
 

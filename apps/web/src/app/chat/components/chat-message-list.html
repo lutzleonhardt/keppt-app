@@ -1,13 +1,13 @@
 <section
   #scrollViewport
   class="conversation"
-  aria-label="Unterhaltung"
+  [attr.aria-label]="'a11y.conversation' | transloco"
   (scroll)="updateScrollAnchor()"
 >
   @if (messages().length === 0) {
     <div class="empty-chat">
-      <p class="empty-title">Was liegt dir<br>im Kopf?</p>
-      <span class="empty-hint">Tippe auf das Mikrofon — oder schreib einfach.</span>
+      <p class="empty-title">{{ "chat.empty.title" | transloco }}</p>
+      <span class="empty-hint">{{ "chat.empty.hint" | transloco }}</span>
     </div>
   } @else {
     <div class="message-stack">

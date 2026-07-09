@@ -1,4 +1,4 @@
-<main class="chat-screen" aria-label="Keppt Chat">
+<main class="chat-screen" [attr.aria-label]="'a11y.chatScreen' | transloco">
   <!-- While the mic overlay (a modal dialog) is open, the visually covered
        background leaves the tab order and the accessibility tree. -->
   <keppt-session-header

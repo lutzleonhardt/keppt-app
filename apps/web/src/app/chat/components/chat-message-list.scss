@@ -68,6 +68,8 @@
   font-size: 32px;
   line-height: 1.15;
   letter-spacing: -0.5px;
+  /* The title's line break lives in the translation catalog as "\n". */
+  white-space: pre-line;
 }
 
 .empty-chat .empty-hint {

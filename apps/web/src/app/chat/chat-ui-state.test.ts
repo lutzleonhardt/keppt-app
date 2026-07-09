@@ -18,8 +18,9 @@ describe("chat UI state helpers", () => {
     const states: MicCaptureState[] = ["closed", "recording", "transcribing", "error"];
 
     expect(states.map(isMicOverlayVisible)).toEqual([false, true, true, true]);
-    expect(micOverlayStatus("recording")).toBe("Höre zu …");
-    expect(micOverlayStatus("transcribing")).toBe("Verarbeite …");
-    expect(micOverlayStatus("error")).toBe("Nichts gehört");
+    expect(micOverlayStatus("recording")).toBe("mic.status.recording");
+    expect(micOverlayStatus("transcribing")).toBe("mic.status.transcribing");
+    expect(micOverlayStatus("error")).toBe("mic.status.error");
+    expect(micOverlayStatus("closed")).toBe("mic.status.ready");
   });
 });

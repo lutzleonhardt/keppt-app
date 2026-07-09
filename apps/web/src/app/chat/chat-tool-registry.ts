@@ -14,6 +14,13 @@
  * here is synthesized client-side from the structured tool call (name + target +
  * optional change_summary); the backend sends no human-facing label, which is
  * exactly why this stays LLM- and provider-agnostic.
+ *
+ * Display copy follows the same purity rule as `micOverlayStatus`: resolvers
+ * return a translation-key reference (`ToolCopyRef`), never translated text —
+ * there is no injection context here. The components translate at the edge via
+ * Transloco; the catalog values live in `public/i18n/{de,en}.json` under
+ * `tools.*`. Data-only labels (paths, change summaries) flow through the
+ * `tools.line.plain` passthrough key so every line renders the same way.
  */
 
 /**
@@ -58,46 +65,62 @@ export interface ToolDisplay {
   state: ToolState;
 }
 
+/**
+ * A piece of display copy as a translation-key reference. Components resolve it
+ * with Transloco (`translateSignal(key, params)`); this module never translates.
+ */
+export interface ToolCopyRef {
+  key: string;
+  params?: Record<string, string | number>;
+}
+
+const plain = (value: string): ToolCopyRef => ({
+  key: "tools.line.plain",
+  params: { value },
+});
+
 interface ToolMeta {
   family: ToolFamily;
   /** Per-line glyph — finer-grained than the family icon used in group headers. */
   icon: ToolIconName;
   /** What the single tool call acted on, as one line. */
-  label: (tool: Pick<ToolDisplay, "tool" | "target" | "summary">) => string;
+  label: (tool: Pick<ToolDisplay, "tool" | "target" | "summary">) => ToolCopyRef;
 }
 
 const TOOL_REGISTRY: Record<ToolName, ToolMeta> = {
   read_file: {
     family: "read",
     icon: "file-text",
-    label: (t) => t.target,
+    label: (t) => plain(t.target),
   },
   list_files: {
     family: "read",
     icon: "folder-open",
-    label: (t) => (t.target.length > 0 ? t.target : "alle Dateien"),
+    label: (t) =>
+      t.target.length > 0 ? plain(t.target) : { key: "tools.line.allFiles" },
   },
   search_files: {
     family: "search",
     icon: "search",
-    label: (t) => `„${t.target}“`,
+    // Keyed instead of hardcoding quote marks: quotation style is locale-specific.
+    label: (t) => ({ key: "tools.line.query", params: { query: t.target } }),
   },
   find_task_occurrences: {
     family: "search",
     icon: "search",
-    label: (t) => `„${t.target}“`,
+    label: (t) => ({ key: "tools.line.query", params: { query: t.target } }),
   },
   edit_file: {
     family: "write",
     icon: "file-pen",
     // change_summary is the model-authored description of the mutation; fall
     // back to the path only if a turn ever omits it.
-    label: (t) => t.summary ?? t.target,
+    label: (t) => plain(t.summary ?? t.target),
   },
   write_file: {
     family: "write",
     icon: "file-plus",
-    label: (t) => t.summary ?? t.target,
+    label: (t) => plain(t.summary ?? t.target),
   },
 };
 
@@ -109,33 +132,37 @@ const FAMILY_ICON: Record<ToolFamily, ToolIconName> = {
 };
 const MIXED_ICON: ToolIconName = "list-tree";
 
-/** Collapsed header copy per family, parameterised by count and run state. */
+/**
+ * Collapsed header copy per family and run state, as translation keys taking a
+ * `count` param. Plural-only wording is safe: a group renders its header only
+ * with two or more tools (a single call renders as its own line).
+ */
 const FAMILY_COPY: Record<
   ToolFamily | "mixed",
-  { running: (count: number) => string; done: (count: number) => string }
+  { running: string; done: string }
 > = {
   read: {
-    running: (n) => `Liest ${n} Dateien …`,
-    done: (n) => `${n} Dateien gelesen`,
+    running: "tools.group.read.running",
+    done: "tools.group.read.done",
   },
   search: {
-    running: (n) => `Sucht (${n}) …`,
-    done: (n) => `${n} Suchen`,
+    running: "tools.group.search.running",
+    done: "tools.group.search.done",
   },
   write: {
-    running: (n) => `Schreibt ${n} Änderungen …`,
-    done: (n) => `${n} Änderungen`,
+    running: "tools.group.write.running",
+    done: "tools.group.write.done",
   },
   mixed: {
-    running: (n) => `${n} Schritte …`,
-    done: (n) => `${n} Schritte`,
+    running: "tools.group.mixed.running",
+    done: "tools.group.mixed.done",
   },
 };
 
 /** One line inside a tool group: what the single tool call acted on. */
 export function toolLineLabel(
   tool: Pick<ToolDisplay, "tool" | "target" | "summary">,
-): string {
+): ToolCopyRef {
   return TOOL_REGISTRY[tool.tool].label(tool);
 }
 
@@ -150,12 +177,16 @@ export function toolLineIcon(tool: Pick<ToolDisplay, "tool">): ToolIconName {
  * never sent by the backend. A single-tool group reads as its own line; larger
  * groups collapse to a count keyed off the dominant tool family.
  */
-export function toolGroupSummary(tools: readonly ToolDisplay[]): string {
+export function toolGroupSummary(tools: readonly ToolDisplay[]): ToolCopyRef | null {
   const [first] = tools;
   if (!first) {
     // Unreachable in-app: groupMessagesForRender never emits an empty group.
-    // Fail soft rather than render "0 Schritte" if a future caller reuses this.
-    return "";
+    // Fail soft rather than render a zero count if a future caller reuses this,
+    // but say so in dev — a broken invariant should be visible, not silent.
+    if (typeof ngDevMode !== "undefined" && ngDevMode) {
+      console.warn("toolGroupSummary: called with an empty tool group");
+    }
+    return null;
   }
   if (tools.length === 1) {
     return toolLineLabel(first);
@@ -163,7 +194,10 @@ export function toolGroupSummary(tools: readonly ToolDisplay[]): string {
 
   const copy = FAMILY_COPY[groupFamily(tools)];
   const running = tools.some((tool) => tool.state === "running");
-  return running ? copy.running(tools.length) : copy.done(tools.length);
+  return {
+    key: running ? copy.running : copy.done,
+    params: { count: tools.length },
+  };
 }
 
 /**

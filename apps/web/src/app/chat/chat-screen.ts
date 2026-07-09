@@ -7,6 +7,7 @@ import {
   Injector,
   viewChild,
 } from "@angular/core";
+import { TranslocoPipe } from "@jsverse/transloco";
 
 import { ChatService } from "./chat.service";
 import { ChatStore } from "./chat.store";
@@ -27,6 +28,7 @@ import { MockVoiceCaptureService } from "../mock/mock-voice-capture.service";
     MicOverlayComponent,
     QuickRepliesComponent,
     SessionHeaderComponent,
+    TranslocoPipe,
   ],
   templateUrl: "./chat-screen.html",
   styleUrl: "./chat-screen.scss",

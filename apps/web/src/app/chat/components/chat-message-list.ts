@@ -9,6 +9,8 @@ import {
   viewChild,
 } from "@angular/core";
 
+import { TranslocoPipe } from "@jsverse/transloco";
+
 import { groupMessagesForRender } from "../chat-message-groups";
 import { isUserChatMessage, type ChatMessage } from "../chat.types";
 import { ChatMessageComponent } from "./chat-message";
@@ -16,7 +18,7 @@ import { ToolGroupComponent } from "./tool-group";
 
 @Component({
   selector: "keppt-chat-message-list",
-  imports: [ChatMessageComponent, ToolGroupComponent],
+  imports: [ChatMessageComponent, ToolGroupComponent, TranslocoPipe],
   templateUrl: "./chat-message-list.html",
   styleUrl: "./chat-message-list.scss",
   changeDetection: ChangeDetectionStrategy.OnPush,

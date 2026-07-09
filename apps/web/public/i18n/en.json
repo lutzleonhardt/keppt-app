@@ -1,0 +1,79 @@
+{
+  "chat": {
+    "subtitle": {
+      "session": "Today · Wednesday, May 6",
+      "empty": "Ready to capture"
+    },
+    "empty": {
+      "title": "What's on\nyour mind?",
+      "hint": "Tap the microphone — or just type."
+    }
+  },
+  "mic": {
+    "title": "Capture",
+    "status": {
+      "recording": "Listening …",
+      "transcribing": "Processing …",
+      "error": "Didn't hear anything",
+      "ready": "Ready"
+    },
+    "prompt": {
+      "recording": "Just start talking. I'll write it down.",
+      "transcribing": "One moment — I'm writing it down.",
+      "error": "I didn't understand that. Try again."
+    },
+    "hint": {
+      "recording": "Tap ✓ when you're done",
+      "transcribing": "Working on it …"
+    },
+    "a11y": {
+      "cancel": "Cancel",
+      "confirm": "Use recording",
+      "retry": "Record again"
+    }
+  },
+  "composer": {
+    "placeholder": "Ask Keppt …",
+    "a11y": {
+      "region": "Compose message",
+      "message": "Message",
+      "mic": "Open voice input",
+      "send": "Send message",
+      "stop": "Stop response"
+    }
+  },
+  "tools": {
+    "line": {
+      "plain": "{{value}}",
+      "allFiles": "all files",
+      "query": "“{{query}}”"
+    },
+    "group": {
+      "read": {
+        "running": "Reading {{count}} files …",
+        "done": "{{count}} files read"
+      },
+      "search": {
+        "running": "Searching ({{count}}) …",
+        "done": "{{count}} searches"
+      },
+      "write": {
+        "running": "Writing {{count}} changes …",
+        "done": "{{count}} changes"
+      },
+      "mixed": {
+        "running": "{{count}} steps …",
+        "done": "{{count}} steps"
+      }
+    }
+  },
+  "a11y": {
+    "chatScreen": "Keppt chat",
+    "conversation": "Conversation",
+    "quickReplies": "Quick replies",
+    "menu": "Open menu",
+    "moreOptions": "More options",
+    "toolSteps": "Steps performed",
+    "toolRunning": "{{label}} – running"
+  }
+}

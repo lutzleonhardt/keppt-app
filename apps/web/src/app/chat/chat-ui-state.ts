@@ -8,15 +8,17 @@ export function isMicOverlayVisible(state: MicCaptureState): boolean {
   return state !== "closed";
 }
 
+// Returns a translation key, not display text: this module is pure (no
+// injection context), so translation happens at the component/template edge.
 export function micOverlayStatus(state: MicCaptureState): string {
   switch (state) {
     case "recording":
-      return "Höre zu …";
+      return "mic.status.recording";
     case "transcribing":
-      return "Verarbeite …";
+      return "mic.status.transcribing";
     case "error":
-      return "Nichts gehört";
+      return "mic.status.error";
     default:
-      return "Bereit";
+      return "mic.status.ready";
   }
 }
