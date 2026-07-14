@@ -1,9 +1,13 @@
-# Plan — Phase 1: CLI ("It works in the terminal")
+# Plan — Phase 1: CLI ("It works in the terminal") — CLOSED
 
 > Spec: [`docs/specs/architecture.md`](../../specs/architecture.md) (Build Milestones → Phase 1) + [`docs/specs/context/product.md`](../../specs/context/product.md)
 > Task-model extension: [`docs/specs/task-model-and-occurrence-search.md`](../../specs/task-model-and-occurrence-search.md)
 > SDK research: [`docs/specs/context/vercel-sdk.md`](../../specs/context/vercel-sdk.md)
 > Operational logging context: [`docs/specs/context/operational-logging.md`](../../specs/context/operational-logging.md)
+>
+> **Status: closed 2026-07-14.** The implementation milestone through Task 9
+> landed. Task 10 and Task 11 were explicitly deferred before implementation and
+> are not required for Phase 1 closure. New priorities will be planned separately.
 
 ## Scope
 
@@ -41,15 +45,15 @@ Local CLI that runs end-to-end against the user's own Obsidian vault as a `Local
 3.9. Shared logging abstraction — Task-3 follow-up, post-created 2026-05-09 from the operational logging architecture decision. Introduces a runtime-neutral `Logger`/`LogEvent` contract, keeps `packages/core` free of `console.*`, and moves CLI terminal output vs. diagnostics behind explicit adapters.
 4. System prompt R1-R13 + request builder + input heuristic + prompt caching (model routing deferred — see Task 4 block)
 4.1. Tool-result pruning + session persistence — Task-4 follow-up, split out 2026-05-18 during `/start-task 4` because the original Task 4 exceeded the `/plan` "diff + tests fit one commit" sizing rule. Task 4 ships the prompt/router/input/caching pipeline with the existing in-memory message array; Task 4.1 swaps that array for on-disk sessions and adds `pruneToolResults` to the request-builder. Reverse dependency forced: Task 4.1 edits `request-builder.ts` and `apps/cli/src/index.ts`, which Task 4 creates/rewrites. **Pre-commit redesign 2026-05-19:** a Codex adversarial review of the in-flight 4.1 diff flagged three concrete bugs (Phase-2-save rollback gap, UTC day-rollover contamination, non-atomic write) plus a layering smell (core writing through `node:fs` directly, unusable from the Phase-2a web/Supabase target). All four folded into 4.1 before commit — they sit inside 4.1's own artifacts. Result: `Session` reshaped from passive record into a class with encapsulated invariants + injectable `SessionStore`.
-4.2. Per-turn debug logging (request/response artifacts) — Task-4 follow-up, post-created 2026-05-19. Task 4 wired prompt caching and Task 4.1 wired tool-result pruning, but both are invisible at runtime. Adds a `TurnLogRecord` shape + `TurnLogger` interface in core (anchors a Phase-2a `SupabaseTurnLogger` for support/bug-report workflows — "user reports broken behaviour, support pulls the matching turn artifact" — without schema break) and a `DEBUG=1`-gated `FsTurnLogger` writing `<vault>/.keppt/logs/sessions/<date>/turn-NNN.json` artifacts containing the post-pruning request, per-step response breakdown, and `totalUsage`. Empirical-validation surface for `feedback_phase1_pragmatism` and the primary evidence source for Task 10's real-model eval runner.
+4.2. Per-turn debug logging (request/response artifacts) — Task-4 follow-up, post-created 2026-05-19. Task 4 wired prompt caching and Task 4.1 wired tool-result pruning, but both are invisible at runtime. Adds a `TurnLogRecord` shape + `TurnLogger` interface in core (anchors a Phase-2a `SupabaseTurnLogger` for support/bug-report workflows — "user reports broken behaviour, support pulls the matching turn artifact" — without schema break) and a `DEBUG=1`-gated `FsTurnLogger` writing `<vault>/.keppt/logs/sessions/<date>/turn-NNN.json` artifacts containing the post-pruning request, per-step response breakdown, and `totalUsage`. Empirical-validation surface for dogfooding and any future judge-based evaluation work.
 4.3. Tool-result reminder + GTD-prompt sharpening (R2/R9 + R14–R16) — Task-4 follow-up, post-created 2026-05-19 from a dogfooding session (`<vault>/.keppt/logs/sessions/2026-05-19/turn-003.json`) where Haiku, after three writes to `tasks/{inbox,next-actions,focus}.md`, never ran the R4 crosscheck and left the same three task strings in all three lists (R2 violation on Inbox). The same turn then surfaced a reflex-correction failure: when the user asked "ist das richtig?" about a compliant Daily-Plan state (R3+R9 allow checkbox copies), Haiku reverted to a non-checkbox bullet list and apologised — sycophancy under skeptical user pressure. Adds an optional `reminder` string on `WriteFileResult` / `EditFileResult` for canonical task-file and daily-note writes (low-cost salience boost, not a deterministic enforcement layer — model choice does the heavy lifting on compliance, see Task 4.3 Discoveries), plus five prompt edits closing the rule gaps the turn exposed: R2 carves Inbox down to unspecified/idea capture only (Haiku routed three obviously-NA tasks via Inbox because R2's "new → Inbox" implied otherwise), R9 makes Daily-Plan checkbox copies explicit (so a "correction" that strips checkboxes is no longer ambiguous), R14 acknowledges voice-dictated input (the user uses Whisper; "BuzzForex" earlier in this very thread was a homophone confusion), R15 blocks reflex-correction under skeptical questioning, R16 forbids GTD evangelism and explicit anchor-token citations in user-facing text (Haiku wrote "lass mich R3 nochmal erklären" — surfacing an internal marker as if it were product vocabulary). Opening line of the system prompt softens from "GTD assistant" to "task and note assistant" to stop priming the model into tutorial mode.
 5. Daily-note gate unification + GTD task-file init + R5/R6/R17/R18 prompt update — **planning-redesigned 2026-05-20.** Replaces the original Task 5 (daily-note lifecycle with archive move) plus the post-created Task 5.5 (per-turn vault readiness) and Task 5.6 (future-daily gate relaxation). Decision: drop the physical `daily/` → `archive/daily/` archive move and `- [ ]`-stripping entirely. Past, today, and future daily notes all live under `daily/YYYY-MM-DD.md` with a single gate rule. Past-daily editability becomes a prompt-soft rule (R6-new). Open-task carry-over moves out of silent file mutation into the explicit Auto-Replan-Opener (Task 9). Two new R-rules cover the narrative side: R17 (Log-section capture when completion has user-supplied context — "telefoniert mit Müller, erledigt") and R18 (Cross-day disposition — past Daily-Plan `[ ]` → `[x]` with semantic "closed out of this day's plan, see Log for what happened"; today's Log carries the disposition with source-date annotation; R6 exception preserves the inline-correction path). Only Task 5.5's first-run task-file init survives, simplified to a once-per-startup helper.
 6. `suggest_quick_replies` tool — chip suggestions for user answers. Generic mechanism: LLM proposes 2–5 short follow-up answers; CLI renders as numbered options with REPL number-expansion; Phase-2 mobile renders the same tool output as tappable chips. Precondition for Task 9's Auto-Replan flow but useful in every turn with discrete next steps.
 7. `find_task_occurrences` tool — bounded raw-evidence search for task-like placement checks. Adds a simple MVP API (`candidates: string[]`) that literal-searches task files plus recent/future dailies with normalized matching and returns raw Markdown context blocks, not classifier truth.
 8. Task-model prompt rewrite + placement evals — replaces the brittle single-location/routine-crosscheck prompt model with entity relationships: InboxCapture, CanonicalTask, FocusItem, DailyPlanItem, DailyOnlyEntry. Uses `find_task_occurrences` before risky Focus/Daily scheduling and adds eval coverage for Inbox drift, missing backing, Waiting/Someday planning, daily-only context, and history-question boundaries.
 9. Auto-Replan-Opener at day boundary — deterministic context gather (last 5 dailies + `next-actions.md` + `waiting.md`) feeds a one-shot LLM kickoff turn at session boundary. LLM greets, identifies stale pendings semantically, offers handling options via Task-6's chip tool. Skip-when-empty for fresh vaults. Session-marker `autoReplanRanFor` prevents re-firing the same day. Replaces the carry-over behaviour the old Task 5 archive-move-and-strip provided silently.
-10. Real-model eval runner + judge workflow — formerly the deterministic real-API E2E task. Redesign decision: do not pretend prompt quality is a stable pass/fail unit test. Instead, run documented eval scenarios against a real model, persist the turn artifacts produced by `DEBUG=1`, generate a judge prompt/report from the scenario rubric, and keep concrete run artifacts out of git. The first supported scenario is the existing Rasen double-schedule regression under `docs/evals/`; the former CRUD/cross-day/day-rollover cases move to an eval backlog and should be promoted only when real dogfooding turns justify them.
-11. Weekly Review interactive workflow (deferred placeholder) — formerly Task 9. Post-created 2026-05-19. Captures the intent to port the richer Weekly-Review flow from the user's personal vault `CLAUDE.md` (group-by-theme Waiting with one question per cluster, propose-don't-walk for Next Actions, end-of-review self-reflection check) into the keppt-app system prompt. Deferred because the content is ~200 prompt tokens that only matters during an actual Weekly Review session — putting it in the always-on prompt head would bloat the cached system head for negligible benefit on the 99% of turns that are not reviews. Open design question: how the review-mode content gets delivered (dedicated `weekly_review` tool that returns the protocol on call; intent-detected context-note injection like the `crosscheck-due` plumbing discussed under Task 4.3; or a separate review-mode session header). To be decided when scheduled — not blocking Phase 1.
+10. **DEFERRED — judge-based real-model evaluation.** A single stochastic model run is not a stable pass/fail regression test, and the proposed runner stopped before the actual judge. Re-enter only in a future plan that includes repeated trials, a separate judge model, structured evidence, aggregation, and human calibration.
+11. **DEFERRED / NOT PLANNED — Weekly Review workflow.** The idea is preserved below as discovery context, but it has no accepted design or executable acceptance criteria and is not part of Phase 1 closure.
 
 ---
 
@@ -739,7 +743,7 @@ remains the default at every boundary.
 
 > **Split note (2026-05-18).** Originally bundled tool-result pruning + session persistence too. Those moved to Task 4.1 because the combined diff exceeded the `/plan` "single commit" sizing rule. Task 4 keeps the in-memory `messages: ModelMessage[]` array from Task 3 unchanged; Task 4.1 swaps it for disk-backed sessions and adds the pruning step to `request-builder.ts`. The split point is clean because `buildRequest` already sees `messages` as an opaque input: Task 4 passes the array through verbatim; Task 4.1 inserts the pruning transform without further touching the prompt/caching surface.
 
-> **Router-removal note (2026-05-18).** The original draft also included `packages/core/src/model-router.ts` — a regex/keyword classifier choosing between `'haiku' | 'sonnet'`. Removed before starting Task 4: (1) `haiku | sonnet` bakes Anthropic-specific names into provider-agnostic call sites, contradicting the Vercel-AI-SDK-as-abstraction stance Task 3.9 just reinforced; (2) keyword matching gives false confidence — a green test on four phrases produces a router that mis-fires on the first real workload. The architectural question — provider-agnostic tiers + discriminator (content classifier vs. user tier vs. explicit opt-in) — is captured in `docs/specs/architecture.md` → "LLM Provider Architecture: Vercel AI SDK" → "Smart routing — open question". Phase 1 runs single-model (Haiku, hardcoded in the CLI). Revisit when Phase 2a backend lands a user-tier model, or when Task 10 eval reports surface a request class where one model is materially worse than two.
+> **Router-removal note (2026-05-18).** The original draft also included `packages/core/src/model-router.ts` — a regex/keyword classifier choosing between `'haiku' | 'sonnet'`. Removed before starting Task 4: (1) `haiku | sonnet` bakes Anthropic-specific names into provider-agnostic call sites, contradicting the Vercel-AI-SDK-as-abstraction stance Task 3.9 just reinforced; (2) keyword matching gives false confidence — a green test on four phrases produces a router that mis-fires on the first real workload. The architectural question — provider-agnostic tiers + discriminator (content classifier vs. user tier vs. explicit opt-in) — is captured in `docs/specs/architecture.md` → "LLM Provider Architecture: Vercel AI SDK" → "Smart routing — open question". Phase 1 runs single-model (Haiku, hardcoded in the CLI). Revisit when Phase 2a backend lands a user-tier model, or when dogfooding or a future judge-based evaluation shows a request class where one model is materially worse than two.
 
 ### Instructions
 
@@ -776,7 +780,7 @@ The "productization pass" over Task 3 (part 1). The inline code from Task 3 gets
 - Appends the new user message
 - **No active-state pre-load.** The architecture-spec Request Block (`docs/specs/architecture.md` → "Request Architecture: How Each Message Is Built") explicitly drops the "Current GTD Files" block. The LLM reads vault files on demand via `read_file`; pruning (Task 4.1) keeps recent reads as the LLM's working snapshot. Rationale captured in the spec under "Why no pre-loaded current-files block" (resolves Codex review findings 1 + 2 from 2026-05-19: trust-boundary on user-editable content and missing size cap). `buildRequest` therefore does not take a `repo` parameter — it's a pure transform over `today`/`profile`/`messages`/`userMessage`.
 
-**Model selection:** *(deferred.)* The CLI keeps Task 3's hardcoded `anthropic("claude-haiku-4-5")` call. No `packages/core/src/model-router.ts` is introduced. See the Router-removal note above for the architectural reasoning. If Task 10's real-model eval reports surface request classes where Haiku is materially worse, that's the trigger to revisit — not a green vitest on four phrases.
+**Model selection:** *(deferred.)* The CLI keeps Task 3's hardcoded `anthropic("claude-haiku-4-5")` call. No `packages/core/src/model-router.ts` is introduced. See the Router-removal note above for the architectural reasoning. If dogfooding or a future judge-based evaluation surfaces request classes where Haiku is materially worse, that's the trigger to revisit — not a green vitest on four phrases.
 
 **Session persistence:** *(deferred to Task 4.1.)* Task 4's CLI keeps the in-memory `messages: ModelMessage[]` array from Task 3. Per-turn message state survives across REPL turns within one process but is lost on exit — acceptable for Task 4 smoke since the manual transcript (T4-AC-14) runs in one session.
 
@@ -998,7 +1002,7 @@ Vitest suite green:
 
 ## Task 4.2: Per-turn debug logging (request/response artifacts)
 
-> **Post-created task.** Added 2026-05-19 from a Phase-1 dogfooding gap. Task 4 wired prompt caching, Task 4.1 wired tool-result pruning — both are invisible at runtime. The existing `cliLogger.debug` with `code: "prompt.cache_usage"` (`apps/cli/src/index.ts`) emits the `totalUsage` breakdown to `cli-errors.jsonl` per turn, but the *post-pruning request* the LLM actually saw and the per-step response breakdown land nowhere. Without that the empirical-validation tradeoff documented under [[feedback_phase1_pragmatism]] can't be exercised — we'd have to trust the pruner instead of reading what was sent. This is also a precondition for the Task 10 eval runner, where judge review should work from the same turn artifacts a developer would inspect manually.
+> **Post-created task.** Added 2026-05-19 from a Phase-1 dogfooding gap. Task 4 wired prompt caching, Task 4.1 wired tool-result pruning — both are invisible at runtime. The existing `cliLogger.debug` with `code: "prompt.cache_usage"` (`apps/cli/src/index.ts`) emits the `totalUsage` breakdown to `cli-errors.jsonl` per turn, but the *post-pruning request* the LLM actually saw and the per-step response breakdown land nowhere. Without that the empirical-validation tradeoff documented under [[feedback_phase1_pragmatism]] can't be exercised — we'd have to trust the pruner instead of reading what was sent. The same artifacts can later feed a judge-based evaluation without making that future workflow a Phase-1 dependency.
 >
 > Phase 1 ships only the CLI's `FsTurnLogger`, gated by `DEBUG=1` and vault-local. The `TurnLogRecord` shape and `TurnLogger` contract land in **core** anyway — Phase 2a needs the same artifact for the always-on backend support/bug-report path (user reports broken output, support pulls the matching turn artifact by `turnId`). Doing it now avoids a Phase-2a schema break. Allowlist serialization is sufficient at this seam regardless of runtime: the Anthropic API key is read from env by the SDK and never reaches our local request object, so there is no secret to redact. Phase-2a-specific concerns (cross-user content boundaries, GDPR retention/erasure, storage choice) are explicitly deferred to the `SupabaseTurnLogger` task.
 
@@ -1083,7 +1087,7 @@ Vitest suite green:
 - **T4.2-AC-07:** Abort path: `AbortController.abort()` mid-stream produces a `turn-NNN.json` with `outcome: "aborted"` and no `responseMessages` / `steps` / `totalUsage`.
 - **T4.2-AC-08:** Allowlist serialization: when `providerOptions.anthropic` carries an extra unexpected key, the artifact's `initialRequest.providerOptions` reflects that shallow copy faithfully; nothing outside the documented `TurnLogRecord` fields appears at the top level (no incidental passthrough of the raw `streamText` options object).
 - **T4.2-AC-09:** Pruning visibility: after six tool-using turns against a mocked model whose response includes a `read_file` tool-call/result for the same file each turn, `turn-006.json`'s `initialRequest.messages` contains at least one stub string matching the Task 4.1 stub format (`/^\[Previous .* result — superseded/`). Closes the empirical-validation goal motivating this task.
-- **T4.2-AC-10:** Cache-usage visibility: with a mocked usage object containing `inputTokenDetails.cacheReadTokens`, the field is reachable via `totalUsage.inputTokenDetails.cacheReadTokens` in the on-disk artifact. (No assertion against real provider behavior — Task 10 can surface it as eval-run evidence, not as a deterministic unit assertion.)
+- **T4.2-AC-10:** Cache-usage visibility: with a mocked usage object containing `inputTokenDetails.cacheReadTokens`, the field is reachable via `totalUsage.inputTokenDetails.cacheReadTokens` in the on-disk artifact. (No assertion against real provider behavior; inspect that empirically during dogfooding or future judge-based evaluation.)
 - **T4.2-AC-11:** Write-failure non-fatal: simulating `rename` rejecting with `EACCES` in `writeTurn` emits a `cliLogger.warn` with `code: "turn_log.write_failed"` (asserted via `MemoryLogger`) and does not throw out of the turn — the REPL continues to the next prompt.
 - **T4.2-AC-12:** Interface contracts: `NoopTurnLogger.writeTurn(record)` resolves without I/O and produces no on-disk artifacts when substituted into a CLI test run. `MemoryTurnLogger` substituted in the same flow exposes a public `records` array with one entry per turn in call order, each entry shape-matching `TurnLogRecord`.
 - **T4.2-AC-13:** Core hygiene: `packages/core/src/turn-log.ts` imports no `node:fs`, no `node:fs/promises`, no `console.*` (asserted alongside the existing T3.9-AC-01/-02 core-hygiene checks).
@@ -1230,7 +1234,7 @@ Vitest suite green:
 
 **Default position: don't ship now.** Industry norm (Claude.ai, ChatGPT, Cursor) is *not* to per-message-stamp. Adding it speculatively would burn the [[feedback_phase1_pragmatism]] budget — the symmetric counterpart to the Task-4.3 reminder, which was *triggered* by a concrete `turn-003.json` failure, not by hypothesis.
 
-**Design sketch (if Task 10 surfaces evidence).** Extend the `ContextNote` union in `packages/core/src/request-builder.ts:14` with `kind: "session-gap"`, fire it from inside `buildRequest` when the gap between the trailing user message's `messageCreatedAt` and "now" exceeds a threshold, render via `renderNotes` alongside `stale-files`. The existing `<context-note>` channel already attaches to the trailing user message and survives the prompt-cache contract — no new plumbing.
+**Design sketch (if dogfooding surfaces evidence).** Extend the `ContextNote` union in `packages/core/src/request-builder.ts:14` with `kind: "session-gap"`, fire it from inside `buildRequest` when the gap between the trailing user message's `messageCreatedAt` and "now" exceeds a threshold, render via `renderNotes` alongside `stale-files`. The existing `<context-note>` channel already attaches to the trailing user message and survives the prompt-cache contract — no new plumbing.
 
 **Open sub-decisions to settle at task time.**
 - **Threshold.** Any UTC day change? `> N hours`? Both OR-combined? ("Day change" aligns with the day-rollover concept already in `Session`; pure hour-threshold may matter more for an evening-resume-next-morning pattern.)
@@ -1819,11 +1823,26 @@ Vitest suite (gather function against `InMemoryFileRepository`; opener against t
 
 ---
 
-## Task 10: Real-model eval runner + judge workflow
+## Task 10: Judge-based real-model evaluation — DEFERRED
 
-### Instructions
+> **Status: deferred 2026-07-14, before implementation.** The staged runner
+> was discarded. This item is not part of the closed Phase 1 milestone and must
+> not be started from this plan. The material below is retained as historical
+> design context only.
 
-Build a real-model eval runner that executes documented scenarios against the actual CLI and then produces turn-based evidence for human or LLM-judge review. This replaces the earlier idea of a deterministic real-API E2E suite. LLM behavior is intentionally variable; the runner must capture what happened, not force prompt quality into brittle regex/file-state assertions.
+### Deferral rationale
+
+A single real-model run is a stochastic observation, not a stable pass/fail
+regression test. The discarded design captured one run and generated a judge
+prompt, but did not execute a judge or aggregate repeated trials. Calling that
+an evaluation would create false confidence.
+
+Any future plan must combine repeated target-model trials, a separate versioned
+judge with structured evidence, aggregate outcomes, and human calibration.
+Deterministic checks remain appropriate for objective trace/state invariants;
+semantic quality and acceptable alternative behavior belong to the judge.
+
+### Historical design sketch (inactive)
 
 The runner's default evidence is the existing Task 4.2 turn artifact surface:
 `<vault>/.keppt/logs/sessions/<date>/turn-NNN.json`. Those artifacts already contain the post-pruning request, model id, steps, tool calls/results, response messages, usage, duration, and outcome. `stdout` and full before/after vault snapshots are not default artifacts.
@@ -1833,7 +1852,7 @@ The runner's default evidence is the existing Task 4.2 turn artifact surface:
 - Each scenario is intentionally broad: purpose, seed state, user turns, allowed good outcomes, critical failures, and judge rubric.
 - Scenario definitions and seed vaults are committed. Concrete run outputs are local artifacts and stay out of git.
 - The first supported runner scenario is `docs/evals/scenario-01-rasen-double-schedule/`, using its `vault/` fixture and rubric.
-- The existing placement matrix in `docs/evals/scenario-02-task-model-placement/README.md` remains documentation/backlog; Task 10 does not need to make every matrix case runnable.
+- The existing placement matrix in `docs/evals/scenario-02-task-model-placement/README.md` remains documentation/backlog for any future plan.
 
 **Runner command shape:**
 - Add a script such as `pnpm eval:real scenario-01-rasen-double-schedule` (exact package/script placement is implementation-defined; prefer a root script if it keeps usage simple).
@@ -1856,18 +1875,21 @@ runs/evals/<timestamp>/<scenario-slug>/
 
 `runs/evals/` must be gitignored. Do not copy full vault `before/` and `after/` directories by default; the turn artifacts plus mutation diff log should be enough for normal review. Add heavier debug capture only behind an explicit flag if later scenarios prove the turn logs insufficient.
 
-**Judge workflow:**
-- The runner generates `judge-prompt.md` from the scenario README/rubric plus compact references to the collected turn artifacts and mutation log.
-- Optional: a separate command can call a strong judge model (for example Opus/GPT-class) and write `judge-report.md`.
-- Judge output is review assistance, not a normal CI unit-test gate. Expected ratings: `pass`, `pass_with_notes`, `unclear`, `fail`.
-- `fail` must cite concrete evidence from tool calls, tool results, final assistant text, or mutation diffs.
+**Rejected judge workflow:**
+- Generating `judge-prompt.md` without executing a judge is evidence capture, not evaluation.
+- A future evaluator must invoke a separate judge, require structured per-criterion evidence, and aggregate repeated target runs.
+- Judge output is review assistance rather than a deterministic unit-test gate and must be calibrated periodically against human labels.
+- Any `fail` must cite concrete evidence from tool calls, tool results, final assistant text, or mutation diffs.
 
 **Eval backlog policy:**
 - Do not promote invented CRUD scenarios just to grow the suite. Basic create/move/complete behavior is already covered more cheaply by deterministic tool and prompt tests.
 - Promote new eval scenarios primarily from dogfooding traces: manual CLI use produces turn logs, then an agent can turn an interesting success/failure into a scenario folder with seed vault, user turns, and rubric.
-- Candidate backlog from the old Task 10 list: Auto-Replan day boundary, cross-day completion, cross-day deferral, R6 past-date correction, inbox cleanup/lost-task detector. These belong in `docs/evals/BACKLOG.md` or follow-up scenario folders, not in the first runner implementation.
+- Candidate backlog from the old Task 10 list: Auto-Replan day boundary, cross-day completion, cross-day deferral, R6 past-date correction, inbox cleanup/lost-task detector. These remain in `docs/evals/BACKLOG.md` until a future evaluation plan meets the re-entry criteria above.
 
-### Acceptance
+### Historical acceptance sketch (inactive)
+
+These criteria were never accepted as sufficient and are not active work in
+this closed plan.
 
 - **T10-AC-01:** A documented runner command executes `docs/evals/scenario-01-rasen-double-schedule/` against a real configured provider and writes a run directory under `runs/evals/<timestamp>/scenario-01-rasen-double-schedule/`.
 - **T10-AC-02:** The runner forces `DEBUG=1` and copies the generated `turn-*.json` artifacts into the run directory. At least one collected turn contains the real model id, tool-call sequence, response messages, and usage.
@@ -1877,14 +1899,13 @@ runs/evals/<timestamp>/<scenario-slug>/
 - **T10-AC-06:** README or eval docs explain the workflow: run deterministic tests separately, run real-model evals before release, inspect or judge the generated report, and treat judge failures as release-review blockers rather than unit-test failures.
 - **T10-AC-07:** The old deterministic E2E scenario list is preserved only as backlog/documentation, not as hard acceptance criteria for this task.
 
-### Key Locations
+### Preserved discovery locations
 
-- `scripts/` or `apps/cli/src/` for the eval runner entrypoint (choose the location that keeps the command simple and avoids shipping test-only code in the CLI binary)
 - `docs/evals/scenario-01-rasen-double-schedule/README.md`
 - `docs/evals/scenario-01-rasen-double-schedule/vault/`
+- `docs/evals/scenario-02-task-model-placement/README.md`
 - `docs/evals/BACKLOG.md`
-- `.gitignore` (`runs/evals/`)
-- `README.md` or `docs/evals/README.md` (operator workflow)
+- `apps/cli/src/turn-artifact.ts` and Task 4.2's existing debug artifacts
 
 ### Key Discoveries
 
@@ -1892,15 +1913,17 @@ runs/evals/<timestamp>/<scenario-slug>/
 - **Turn artifacts are the right default evidence.** They contain the request, tool-call sequence, tool results, response messages, model, usage, duration, and outcome. Full stdout and before/after vault snapshots are usually redundant.
 - **`file-history.jsonl` is noisy today.** It currently stores full `contentBefore` and `contentAfter`; once it becomes diff-only, a run-filtered mutation log becomes a good companion artifact. Until then, keep it optional/compact.
 - **Eval scenarios should be failure-driven.** Dogfooding and manual CLI runs create real turn traces. Interesting traces should be curated into scenario folders by an agent/human, then replayed by the runner.
-- **Release gate is procedural, not a Vitest green check.** Before shipping: deterministic tests pass, relevant real-model evals are run, judge/human review finds no critical failures.
+- **A future evaluation needs sampling and calibration.** One target run plus one judge result remains stochastic; report a distribution across repeated trials and calibrate the judge against human review.
 
 ---
 
-## Task 11: Weekly Review interactive workflow (deferred placeholder)
+## Task 11: Weekly Review interactive workflow — DEFERRED CANDIDATE
 
-> **Post-created 2026-05-19. Placeholder — not yet specced.** Captures the intent to port the richer Weekly-Review choreography from the user's personal vault `CLAUDE.md` into the keppt-app product so review sessions actually feel like a review and not a passive list-walk. Held out of Task 4.3 because the content is ~200 prompt tokens that only matter in ~1% of turns, and putting it in the always-cached R1–R16 head would bloat every regular turn for no benefit. To be designed and scheduled when Phase 1 eval evidence indicates the simpler Weekly-Review behaviour from current R7 is insufficient.
+> **Status: not planned.** This is discovery context, not an executable task. It
+> has no accepted delivery mechanism, acceptance criteria, or active priority and
+> is not part of Phase 1 closure.
 
-### What needs to land (content)
+### Captured product intent (not accepted scope)
 
 The Vault `CLAUDE.md`'s Weekly-Review section (see `/home/lutz/Dokumente/Lutz Vault/CLAUDE.md` "Weekly Review" — Schritte 1–9 plus the Pflicht-Hinweis) carries three behaviours that the current R7 collapses to a single sentence:
 
@@ -1931,10 +1954,20 @@ Current R7 (current shape, pre- and post-Task-4.3) already carries the Marker-Da
 - Any code changes. This is intent-capture only.
 - LinkedIn-Posts integration from the Vault — that's vault-specific user content, not product behaviour.
 
-### When to schedule
+### Re-entry condition
 
-After Task 10's eval runner lands and one or two real Weekly-Review sessions have been captured against the current R7 — if those sessions feel passive/list-walking rather than interactive, this task takes priority over the next planned feature. If the simpler R7 actually feels adequate in real use, this task can be deprioritised or merged into a future "review polish" pass.
+Schedule only after the current Weekly Review behavior has been dogfooded and
+the workflow is selected as an active product priority. A future plan must first
+resolve the delivery mechanism and define observable acceptance criteria; it has
+no dependency on deferred Task 10.
 
 ---
 
-_Plan created: 2026-04-24. Based on architecture spec v1 + Vercel SDK research v1._
+## Plan closure
+
+Closed on 2026-07-14 after the implementation milestone through Task 9. Tasks
+10 and 11 are deferred discovery items, not incomplete Phase 1 deliverables. A
+new plan should start from the next product priorities and must not carry either
+item forward automatically.
+
+_Plan created: 2026-04-24. Closed: 2026-07-14. Based on architecture spec v1 + Vercel SDK research v1._

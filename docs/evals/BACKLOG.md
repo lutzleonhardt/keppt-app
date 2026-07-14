@@ -1,9 +1,10 @@
 # Eval Scenario Backlog
 
-This backlog captures scenario candidates that are useful for real-model evals
-but are not part of the first eval-runner implementation. Promote a candidate
-into `docs/evals/scenario-XX-.../` only when the infrastructure exists and the
-case is backed by a real dogfooding trace or a concrete prompt-risk review.
+This backlog preserves scenario candidates for a future judge-based evaluation
+plan. No eval runner is currently scheduled. Promote a candidate into
+`docs/evals/scenario-XX-.../` only when repeated-run infrastructure, a separate
+calibrated judge, and aggregate reporting are in scope, and when the case is
+backed by a real dogfooding trace or a concrete prompt-risk review.
 
 ## High-Value Candidates
 
