@@ -1,9 +1,21 @@
-import { ChangeDetectionStrategy, Component, computed, input } from "@angular/core";
-import { translateSignal, TranslocoPipe } from "@jsverse/transloco";
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  output,
+} from "@angular/core";
+import {
+  translateSignal,
+  TranslocoPipe,
+  TranslocoService,
+} from "@jsverse/transloco";
 import { LucideMenu, LucideMoreHorizontal } from "@lucide/angular";
 
 import { KepptMonogramComponent } from "../../ui/keppt-monogram";
 import { StatusDotComponent } from "../../ui/status-dot";
+import { APP_TODAY, formatLocalDate } from "../../i18n/local-date";
 
 @Component({
   selector: "keppt-session-header",
@@ -21,7 +33,20 @@ import { StatusDotComponent } from "../../ui/status-dot";
 export class SessionHeaderComponent {
   readonly hasMessages = input.required<boolean>();
 
-  protected readonly subtitle = translateSignal(
-    computed(() => (this.hasMessages() ? "chat.subtitle.session" : "chat.subtitle.empty")),
+  readonly menuPressed = output<void>();
+
+  private readonly transloco = inject(TranslocoService);
+  private readonly today = inject(APP_TODAY);
+  private readonly sessionDate = computed(
+    () => formatLocalDate(this.today, this.transloco.activeLang()).fullLabel,
+  );
+  private readonly sessionSubtitle = translateSignal(
+    "chat.subtitle.session",
+    computed(() => ({ date: this.sessionDate() })),
+  );
+  private readonly emptySubtitle = translateSignal("chat.subtitle.empty");
+
+  protected readonly subtitle = computed(() =>
+    this.hasMessages() ? this.sessionSubtitle() : this.emptySubtitle(),
   );
 }

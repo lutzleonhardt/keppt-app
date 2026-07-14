@@ -1,20 +1,19 @@
 import { signal } from "@angular/core";
+import { TestBed } from "@angular/core/testing";
 import { render, screen } from "@testing-library/angular/zoneless";
 import userEvent from "@testing-library/user-event";
+import { TranslocoService } from "@jsverse/transloco";
 import { provideMarkdown } from "ngx-markdown";
 import { describe, expect, it, vi } from "vitest";
 
 import { ChatScreenComponent } from "./chat-screen";
 import { ChatService } from "./chat.service";
+import { ChatStore } from "./chat.store";
 import { VoiceCaptureService } from "./voice-capture.service";
-import type {
-  AppScreen,
-  ChatMessage,
-  ChatStatus,
-  QuickReply,
-} from "./chat.types";
-import { overrideComponentServices } from "../../testing/override-component-services";
+import type { ChatMessage, ChatStatus, QuickReply } from "./chat.types";
 import { provideTranslocoTesting } from "../../testing/transloco-testing";
+import { APP_TODAY } from "../i18n/local-date";
+import { MOCK_TODAY } from "../mock/mock-app-context";
 
 // The template spec for Angular component tests in this app: ATL `render`
 // (zoneless entry), real child components (no shallow rendering, no component
@@ -24,12 +23,10 @@ import { provideTranslocoTesting } from "../../testing/transloco-testing";
 class StubChatService extends ChatService {
   readonly messages = signal<readonly ChatMessage[]>([]);
   readonly status = signal<ChatStatus>("idle");
-  readonly currentScreen = signal<AppScreen>("chat");
 
   sendMessage = vi.fn(async (_content: string) => {});
   chooseQuickReply = vi.fn(async (_label: string) => {});
   cancel = vi.fn();
-  navigate = vi.fn((_screen: AppScreen) => {});
 }
 
 class StubVoiceCaptureService extends VoiceCaptureService {
@@ -44,14 +41,17 @@ async function renderChatScreen(messages: readonly ChatMessage[] = []) {
   const voice = new StubVoiceCaptureService();
 
   const view = await render(ChatScreenComponent, {
-    providers: [provideMarkdown(), provideTranslocoTesting()],
-    // ChatScreenComponent provides ChatService/VoiceCaptureService itself
-    // (useClass → mock impls), so the stubs must override the component-level
-    // providers; the component-provided ChatStore stays real.
-    configureTestBed: overrideComponentServices(ChatScreenComponent, [
-      [ChatService, chat],
-      [VoiceCaptureService, voice],
-    ]),
+    // Since the Task-4 provider hoist the services live in app.config.ts, not
+    // on the component — plain test-level providers bind the stubs directly
+    // (nothing shadows them anymore); ChatStore stays real.
+    providers: [
+      provideMarkdown(),
+      provideTranslocoTesting(),
+      { provide: APP_TODAY, useValue: MOCK_TODAY },
+      { provide: ChatService, useValue: chat },
+      { provide: VoiceCaptureService, useValue: voice },
+      ChatStore,
+    ],
   });
 
   return { ...view, chat, voice };
@@ -69,7 +69,10 @@ function userMessage(text: string, id = "u-1"): ChatMessage {
 
 function assistantMessage(
   markdown: string,
-  { id = "a-1", quickReplies }: { id?: string; quickReplies?: QuickReply[] } = {},
+  {
+    id = "a-1",
+    quickReplies,
+  }: { id?: string; quickReplies?: QuickReply[] } = {},
 ): ChatMessage {
   return {
     id,
@@ -106,9 +109,23 @@ describe("ChatScreenComponent", () => {
     ]);
 
     expect(screen.getByText("Plane meinen Tag")).toBeTruthy();
+    expect(screen.getByText("Heute · Mittwoch, 6. Mai")).toBeTruthy();
 
     const emphasis = await screen.findByText("Fokus");
     expect(emphasis.tagName).toBe("STRONG");
+  });
+
+  it("reformats the session date when Transloco changes language", async () => {
+    const { fixture } = await renderChatScreen([
+      userMessage("Plane meinen Tag"),
+    ]);
+
+    expect(screen.getByText("Heute · Mittwoch, 6. Mai")).toBeTruthy();
+    TestBed.inject(TranslocoService).setActiveLang("en");
+    await fixture.whenStable();
+
+    expect(await screen.findByText("Today · Wednesday, May 6")).toBeTruthy();
+    expect(screen.queryByText("Heute · Mittwoch, 6. Mai")).toBeNull();
   });
 
   it("sends the typed draft through the ChatService boundary", async () => {
@@ -145,7 +162,9 @@ describe("ChatScreenComponent", () => {
 
   it("swaps the composer to a stop button while busy and cancels through the ChatService boundary", async () => {
     const user = userEvent.setup();
-    const { chat } = await renderChatScreen([userMessage("Räum die Inbox auf")]);
+    const { chat } = await renderChatScreen([
+      userMessage("Räum die Inbox auf"),
+    ]);
 
     chat.status.set("thinking");
 

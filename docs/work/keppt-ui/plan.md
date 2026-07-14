@@ -7,9 +7,13 @@ This plan builds the first mock-first Angular UI for Keppt as a mobile chat app.
 
 Post-Task-2 amendment: Task 2 implemented a temporary typed assistant block model because the original plan asked for it. Task 2.5 supersedes that part of the contract. From Task 2.5 onward, assistant prose is Markdown rendered through `ngx-markdown`; typed data remains for product UI patterns such as tool rows and quick replies.
 
-Post-Task-3 amendment (2026-06-08): Task 3 shipped a redesigned voice/mic and composer model that supersedes the original mic/composer wording. The mic overlay no longer exposes idle/listening/transcript states; it opens directly into recording and runs `recording → transcribing → error`, inserting the captured transcript into the composer draft instead of displaying or auto-sending it (cancel/confirm/retry controls). The composer keeps the mic button always visible and *adds* a send button when the draft has text, rather than switching mic↔send. T3-AC-04, T3-AC-05, the Task 3 "concrete UI states" instructions, and the Task 6 mic-overlay playground state (T6-AC-06) are updated to match. The upstream spec `docs/specs/angular-chat-ui.md` has been amended to this model: a separate `VoiceCaptureService` boundary, the `busy` signal and `cancel()` on the `ChatService` contract, the recording → transcribing → error overlay that inserts the transcript into the composer (no auto-send), and the always-visible-mic + additive-send composer.
+Post-Task-3 amendment (2026-06-08): Task 3 shipped a redesigned voice/mic and composer model that supersedes the original mic/composer wording. The mic overlay no longer exposes idle/listening/transcript states; it opens directly into recording and runs `recording → transcribing → error`, inserting the captured transcript into the composer draft instead of displaying or auto-sending it (cancel/confirm/retry controls). The composer keeps the mic button always visible and _adds_ a send button when the draft has text, rather than switching mic↔send. T3-AC-04, T3-AC-05, the Task 3 "concrete UI states" instructions, and the Task 6 mic-overlay playground state (T6-AC-06) are updated to match. The upstream spec `docs/specs/angular-chat-ui.md` has been amended to this model: a separate `VoiceCaptureService` boundary, the `busy` signal and `cancel()` on the `ChatService` contract, the recording → transcribing → error overlay that inserts the transcript into the composer (no auto-send), and the always-visible-mic + additive-send composer.
 
-Pre-Task-4 amendment (2026-07-09): Task 4's list surfaces were redefined from typed-row ports of the landing mock to markdown-file views over the product's real vault model, which `packages/core` already fixes (`gtd-layout.ts` allowlist: `tasks/inbox.md`, `tasks/focus.md`, `tasks/next-actions.md`, `tasks/waiting.md`, `tasks/someday-maybe.md`, `daily/YYYY-MM-DD.md`; system-prompt R9 checkbox task format, R7 category-heading grouping for next-actions, R10 Plan/Log/Notes daily sections). List screens render these files as markdown behind an abstract `VaultService`; the reference-mock rows survive as seed content converted into that format, and the landing mock's dashed-bullet/badge row optics are deliberately dropped in favor of data honesty. The original typed `ListEntry` row model and T4-AC-02's "typed data" wording are superseded. Editing is split into new Task 4.5 (full-document textarea with autosave — safe because the backend will persist every file change as revertable history); tappable checkboxes in the rendered view are deferred to a later task. The upstream spec's list-surface section should be amended alongside Task 4 execution.
+Pre-Task-4 amendment (2026-07-09; async read contract simplified 2026-07-13; drawer metrics removed 2026-07-13): Task 4's list surfaces were redefined from typed-row ports of the landing mock to markdown-file views over the product's real vault model, which `packages/core` already fixes (`gtd-layout.ts` allowlist: `tasks/inbox.md`, `tasks/focus.md`, `tasks/next-actions.md`, `tasks/waiting.md`, `tasks/someday-maybe.md`, `daily/YYYY-MM-DD.md`; system-prompt R9 checkbox task format, R7 category-heading grouping for next-actions, R10 Plan/Log/Notes daily sections). An Angular-free, Promise-based `VaultRepository` is the only client read boundary. Routed Vault/Daily components own small local Angular 22 Resources, the date guard reads the repository directly, and there is no cross-component cache or request-sharing guarantee among those read consumers. The drawer is metric-free registry/router navigation and performs no repository reads. The reference-mock rows survive as seed content converted into that format, and the landing mock's dashed-bullet/badge row optics are deliberately dropped in favor of data honesty. The original typed `ListEntry` row model and T4-AC-02's "typed data" wording are superseded. Editing is split into new Task 4.5 (full-document textarea with Promise-based autosave — safe because the backend will persist every file change as revertable history); tappable checkboxes in the rendered view are deferred to a later task. The upstream spec carries the same list-surface and drawer contract.
+
+Task-4 screen-registry amendment (2026-07-13): Angular Router remains the sole source of truth for the active screen. `navigation/screen-registry.ts` is the single typed runtime source for screen IDs, route patterns, vault-file/i18n/ask metadata, and navigable URLs; `AppScreen`, `NavigableScreen`, and `VaultScreen` derive from it. `NavigationService` owns drawer and active-screen state, consumes registry helpers, and validates activated `data.screen` at runtime. Angular components and the daily guard remain local to `app.routes.ts`. Ask-in-chat actions await successful route activation and treat an already-active target as success. This supersedes Task 2's chat-owned navigation shape and Task 4's earlier duplicated metadata.
+
+Task-4 date/localization amendment (2026-07-14): `listDailyNotes()` returns only `DailyNoteRef { date, isToday }`. The client derives Daily, Drawer, and Chat calendar chrome from ISO dates or an injected clock with `Intl.DateTimeFormat` in the active Transloco language; relative/status words remain catalog copy. Daily cards have no summary, Daily detail reads only its markdown file, and the Inbox subtitle has no static count.
 
 > The executing agent may adjust scope and ordering based on more
 > up-to-date context discovered during implementation, as long as
@@ -29,7 +33,7 @@ Pre-Task-4 amendment (2026-07-09): Task 4's list surfaces were redefined from ty
 
 ### Instructions
 
-Create `apps/web` as an Angular 20+ standalone app in the existing pnpm workspace. Use routing, CSS, Signals-ready app setup, and package scripts compatible with root `pnpm -r build`, `pnpm -r typecheck`, and `pnpm -r test`. The app must open to a usable Keppt chat shell, not a welcome screen, landing page, marketing page, or iPhone-frame preview.
+Create `apps/web` as an Angular standalone app in the existing pnpm workspace. Task 4's async vault contract raises the minimum to Angular 22 (stable generic Resources), Node 22.22.3 or another Angular-22-supported major, and TypeScript 6.0. Use routing, CSS, Signals-ready app setup, and package scripts compatible with root `pnpm -r build`, `pnpm -r typecheck`, and `pnpm -r test`. The app must open to a usable Keppt chat shell, not a welcome screen, landing page, marketing page, or iPhone-frame preview.
 
 Add the baseline Keppt design system as CSS variables and global styles. Port these token values into app CSS:
 
@@ -41,11 +45,11 @@ Add the baseline Keppt design system as CSS variables and global styles. Port th
 --keppt-ink-2: rgba(26, 24, 20, 0.62);
 --keppt-ink-3: rgba(26, 24, 20, 0.38);
 --keppt-ink-4: rgba(26, 24, 20, 0.18);
---keppt-ink-5: rgba(26, 24, 20, 0.10);
+--keppt-ink-5: rgba(26, 24, 20, 0.1);
 --keppt-line: rgba(26, 24, 20, 0.08);
 --keppt-hairline: rgba(26, 24, 20, 0.06);
 --keppt-accent: #b07a52;
---keppt-accent-soft: rgba(176, 122, 82, 0.10);
+--keppt-accent-soft: rgba(176, 122, 82, 0.1);
 --keppt-accent-soft-2: rgba(176, 122, 82, 0.18);
 ```
 
@@ -84,17 +88,15 @@ Keep UI orchestration state in a route/local shell store rather than in presenta
 Use this service shape:
 
 ```ts
-export type ChatStatus = 'idle' | 'thinking' | 'streaming' | 'error';
+export type ChatStatus = "idle" | "thinking" | "streaming" | "error";
 
 export interface ChatService {
   readonly messages: Signal<ChatMessage[]>;
   readonly status: Signal<ChatStatus>;
-  readonly currentScreen: Signal<AppScreen>;
   sendMessage(content: string): Promise<void>;
   chooseQuickReply(label: string): Promise<void>;
   startVoiceCapture(): void;
   cancelVoiceCapture(): void;
-  navigate(screen: AppScreen): void;
 }
 ```
 
@@ -109,15 +111,15 @@ export type ChatMessage =
 
 export interface UserChatMessage {
   id: string;
-  role: 'user';
+  role: "user";
   text: string;
   createdAt: string;
 }
 
 export interface AssistantToolMessage {
   id: string;
-  role: 'assistant';
-  kind: 'tool';
+  role: "assistant";
+  kind: "tool";
   text: string;
   files?: string[];
   createdAt: string;
@@ -125,26 +127,26 @@ export interface AssistantToolMessage {
 
 export interface AssistantTypingMessage {
   id: string;
-  role: 'assistant';
-  kind: 'typing';
+  role: "assistant";
+  kind: "typing";
   createdAt: string;
 }
 
 export interface AssistantContentMessage {
   id: string;
-  role: 'assistant';
-  kind: 'content';
+  role: "assistant";
+  kind: "content";
   blocks: AssistantBlock[];
   quickReplies?: QuickReply[];
   createdAt: string;
 }
 
 export type AssistantBlock =
-  | { type: 'paragraph'; text: InlineText[] }
-  | { type: 'heading'; text: string }
-  | { type: 'ordered-list'; items: RichListItem[] }
-  | { type: 'unordered-list'; items: RichListItem[] }
-  | { type: 'code'; text: string };
+  | { type: "paragraph"; text: InlineText[] }
+  | { type: "heading"; text: string }
+  | { type: "ordered-list"; items: RichListItem[] }
+  | { type: "unordered-list"; items: RichListItem[] }
+  | { type: "code"; text: string };
 
 export interface QuickReply {
   id: string;
@@ -154,7 +156,7 @@ export interface QuickReply {
 
 export type InlineText =
   | { text: string }
-  | { text: string; mark: 'strong' | 'emphasis' | 'muted' | 'code' };
+  | { text: string; mark: "strong" | "emphasis" | "muted" | "code" };
 
 export interface RichListItem {
   title?: InlineText[];
@@ -163,14 +165,14 @@ export interface RichListItem {
 }
 
 export type AppScreen =
-  | 'chat'
-  | 'inbox'
-  | 'focus'
-  | 'next'
-  | 'waiting'
-  | 'someday'
-  | 'daily'
-  | 'daily-detail';
+  | "chat"
+  | "inbox"
+  | "focus"
+  | "next"
+  | "waiting"
+  | "someday"
+  | "daily"
+  | "daily-detail";
 ```
 
 Convert the reference mock strings, flow, routing, chips, list entries, and daily notes into Angular-friendly typed mock data. Do not model widgets as arbitrary generated UI; only model known product UI patterns.
@@ -219,8 +221,8 @@ Update the chat DTOs so assistant content is shaped like this:
 ```ts
 export interface AssistantContentMessage {
   id: string;
-  role: 'assistant';
-  kind: 'content';
+  role: "assistant";
+  kind: "content";
   markdown: string;
   quickReplies?: QuickReply[];
   createdAt: string;
@@ -272,7 +274,7 @@ Build the chat screen and message components against the typed service data afte
 Implement these components or equivalent standalone components:
 
 - `ChatScreenComponent` for the header, scroll area, suggestions, and composer.
-- `SessionHeaderComponent` with menu button, Keppt mark, date/status subtitle, and more button.
+- `SessionHeaderComponent` with menu button, Keppt mark, locale-reactive current-date/status subtitle, and more button.
 - `ChatMessageListComponent` with scroll anchoring when messages change.
 - `UserMessageComponent` for right-aligned dark user bubbles.
 - `AssistantMessageComponent` for Markdown assistant content and attached quick replies.
@@ -285,7 +287,7 @@ Render assistant prose through `ngx-markdown`. Keep tool/status rows, typing sta
 
 Use these concrete UI states from the reference mock:
 
-- Header subtitle is `Bereit zum Erfassen` when chat is empty and `Heute · Mittwoch, 6. Mai` after messages exist.
+- Header subtitle is `Bereit zum Erfassen` when chat is empty and otherwise combines translated “Today” copy with the dynamically formatted current client date. `Heute · Mittwoch, 6. Mai` is only the deterministic fixed-clock German example, not production data.
 - Empty chat copy is `Was liegt dir im Kopf?` and `Halte den Mic-Button gedrückt — oder schreib einfach.`
 - Input placeholder is `Frag Keppt …`.
 - Tool rows should show an inline file icon, muted text, and a chevron only when files exist. Expanded state shows each file path in monospace.
@@ -294,7 +296,7 @@ Use these concrete UI states from the reference mock:
 
 ### Acceptance
 
-- **T3-AC-01** — The chat screen renders header, independent scroll area, message list, quick replies, and bottom composer without viewport overflow.
+- **T3-AC-01** — The chat screen renders header, independent scroll area, message list, quick replies, and bottom composer without viewport overflow; its date/status header is derived from the client clock rather than a fixed catalog date.
 - **T3-AC-02** — Tool rows can expand to show file paths such as `tasks/inbox.md`, `tasks/focus.md`, and `daily/2026-05-06.md`.
 - **T3-AC-03** — Chips wrap on narrow screens and never force horizontal scrolling.
 - **T3-AC-04** — The composer keeps the mic button always visible and adds a send button when the draft contains text, so voice stays reachable while editing.
@@ -322,7 +324,7 @@ Use these concrete UI states from the reference mock:
 
 Introduce runtime internationalization for the Web app before the string-heavy drawer/list/polish tasks (Task 4, Task 5) add more hardcoded German. Add **Transloco** (`@jsverse/transloco`) as the i18n library and migrate the existing static UI-chrome strings from Task 1–3 into JSON translation catalogs.
 
-Scope is **UI chrome only** — the static runtime text the app itself owns (header subtitle, mic overlay copy, composer placeholder, empty-state copy, and icon-only `aria-label`s). The mock conversation content in `apps/web/src/app/mock/chat-mock-data.ts` (assistant responses, voice transcript, tool-row text, quick-reply labels) is **out of scope**: it simulates dynamic backend/LLM output that production would return already in the user's language. Do not move it into the catalogs and do not author an English mock dataset in this task.
+Scope is **client-owned UI chrome only** — the static runtime text the app itself owns (header subtitle, mic overlay copy, composer placeholder, empty-state copy, and icon-only `aria-label`s). Calendar values are also client-owned presentation: weekday, month, and date text comes from `Intl.DateTimeFormat` in the active Transloco language, while Transloco owns surrounding relative/status copy. The mock conversation content in `apps/web/src/app/mock/chat-mock-data.ts` (assistant responses, voice transcript, tool-row text, quick-reply labels) is **out of scope**: it simulates dynamic backend/LLM output that production would return already in the user's language. Do not move it into the catalogs and do not author an English mock dataset in this task.
 
 Use Transloco's **signal API** (`translateSignal` / the `transloco` pipe + structural directive), not the Observable/`subscribe` API. The app runs zone-less (`provideZonelessChangeDetection()`), so signal-based translations integrate with change detection without `zone.js` and without manual `toSignal` bridging.
 
@@ -334,7 +336,7 @@ Set up:
 
 Migrate these existing chrome strings into the catalogs and replace the hardcoded literals with translation keys (use a nested key namespace such as `chat.*`, `mic.*`, `composer.*`, `a11y.*`):
 
-- `apps/web/src/app/chat/components/session-header.ts` — the `subtitle` computed (`"Heute · Mittwoch, 6. Mai"` / `"Bereit zum Erfassen"`).
+- `apps/web/src/app/chat/components/session-header.ts` — translate the status/relative-date copy and interpolate a current date formatted client-side; do not store a complete dated sentence such as `Heute · Mittwoch, 6. Mai` in either catalog.
 - `apps/web/src/app/chat/chat-ui-state.ts` — `micOverlayStatus()` strings (`"Höre zu …"`, `"Verarbeite …"`, `"Nichts gehört"`, `"Bereit"`).
 - `apps/web/src/app/chat/components/mic-overlay.html` (+ `mic-overlay.ts` `hintLabel`) — heading `Erfassen`, the three prompt variants, and the `aria-label`s (`Abbrechen`, `Aufnahme übernehmen`, `Erneut aufnehmen`).
 - `apps/web/src/app/chat/components/chat-message-list.html` — empty-state title `Was liegt dir im Kopf?`, hint `Halte den Mic-Button gedrückt — oder schreib einfach.`, and the `aria-label="Unterhaltung"`.
@@ -344,14 +346,16 @@ Author both `de.json` (the current German wording, verbatim) and `en.json` (a fa
 
 Keep `chat-ui-state.ts` pure: `micOverlayStatus()` (and similar pure helpers) should return a stable **translation key**, not a translated string. Translation happens at the component/template edge where an injection context exists. Update `chat-ui-state.test.ts` to assert on keys rather than German literals.
 
+Pure date formatting accepts an ISO/current date plus locale and uses `Intl.DateTimeFormat`; components bind it to the active Transloco language.
+
 Wire the Vitest setup so the existing specs keep passing: provide `TranslocoTestingModule` (or the standalone `provideTransloco` test equivalent) wherever a migrated component/helper is exercised. Pure logic specs that now assert on keys do not need the Transloco runtime.
 
 ### Acceptance
 
 - **T3.4-AC-01** — Transloco is a Web dependency; `provideTransloco` is configured in `app.config.ts` with langs `de`/`en`, default `de`, and runtime language switching enabled.
 - **T3.4-AC-02** — Translation catalogs are JSON files under `apps/web/public/i18n/` loaded at runtime via HTTP; no XLIFF/XML files and no per-locale build are introduced.
-- **T3.4-AC-03** — Switching the active language between `de` and `en` updates the migrated chrome strings without a page reload, driven by Transloco's signal API.
-- **T3.4-AC-04** — The migrated files (`session-header.ts`, `chat-ui-state.ts`, `mic-overlay.*`, `chat-message-list.html`, `chat-input.html`) contain no hardcoded German chrome strings; each resolves through a translation key present in both `de.json` and `en.json`.
+- **T3.4-AC-03** — Switching the active language between `de` and `en` updates the migrated chrome strings and reformats dynamic Chat, Drawer, and Daily calendar labels without a page reload or repository refetch.
+- **T3.4-AC-04** — The migrated files (`session-header.ts`, `chat-ui-state.ts`, `mic-overlay.*`, `chat-message-list.html`, `chat-input.html`) contain no hardcoded German chrome strings; each resolves through a translation key present in both `de.json` and `en.json`, and no full calendar date or locale-specific weekday/month literal is stored in component code or catalogs.
 - **T3.4-AC-05** — `apps/web/src/app/mock/chat-mock-data.ts` is unchanged; mock conversation content is not added to the catalogs.
 - **T3.4-AC-06** — `pnpm -r typecheck` and `pnpm -r test` pass; existing chat/store/mock specs remain green, with pure helpers asserting on keys and component specs using the Transloco test setup.
 
@@ -427,27 +431,31 @@ Keep the test strategy split:
 
 ### Instructions
 
-Implement the app drawer and the vault-file screens for Inbox, Focus, Next Actions, Waiting, Someday/Maybe, and Daily Notes. Drawer navigation must call the chat service's `navigate` method and must close the drawer after selection. All screens are read-only in this task — the editor mode is Task 4.5.
+Implement the app drawer and the vault-file screens for Inbox, Focus, Next Actions, Waiting, Someday/Maybe, and Daily Notes. Drawer navigation must go through `NavigationService` and close the drawer after selection. Angular Router is the source of truth: `NavigationService.currentScreen` updates from successfully activated route data on `NavigationEnd`, including direct URLs, browser history, and redirects. All screens are read-only in this task — the editor mode is Task 4.5.
+
+Routes, drawer vault rows, and `NavigationService` URL construction consume `SCREEN_REGISTRY`; screen/path/file/i18n/ask metadata must not be re-authored in those consumers. `VAULT_SCREEN_ORDER` may repeat screen IDs solely to declare UI order. Dynamic daily-detail URLs remain date-specific navigation operations rather than concrete registry URLs.
 
 Implement these surfaces:
 
-- `AppDrawerComponent` with brand/date area, nav rows, derived counts, and user/trial footer.
-- An abstract `VaultService` contract (+ mock implementation under `apps/web/src/app/mock/`) exposing each vault file's markdown content as a `Signal<string>`: the five task files `tasks/inbox.md`, `tasks/focus.md`, `tasks/next-actions.md`, `tasks/waiting.md`, `tasks/someday-maybe.md`, plus a daily index and per-day `daily/YYYY-MM-DD.md` contents. The UI consumes file content through this contract — no typed row models, no direct `mock/` imports in components.
+- `AppDrawerComponent` with brand/current-date area, eight metric-free nav rows/actions, and user/trial footer. It derives ordered vault rows from `SCREEN_REGISTRY`/`VAULT_SCREEN_ORDER`, delegates navigation and active state to `NavigationService`, and has no `VaultRepository` dependency or repository reads. Its date comes from the shared injected client clock/date presenter in the active locale.
+- An Angular-free `VaultRepository` contract (+ async mock implementation under `apps/web/src/app/mock/`) exposing Promise-based file reads and a minimal `DailyNoteRef { date, isToday }` index. Vault task screens and Daily detail adapt `readFile()` with local Angular 22 Resources; only the Daily list adapts `listDailyNotes()` with a local Resource. Retries call `reload()` on the owning Resource. The five task files are `tasks/inbox.md`, `tasks/focus.md`, `tasks/next-actions.md`, `tasks/waiting.md`, `tasks/someday-maybe.md`; Daily contents are `daily/YYYY-MM-DD.md`. Routed consumers use only `VaultRepository` — no typed row models and no direct `mock/` imports.
+- Resource values preserve `undefined` (not loaded), Resource `error` (transport/auth failure), `null` (missing file), `""` (existing empty file), and `[]` (successfully loaded empty Daily index). Do not use Resource defaults or read `value()` in the error state. Templates provide loading, error/retry, missing-file, empty-file, and empty-Daily messages.
+- The `/daily/:date` guard awaits `VaultRepository.listDailyNotes()` directly. It redirects only after a successfully loaded index proves the date absent; a failed read remains a navigation error. This index read is independent from the Daily list, while the detail route reads only its file.
+- The repository boundary is cache-free and makes no cross-component cache, Resource-identity, or in-flight request-sharing guarantee among routed Vault/Daily consumers.
 - A vault-file screen component rendering screen chrome (title, subtitle, hint) plus the file's markdown through `ngx-markdown`, used for Inbox, Focus, Next Actions, Waiting, and Someday/Maybe. Next Actions needs no dedicated group support — its `##` category headings render as groups for free.
-- `DailyNotesComponent` with a typed day-card index (weekday/date/summary) and a detail state that renders the day's markdown file.
+- `DailyNotesComponent` consumes a typed `DailyNoteRef { date, isToday }` index. It derives weekday/date labels client-side through active-locale `Intl` plus Transloco “Today” copy and renders no summary. Detail derives its header from the route's ISO date plus active locale and reads only the markdown file.
 
 Vault seed format (mirrors `packages/core` system-prompt R7/R9/R10):
 
 - Tasks are markdown checkboxes — `- [ ] Task` open, `- [x] Task` done; the reference mock's row metas become trailing text on the line (e.g. `- [ ] Feedback von Max zur Rechnung (seit 3 Tagen · sanft nachfragen?)`).
 - `tasks/next-actions.md` groups via `##` category headings: `## Arbeit`, `## Haus & Garten`, `## Persönlich`.
 - Daily files use `## Plan` (checkboxes), `## Log` (chronological lines), and `## Notizen` (free text; omit the section for days without notes).
-- Drawer counts derive from the vault: open checkboxes per task file, number of day entries for Daily Notes.
 
-All screen chrome (drawer labels, titles, subtitles, hints, aria-labels) follows the Task 3.4 i18n convention — keys in both catalogs. Vault file contents are mock content and stay German.
+Ordinary screen chrome (drawer labels, titles, subtitles, hints, aria-labels) and the static app-authored ask-in-chat prompts follow the Task 3.4 i18n convention — keys in both catalogs. The three vault prompts live beside their screen hints; the Today prompt lives with the Drawer action. Calendar labels are formatted with `Intl.DateTimeFormat` in the active Transloco language; relative/status words use Transloco. Dynamic mock conversation content and vault file contents stay German; a real backend is responsible for returning dynamic content in the user's language.
 
-Use these drawer labels:
+Use these drawer strings and date behavior:
 
-- Date: `Mittwoch · 6. Mai`
+- Date: dynamically format the current client date; German fixed-clock example `Mittwoch · 6. Mai`, English example `Wednesday · May 6`.
 - Brand: `Keppt.`
 - Taglines: `Capture everything.` and `Manage nothing.`
 - Items: `Chat`, `Heute fragen`, `Inbox`, `Fokus`, `Nächste Schritte`, `Warten auf`, `Vielleicht irgendwann`, `Daily Notes`
@@ -455,7 +463,7 @@ Use these drawer labels:
 
 Use these screen headers and hints:
 
-- Inbox: title `Inbox`, subtitle `4 Einträge · noch nicht sortiert`, hint `Alles, was rein wollte. Sag „Räum die Inbox auf"`
+- Inbox: title `Inbox`, subtitle `Noch nicht sortiert`, hint `Alles, was rein wollte. Sag „Räum die Inbox auf"`
 - Focus: title `Fokus`, subtitle `Diese Woche · 3–5 Prioritäten`, hint `Was wirklich auf dich zählt — der Rest darf warten.`
 - Next: title `Nächste Schritte`, subtitle `Konkrete nächste Aktionen · gruppiert`, hint `Hier liegt alles, was du machen könntest. Frag „Was passt jetzt zu mir?"`
 - Waiting: title `Warten auf`, subtitle `Blockiert · liegt nicht bei dir`, hint `Ich hake nicht von selbst nach — frag mich gern.`
@@ -469,21 +477,23 @@ Seed the mock vault from these reference rows and days (converted per the vault 
 - Next groups: `Arbeit`, `Haus & Garten`, `Persönlich`, with the rows from the reference mock.
 - Waiting: `Feedback von Max zur Rechnung` badge `3T`, `Antwort von DB zum Followup-Call` badge `8T`.
 - Someday: `Sabbatical-Konzept skizzieren`, `Buchidee: GTD ohne Aufwand`, `Rust durchspielen`, `Garten-Wasserspiel`.
-- Daily notes: Today/Wednesday May 6 plus Tuesday May 5, Monday May 4, Sunday May 3, each with plan/log/notes from the reference mock.
+- Daily refs: `2026-05-06` with `isToday: true`, followed by `2026-05-05`, `2026-05-04`, and `2026-05-03` with `isToday: false`; seed no localized labels or summaries. Their markdown files retain the specified plan/log/notes content.
 
-Ask-in-chat actions should route back to chat and trigger the related mock response: inbox cleanup, today, waiting, or next-action context.
+Ask-in-chat actions must successfully return to chat before resolving the active-language prompt and triggering the related mock response: inbox cleanup, today, waiting, or next-action context. A cancelled navigation sends nothing; invoking an action while already on the chat route still sends. Mock route patterns must recognize the prompt values from both catalogs.
 
 ### Acceptance
 
-- **T4-AC-01** — Drawer shows Chat, Ask Today, Inbox, Focus, Next Actions, Waiting, Someday/Maybe, and Daily Notes with counts derived from the mock vault (4 / 3 / 7 / 2 / 4 / 4).
-- **T4-AC-02** — Each vault screen renders its title, subtitle, and hint (i18n keys) plus its file's markdown rendered via `ngx-markdown` (checkbox rows; `##` groups on Next Actions), sourced from `VaultService` signals.
-- **T4-AC-03** — Ask-in-chat actions return to chat and trigger the matching mock response for today, inbox cleanup, waiting, or next-action context.
-- **T4-AC-04** — Daily Notes renders the four day cards and opens a detail surface rendering the day's markdown with Plan, Log, and — where present — Notizen sections.
+- **T4-AC-01** — Drawer shows the eight metric-free rows/actions Chat, Ask Today, Inbox, Focus, Next Actions, Waiting, Someday/Maybe, and Daily Notes; the five vault rows follow `VAULT_SCREEN_ORDER`. Selections route through `NavigationService`, close the drawer, and the active row follows the successfully activated route. Its current-date brand chrome is locale-reactive; `AppDrawerComponent` renders without a `VaultRepository` provider and performs no repository reads.
+- **T4-AC-02** — Each vault screen renders its title, count-free subtitle, and hint (i18n keys) plus honest loading, error/retry, missing, existing-empty, and resolved-markdown states from its component-local Resource over `VaultRepository`. Resolved markdown renders via `ngx-markdown` (checkbox rows; `##` groups on Next Actions).
+- **T4-AC-03** — Ask-in-chat actions resolve their static prompts from the active language catalog and trigger the matching mock response for today, inbox cleanup, waiting, or next-action context only after a successful return to chat. Both catalog languages remain routable; cancelled navigation sends nothing, while an action invoked on the existing chat route still sends.
+- **T4-AC-04** — Daily Notes exposes distinct loading, error/retry, resolved-empty, and resolved-list states. Its resolved list consumes only `{ date, isToday }`, derives labels in the active locale, and renders no summary. With the mock index it renders four day cards; the async date guard waits before activation, and detail performs one file read and no index read while distinguishing missing/empty/error/loading before rendering the day's markdown with Plan, Log, and — where present — Notizen sections.
+- **T4-AC-05** — Screen IDs, route patterns, vault files, i18n prefixes, and screen-specific ask flows are authored once in the typed runtime `SCREEN_REGISTRY`; routes, drawer rows, URL construction, and runtime `data.screen` validation consume it, while Angular components and guards remain local to `app.routes.ts`.
 
 ### Key Locations
 
-- Drawer/vault-screen components: `apps/web/src/app/navigation/` and `apps/web/src/app/vault/`
-- Router config: `apps/web/src/app/app.routes.ts`
+- Screen registry, navigation service, and drawer: `apps/web/src/app/navigation/`
+- Vault-screen components: `apps/web/src/app/vault/`
+- Router component/guard wiring and registry-generated routes: `apps/web/src/app/app.routes.ts`
 - Vault contract + mock vault content: `apps/web/src/app/vault/`, `apps/web/src/app/mock/`
 - Vault model and file formats: `packages/core/src/gtd-layout.ts`, `packages/core/src/system-prompt.ts` (R7/R9/R10)
 - Reference mock data and strings: `/home/lutz/projects/keppt/keppt-landing/src/components/mock/strings.tsx`
@@ -493,11 +503,12 @@ Ask-in-chat actions should route back to chat and trigger the related mock respo
 ### Key Discoveries
 
 - The real vault model already exists in `packages/core`: `gtd-layout.ts` allowlists exactly the five task files + `daily/YYYY-MM-DD.md`; system-prompt R9 fixes the checkbox task format, R7 the category-heading grouping, R10 the Plan/Log/Notes daily sections.
-- `AppScreen` in `chat.types.ts` already contains all eight screens incl. `daily-detail` (the React mock's key is `dailyDetail`; the drawer never targets it — detail is reached from the daily list, and back returns to the list).
-- Drawer counts are derived, not authored: open checkboxes per file (inbox 4, focus 3, next 3+2+2=7, waiting 2, someday 4), daily = number of day entries (4). Chat and "Heute fragen" carry no count.
-- "Heute fragen" is a chat action, not a screen: navigate to chat + send "Was steht heute an?" (today flow). Ask-in-chat links ("im Chat fragen →") exist only on Inbox ("Räum die Inbox auf" → inbox flow), Next Actions ("Was passt jetzt zu mir?" → needs a new `nextContext` mock flow; the React mock only had a generic acknowledge fallback), and Waiting ("Worauf warte ich?" → waiting flow).
+- `SCREEN_REGISTRY` contains all eight screen definitions including dynamic `daily-detail`; `AppScreen`, `NavigableScreen`, and `VaultScreen` derive from it. `VAULT_SCREEN_ORDER` repeats only the five vault-screen IDs to preserve drawer and route order.
+- The drawer is pure registry- and router-backed navigation: its only dynamic value is its client-clock date; it carries no content metrics and does not depend on `VaultRepository` or Angular Resources.
+- "Heute fragen" is a chat action, not a screen: `NavigationService.askInChat()` successfully navigates to chat before resolving the Today prompt from `drawer.ask.today`. Ask-in-chat links ("im Chat fragen →") exist only on Inbox (`vault.inbox.ask` → inbox flow), Next Actions (`vault.next.ask` → `nextContext`; the React mock only had a generic acknowledge fallback), and Waiting (`vault.waiting.ask` → waiting flow). These are app-authored catalog values, not dynamic backend/mock response content.
 - List screens show a hamburger header (drawer trigger); a back button exists only on the daily-note detail.
-- `ChatService`/`VoiceCaptureService`/`ChatStore` must hoist from `ChatScreenComponent` providers to `app.config.ts` so chat state and `currentScreen` survive navigation (explicitly deferred to this task by Task 3.5).
+- `ChatService`/`VoiceCaptureService`/`ChatStore` must hoist from `ChatScreenComponent` providers to `app.config.ts` so conversation and composer state survive navigation (explicitly deferred to this task by Task 3.5). `NavigationService` remains root-provided and owns the route-derived `currentScreen` signal.
+- Only `NavigationEnd` writes `currentScreen`; activated route data is accepted only through `isAppScreen`. `go()` and `openDailyNote()` do not optimistically write screen state, invalid runtime navigation targets fail explicitly, and `go()` normalizes an already-active target to success so same-route ask actions still send while a real `false` result suppresses the message.
 
 ## Task 4.5: Add Vault Editor Mode With Autosave
 
@@ -505,18 +516,18 @@ Ask-in-chat actions should route back to chat and trigger the related mock respo
 
 Add an edit mode to the Task-4 vault screens: an edit (pencil) toggle in the screen header swaps the rendered markdown view for a full-document textarea holding the raw file content. There are no save/cancel buttons — changes autosave through the vault contract.
 
-- Extend `VaultService` with `saveFile(path, content)`; the mock writes the in-memory signal so the rendered view reflects edits immediately after toggling back.
+- Extend `VaultRepository` with ordinary Promise-based writes; `HttpVaultRepository` sends them through the Express API. Reads stay in component-local Resources, while writes never run in a Resource loader. Model saving/saved/error state separately from Resource read status. After a confirmed write, explicitly reload or otherwise refresh the affected local read Resource.
 - Autosave: debounce while typing and flush on leaving edit mode or navigating away. Rationale (document it on the contract): the real backend persists every file change as revertable history (planned NoSQL-backed), so intermediate saves are safe and an explicit confirm/cancel model would duplicate what history/revert already provides.
 - Editable surfaces: the five task files and today's daily note. Past dailies show no edit affordance — a full-document save is a `write_file`-style full rewrite, which `packages/core` blocks for past dailies (`isPastDaily`).
 - Plain `<textarea>` only — no WYSIWYG or code-editor dependency. Tappable checkboxes in the rendered view are a separate later task.
-- Derived state must react: drawer counts recompute when edits add/remove/check checkbox lines.
+- The editor does not invalidate drawer state; drawer rows remain data-independent.
 - New chrome (edit toggle label/aria, any editing hint) gets keys in both `de.json` and `en.json`.
 
 ### Acceptance
 
 - **T4.5-AC-01** — The edit toggle switches rendered ⇄ raw editing on the five task screens and today's daily note; past dailies expose no edit affordance.
-- **T4.5-AC-02** — Edits autosave via `VaultService.saveFile` (debounced, flushed on exit/navigation); toggling back renders the edited markdown without any manual save action.
-- **T4.5-AC-03** — Edits survive navigating away and back (service-held state), and drawer counts recompute when checkbox lines change.
+- **T4.5-AC-02** — Edits autosave through the Promise-based repository/API write path (debounced, flushed on exit/navigation) with separately visible save failure/state; after a confirmed write, an explicit local reload/refresh makes toggling back render the edited markdown without any manual save action.
+- **T4.5-AC-03** — Edits survive navigating away and back through persisted repository data.
 - **T4.5-AC-04** — No save/cancel buttons exist; the editor is a plain textarea with its chrome present in both catalogs.
 
 ### Key Locations
@@ -561,7 +572,7 @@ Add accessible labels for icon-only controls:
 
 - **T5-AC-01** — New chat messages keep the message list anchored near the latest message without moving the fixed composer.
 - **T5-AC-02** — Fade-up, typing dots, mic pulse, and waveform/listening animations are present and do not cause layout shift.
-- **T5-AC-03** — Header, drawer, composer, chips, badges, and buttons remain readable without overlap on narrow mobile widths.
+- **T5-AC-03** — Header, drawer, composer, chips, subscription/tool/status badges, and buttons remain readable without overlap on narrow mobile widths.
 - **T5-AC-04** — Familiar icon buttons have accessible labels for menu, more, back, close, mic, and send.
 
 ### Key Locations
@@ -593,7 +604,7 @@ Render all of these fixed states using the same components and typed mock data s
 - Quick replies: 2, 3, and 5 chips.
 - Chat input: empty, with text, and focused.
 - Mic overlay: recording, transcribing, and error.
-- Drawer/list rows: normal, badge, and dashed.
+- Drawer rows: normal and active.
 
 The playground may use a compact fixture file, but it must not introduce a separate component API that diverges from the production components.
 
@@ -605,7 +616,7 @@ The playground may use a compact fixture file, but it must not introduce a separ
 - **T6-AC-04** — `/dev/ui` shows quick replies with 2, 3, and 5 chips.
 - **T6-AC-05** — `/dev/ui` shows chat input empty, with text, and focused.
 - **T6-AC-06** — `/dev/ui` shows mic overlay recording, transcribing, and error states.
-- **T6-AC-07** — `/dev/ui` shows drawer/list rows in normal, badge, and dashed states.
+- **T6-AC-07** — `/dev/ui` shows drawer rows in normal and active states.
 
 ### Key Locations
 

@@ -18,7 +18,6 @@ import {
   isAssistantTypingMessage,
 } from "../chat/chat.types";
 import type {
-  AppScreen,
   AssistantTypingMessage,
   ChatMessage,
   ChatStatus,
@@ -34,11 +33,9 @@ const MOCK_COMPOSE_DELAY_MS = 700; // ••• before a prose block lands
 export class MockChatService extends ChatService {
   private readonly messagesState = signal<readonly ChatMessage[]>([]);
   private readonly statusState = signal<ChatStatus>("idle");
-  private readonly currentScreenState = signal<AppScreen>("chat");
 
   readonly messages = this.messagesState.asReadonly();
   readonly status = this.statusState.asReadonly();
-  readonly currentScreen = this.currentScreenState.asReadonly();
 
   /** Aborts the turn currently playing in `respondWith`; null while idle. */
   private inFlight: AbortController | null = null;
@@ -87,10 +84,6 @@ export class MockChatService extends ChatService {
     const userText = this.userTextForQuickReply(label, flow);
     this.appendUserMessage(userText);
     await this.respondWith(flow, userText);
-  }
-
-  navigate(screen: AppScreen): void {
-    this.currentScreenState.set(screen);
   }
 
   cancel(): void {
@@ -294,6 +287,12 @@ export class MockChatService extends ChatService {
 
     if (routePatterns.planning.test(text)) {
       return "planning";
+    }
+
+    // Before `today` — "Was passt heute zu mir?" is the what-fits-me intent
+    // even though it contains "heute".
+    if (routePatterns.nextContext.test(text)) {
+      return "nextContext";
     }
 
     if (routePatterns.today.test(text)) {

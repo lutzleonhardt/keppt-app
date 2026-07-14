@@ -3,6 +3,7 @@
        background leaves the tab order and the accessibility tree. -->
   <keppt-session-header
     [hasMessages]="hasMessages()"
+    (menuPressed)="openDrawer()"
     [attr.inert]="store.micOverlayVisible() ? '' : null"
   />
 

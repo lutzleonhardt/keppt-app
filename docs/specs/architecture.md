@@ -1156,7 +1156,7 @@ class SupabaseFileRepository implements FileRepository {
 
 **Why this matters:**
 - **Dev/dogfooding:** In Phase 1 you test the CLI against your real Obsidian vault. No Supabase setup needed, real data from day 1.
-- **Production:** Switch to Supabase = a new class, no rewrite. DI token in Angular (`provide: FileRepository, useClass: SupabaseFileRepository`).
+- **Production:** Switch the server from `LocalFileRepository` to `SupabaseFileRepository` through server-side DI/configuration; Angular never receives either implementation.
 - **Tests:** An `InMemoryFileRepository` implementation for unit tests — no I/O, deterministic, fast.
 - **Later export:** An `ExportFileRepository` implementation that writes to an Obsidian-compatible filesystem (v2/v3 feature).
 
@@ -1721,6 +1721,7 @@ A deliberately time-bounded step to validate the Supabase integration before it 
 **2a.3: Wire Angular UI to backend**
 
 - Reuse the Angular chat UI from Phase 1b
+- Replace the mock client `VaultRepository` with an `HttpVaultRepository` that calls Express `GET/PUT /api/files/:path`; Angular consumers keep their loading/error/retry state in local Resources, while Express delegates to the configured server `FileRepository` (Local or Supabase)
 - Add Capacitor shell configuration when device testing starts
 - Supabase Auth integration (Apple Sign-In, Google, Email)
 - Chat view uses the existing typed component contract from `docs/specs/angular-chat-ui.md`

@@ -72,13 +72,3 @@ export interface QuickReply {
   label: string;
   action?: string;
 }
-
-export type AppScreen =
-  | "chat"
-  | "inbox"
-  | "focus"
-  | "next"
-  | "waiting"
-  | "someday"
-  | "daily"
-  | "daily-detail";

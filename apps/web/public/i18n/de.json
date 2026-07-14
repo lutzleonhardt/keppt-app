@@ -1,7 +1,7 @@
 {
   "chat": {
     "subtitle": {
-      "session": "Heute · Mittwoch, 6. Mai",
+      "session": "Heute · {{date}}",
       "empty": "Bereit zum Erfassen"
     },
     "empty": {
@@ -65,6 +65,83 @@
         "running": "{{count}} Schritte …",
         "done": "{{count}} Schritte"
       }
+    }
+  },
+  "drawer": {
+    "brand": "Keppt.",
+    "tagline1": "Capture everything.",
+    "tagline2": "Manage nothing.",
+    "ask": {
+      "today": "Was steht heute an?"
+    },
+    "listsLabel": "Listen",
+    "historyLabel": "Verlauf",
+    "items": {
+      "chat": "Chat",
+      "askToday": "Heute fragen",
+      "inbox": "Inbox",
+      "focus": "Fokus",
+      "next": "Nächste Schritte",
+      "waiting": "Warten auf",
+      "someday": "Vielleicht irgendwann",
+      "daily": "Daily Notes"
+    },
+    "user": {
+      "name": "Lutz",
+      "trial": "Trial · noch 11 Tage"
+    },
+    "a11y": {
+      "drawer": "Navigationsmenü",
+      "nav": "Bereiche",
+      "close": "Menü schließen",
+      "settings": "Einstellungen"
+    }
+  },
+  "vault": {
+    "askInChat": "im Chat fragen →",
+    "state": {
+      "loading": "Inhalt wird geladen …",
+      "error": "Inhalt konnte nicht geladen werden.",
+      "retry": "Erneut versuchen",
+      "missing": "Diese Datei wurde nicht gefunden.",
+      "emptyFile": "Diese Datei ist leer.",
+      "emptyDaily": "Noch keine Daily Notes."
+    },
+    "inbox": {
+      "title": "Inbox",
+      "subtitle": "Noch nicht sortiert",
+      "hint": "Alles, was rein wollte. Sag „Räum die Inbox auf“",
+      "ask": "Räum die Inbox auf"
+    },
+    "focus": {
+      "title": "Fokus",
+      "subtitle": "Diese Woche · 3–5 Prioritäten",
+      "hint": "Was wirklich auf dich zählt — der Rest darf warten."
+    },
+    "next": {
+      "title": "Nächste Schritte",
+      "subtitle": "Konkrete nächste Aktionen · gruppiert",
+      "hint": "Hier liegt alles, was du machen könntest. Frag „Was passt jetzt zu mir?“",
+      "ask": "Was passt jetzt zu mir?"
+    },
+    "waiting": {
+      "title": "Warten auf",
+      "subtitle": "Blockiert · liegt nicht bei dir",
+      "hint": "Ich hake nicht von selbst nach — frag mich gern.",
+      "ask": "Worauf warte ich?"
+    },
+    "someday": {
+      "title": "Vielleicht irgendwann",
+      "subtitle": "Ohne Zeitdruck · ohne schlechtes Gewissen",
+      "hint": "Hier landen Ideen. Wir schauen beim Weekly Review gemeinsam drauf."
+    },
+    "daily": {
+      "title": "Daily Notes",
+      "subtitle": "Tagesplan & Protokoll",
+      "today": "Heute"
+    },
+    "a11y": {
+      "back": "Zurück"
     }
   },
   "a11y": {

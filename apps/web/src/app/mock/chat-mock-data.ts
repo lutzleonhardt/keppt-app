@@ -42,6 +42,7 @@ export type MockFlow =
   | "today"
   | "waiting"
   | "inbox"
+  | "nextContext"
   | "acknowledge"
   | "planEntered"
   | "annaPriority"
@@ -80,8 +81,12 @@ export const routePatterns = {
   captureConfirm:
     /(?=[\s\S]*anna wegen angebot)(?=[\s\S]*steuerunterlagen)(?=[\s\S]*(?:youtube|ai apps))/i,
   planning: /4 stunden|plan morgen|plan für morgen|realistisch/i,
-  today: /heute|wichtig|fokus/i,
-  waiting: /warten|waiting|max|db/i,
+  // Before `today`: phrasings like "Was passt heute zu mir?" carry the more
+  // specific what-fits-me intent even though they contain "heute".
+  nextContext:
+    /was passt|passt jetzt|passt gerade|what fits|fits me right now/i,
+  today: /heute|today|wichtig|fokus/i,
+  waiting: /\bwarte(?:n)?\b|waiting|max|db/i,
   inbox: /inbox|aufräumen|sortier/i,
 } as const;
 
@@ -139,7 +144,10 @@ const responses = {
   ],
   captureConfirm: [
     edit("tasks/inbox.md", "Anna & Steuerunterlagen in Inbox abgelegt"),
-    edit("tasks/someday-maybe.md", "YouTube-Idee in Vielleicht/irgendwann abgelegt"),
+    edit(
+      "tasks/someday-maybe.md",
+      "YouTube-Idee in Vielleicht/irgendwann abgelegt",
+    ),
     prose(
       [
         "Keppt. Ich habe drei Dinge mitgenommen:",
@@ -242,6 +250,28 @@ const responses = {
     ),
     chips("So übernehmen", "Anders verteilen", "Später"),
   ],
+  // The "im Chat fragen" hook of the Next-Actions screen ("Was passt jetzt zu
+  // mir?"): suggest by energy/time fit from the real next-actions rows. The
+  // React reference mock had only the generic acknowledge fallback here.
+  nextContext: [
+    read("tasks/next-actions.md"),
+    read("daily/2026-05-06.md"),
+    prose(
+      [
+        "Kommt drauf an, wie viel Raum du gerade hast:",
+        "",
+        "1. **Slides für Workshop drucken.**  ",
+        "   15 Min · schnell erledigt, muss vor Donnerstag.",
+        "2. **Anna wegen Angebot schreiben.**  ",
+        "   ~30 Min · steht heute ohnehin im Fokus.",
+        "3. **AI-Apps-Video gliedern.**  ",
+        "   ~90 Min · nur, wenn du eine ruhige Phase hast.",
+        "",
+        "Soll **Anna** den Anfang machen?",
+      ].join("\n"),
+    ),
+    chips("Ja, Anna zuerst", "Tag planen", "Später"),
+  ],
   acknowledge: acknowledgeTurn(),
   // A genuinely mixed run: gather evidence (read + find), then mutate (write +
   // edit), all consecutive → one group whose header falls back to "N Schritte".
@@ -279,7 +309,10 @@ const responses = {
   later: [prose("Alles gut. Ich frage später nochmal nach.")],
 } satisfies Record<MockFlow, MockTurn>;
 
-export function getMockResponse(flow: MockFlow, capturedText?: string): MockTurn {
+export function getMockResponse(
+  flow: MockFlow,
+  capturedText?: string,
+): MockTurn {
   if (flow === "acknowledge") {
     return acknowledgeTurn(capturedText);
   }
@@ -325,7 +358,10 @@ export function toQuickReplies(labels: readonly string[]): QuickReply[] {
 
 function createQuickReply(label: string): QuickReply {
   return {
-    id: label.toLowerCase().replace(/[^a-z0-9äöüß]+/gi, "-").replace(/^-|-$/g, ""),
+    id: label
+      .toLowerCase()
+      .replace(/[^a-z0-9äöüß]+/gi, "-")
+      .replace(/^-|-$/g, ""),
     label,
   };
 }

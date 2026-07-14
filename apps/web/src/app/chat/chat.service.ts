@@ -1,11 +1,10 @@
 import { computed, type Signal } from "@angular/core";
 
-import type { AppScreen, ChatMessage, ChatStatus } from "./chat.types";
+import type { ChatMessage, ChatStatus } from "./chat.types";
 
 export abstract class ChatService {
   abstract readonly messages: Signal<readonly ChatMessage[]>;
   abstract readonly status: Signal<ChatStatus>;
-  abstract readonly currentScreen: Signal<AppScreen>;
 
   /**
    * A turn is in flight; consumers must not start a new one until it settles.
@@ -28,5 +27,4 @@ export abstract class ChatService {
    * so callers may fire it without first checking `busy()`.
    */
   abstract cancel(): void;
-  abstract navigate(screen: AppScreen): void;
 }

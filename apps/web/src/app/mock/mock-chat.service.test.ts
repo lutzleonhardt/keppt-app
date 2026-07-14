@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import de from "../../../public/i18n/de.json";
+import en from "../../../public/i18n/en.json";
 import { quickReplyPhrases, voiceTranscript } from "./chat-mock-data";
 import { MockChatService } from "./mock-chat.service";
 import { groupMessagesForRender } from "../chat/chat-message-groups";
@@ -117,7 +119,9 @@ describe("MockChatService", () => {
     // read → search boundary: still no flicker, now the search runs.
     await vi.advanceTimersToNextTimerAsync();
     expect(service.messages().some(isAssistantTypingMessage)).toBe(false);
-    expect(runningTools(service.messages())[0]?.tool).toBe("find_task_occurrences");
+    expect(runningTools(service.messages())[0]?.tool).toBe(
+      "find_task_occurrences",
+    );
 
     // search → write boundary (cross-family): still no flicker.
     await vi.advanceTimersToNextTimerAsync();
@@ -169,6 +173,13 @@ describe("MockChatService", () => {
         reply: "So übernehmen",
       },
       {
+        // The Next-Actions screen's ask-in-chat hook; must win over `today`
+        // even when phrased with "heute".
+        text: "Was passt heute zu mir?",
+        marker: "wie viel Raum du gerade hast",
+        reply: "Ja, Anna zuerst",
+      },
+      {
         text: "Brot kaufen",
         marker: "liegt jetzt in deiner Inbox",
         reply: "Was steht heute an?",
@@ -189,6 +200,40 @@ describe("MockChatService", () => {
         ),
       ).toContain(entry.reply);
       expect(service.messages().some(isAssistantTypingMessage)).toBe(false);
+    }
+  });
+
+  it("routes every localized ask-in-chat phrase to its intended flow", async () => {
+    const cases = [
+      { text: de.drawer.ask.today, marker: "## Heute" },
+      { text: de.vault.inbox.ask, marker: "In deiner Inbox liegen aktuell" },
+      {
+        text: de.vault.waiting.ask,
+        marker: "offene Rückmeldungen liegen bei dir",
+      },
+      {
+        text: de.vault.next.ask,
+        marker: "wie viel Raum du gerade hast",
+      },
+      { text: en.drawer.ask.today, marker: "## Heute" },
+      { text: en.vault.inbox.ask, marker: "In deiner Inbox liegen aktuell" },
+      {
+        text: en.vault.waiting.ask,
+        marker: "offene Rückmeldungen liegen bei dir",
+      },
+      {
+        text: en.vault.next.ask,
+        marker: "wie viel Raum du gerade hast",
+      },
+    ];
+
+    for (const entry of cases) {
+      const service = new MockChatService();
+      const pending = service.sendMessage(entry.text);
+
+      await completeResponse(pending);
+
+      expect(lastContent(service.messages()).markdown).toContain(entry.marker);
     }
   });
 
@@ -263,7 +308,8 @@ describe("MockChatService", () => {
 
     expect(
       allTools(service.messages()).some(
-        (tool) => tool.tool === "read_file" && tool.target === "tasks/waiting.md",
+        (tool) =>
+          tool.tool === "read_file" && tool.target === "tasks/waiting.md",
       ),
     ).toBe(true);
 
@@ -292,8 +338,7 @@ describe("MockChatService", () => {
     const first = service.sendMessage("Erste Nachricht");
     expect(service.status()).toBe("thinking");
 
-    const userCount = () =>
-      service.messages().filter(isUserChatMessage).length;
+    const userCount = () => service.messages().filter(isUserChatMessage).length;
     expect(userCount()).toBe(1);
 
     // Second send arrives before the first turn settles → no-op, so the shared
@@ -311,8 +356,7 @@ describe("MockChatService", () => {
   it("ignores a concurrent quick reply on the direct-respondWith path", async () => {
     const service = new MockChatService();
 
-    const userCount = () =>
-      service.messages().filter(isUserChatMessage).length;
+    const userCount = () => service.messages().filter(isUserChatMessage).length;
 
     // planConfirm/annaFirst take the direct appendUserMessage + respondWith path
     // (not the sendMessage delegation), so guard them at that entry point too.
@@ -398,14 +442,6 @@ describe("MockChatService", () => {
     expect(service.status()).toBe("idle");
     expect(service.messages()).toBe(before);
   });
-
-  it("keeps navigation state on the service boundary", () => {
-    const service = new MockChatService();
-
-    service.navigate("waiting");
-
-    expect(service.currentScreen()).toBe("waiting");
-  });
 });
 
 async function completeResponse(pending: Promise<void>): Promise<void> {
@@ -427,7 +463,9 @@ function allTools(messages: readonly ChatMessage[]): AssistantToolMessage[] {
   return messages.filter(isAssistantToolMessage);
 }
 
-function runningTools(messages: readonly ChatMessage[]): AssistantToolMessage[] {
+function runningTools(
+  messages: readonly ChatMessage[],
+): AssistantToolMessage[] {
   return allTools(messages).filter((tool) => tool.state === "running");
 }
 

@@ -8,7 +8,7 @@ import {
 } from "./chat-ui-state";
 import { VoiceCaptureService } from "./voice-capture.service";
 import { isAssistantContentMessage } from "./chat.types";
-import type { AppScreen, ChatMessage, ChatStatus, QuickReply } from "./chat.types";
+import type { ChatMessage, ChatStatus, QuickReply } from "./chat.types";
 
 @Injectable()
 export class ChatStore {
@@ -19,7 +19,6 @@ export class ChatStore {
 
   readonly messages: Signal<readonly ChatMessage[]> = this.chat.messages;
   readonly status: Signal<ChatStatus> = this.chat.status;
-  readonly currentScreen: Signal<AppScreen> = this.chat.currentScreen;
   readonly draft: Signal<string> = this.draftState.asReadonly();
   readonly micState: Signal<MicCaptureState> = this.capture.asReadonly();
   readonly micOverlayVisible: Signal<boolean> = computed(() => isMicOverlayVisible(this.micState()));
@@ -126,10 +125,6 @@ export class ChatStore {
   cancelMicOverlay(): void {
     this.voice.cancelRecording();
     this.capture.set("closed");
-  }
-
-  navigate(screen: AppScreen): void {
-    this.chat.navigate(screen);
   }
 
   private startCapture(): void {

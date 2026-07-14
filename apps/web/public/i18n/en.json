@@ -1,7 +1,7 @@
 {
   "chat": {
     "subtitle": {
-      "session": "Today · Wednesday, May 6",
+      "session": "Today · {{date}}",
       "empty": "Ready to capture"
     },
     "empty": {
@@ -65,6 +65,83 @@
         "running": "{{count}} steps …",
         "done": "{{count}} steps"
       }
+    }
+  },
+  "drawer": {
+    "brand": "Keppt.",
+    "tagline1": "Capture everything.",
+    "tagline2": "Manage nothing.",
+    "ask": {
+      "today": "What's on today?"
+    },
+    "listsLabel": "Lists",
+    "historyLabel": "History",
+    "items": {
+      "chat": "Chat",
+      "askToday": "Ask about today",
+      "inbox": "Inbox",
+      "focus": "Focus",
+      "next": "Next steps",
+      "waiting": "Waiting on",
+      "someday": "Maybe someday",
+      "daily": "Daily Notes"
+    },
+    "user": {
+      "name": "Lutz",
+      "trial": "Trial · 11 days left"
+    },
+    "a11y": {
+      "drawer": "Navigation menu",
+      "nav": "Sections",
+      "close": "Close menu",
+      "settings": "Settings"
+    }
+  },
+  "vault": {
+    "askInChat": "ask in chat →",
+    "state": {
+      "loading": "Loading content …",
+      "error": "Content could not be loaded.",
+      "retry": "Try again",
+      "missing": "This file could not be found.",
+      "emptyFile": "This file is empty.",
+      "emptyDaily": "No Daily Notes yet."
+    },
+    "inbox": {
+      "title": "Inbox",
+      "subtitle": "Not sorted yet",
+      "hint": "Everything that wanted in. Say “Clean up the inbox”",
+      "ask": "Clean up the inbox"
+    },
+    "focus": {
+      "title": "Focus",
+      "subtitle": "This week · 3–5 priorities",
+      "hint": "What really counts for you — the rest can wait."
+    },
+    "next": {
+      "title": "Next steps",
+      "subtitle": "Concrete next actions · grouped",
+      "hint": "Everything you could do lives here. Ask “What fits me right now?”",
+      "ask": "What fits me right now?"
+    },
+    "waiting": {
+      "title": "Waiting on",
+      "subtitle": "Blocked · not on you",
+      "hint": "I won't follow up on my own — feel free to ask.",
+      "ask": "What am I waiting for?"
+    },
+    "someday": {
+      "title": "Maybe someday",
+      "subtitle": "No time pressure · no guilt",
+      "hint": "Ideas land here. We'll look at them together in the weekly review."
+    },
+    "daily": {
+      "title": "Daily Notes",
+      "subtitle": "Day plan & journal",
+      "today": "Today"
+    },
+    "a11y": {
+      "back": "Back"
     }
   },
   "a11y": {

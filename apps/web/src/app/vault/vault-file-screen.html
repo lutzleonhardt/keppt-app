@@ -1,0 +1,39 @@
+<main class="vault-screen" [attr.aria-label]="titleKey() | transloco">
+  <keppt-vault-page-header
+    [title]="titleKey() | transloco"
+    [subtitle]="subtitleKey() | transloco"
+    (menuPressed)="nav.openDrawer()"
+  />
+
+  <p class="screen-hint">
+    {{ hintKey() | transloco }} @if (ask(); as flow) {
+    <button class="ask-link" type="button" (click)="nav.askInChat(flow)">
+      {{ "vault.askInChat" | transloco }}
+    </button>
+    }
+  </p>
+
+  <div class="vault-body">
+    @if (content.status() === "error") {
+    <p class="vault-state" role="alert">
+      {{ "vault.state.error" | transloco }}
+      <button class="vault-state__retry" type="button" (click)="retryContent()">
+        {{ "vault.state.retry" | transloco }}
+      </button>
+    </p>
+    } @else if (!content.hasValue()) {
+    <p class="vault-state" role="status">
+      {{ "vault.state.loading" | transloco }}
+    </p>
+    } @else { @let fileContent = content.value(); @if (fileContent ===
+    null) {
+    <p class="vault-state">{{ "vault.state.missing" | transloco }}</p>
+    } @else if (fileContent === "") {
+    <p class="vault-state">{{ "vault.state.emptyFile" | transloco }}</p>
+    } @else {
+    <div class="vault-markdown">
+      <markdown [data]="fileContent" />
+    </div>
+    } }
+  </div>
+</main>

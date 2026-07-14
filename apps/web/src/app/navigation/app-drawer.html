@@ -1,0 +1,87 @@
+<div
+  class="drawer-backdrop"
+  [class.open]="nav.drawerOpen()"
+  (click)="nav.closeDrawer()"
+  aria-hidden="true"
+></div>
+
+<!-- Stays mounted for the slide transition; while closed it is inert, so it
+     leaves the tab order and the accessibility tree. -->
+<aside
+  #drawerRoot
+  class="drawer"
+  tabindex="-1"
+  [class.open]="nav.drawerOpen()"
+  [attr.inert]="nav.drawerOpen() ? null : ''"
+  [attr.aria-label]="'drawer.a11y.drawer' | transloco"
+>
+  <div class="drawer-top">
+    <div class="drawer-brand">
+      <span class="drawer-date">{{ dateLabel() }}</span>
+      <span class="brand">{{ "drawer.brand" | transloco }}</span>
+      <span class="taglines">
+        <span>{{ "drawer.tagline1" | transloco }}</span>
+        <span>{{ "drawer.tagline2" | transloco }}</span>
+      </span>
+    </div>
+    <button
+      class="round-button"
+      type="button"
+      (click)="nav.closeDrawer()"
+      [attr.aria-label]="'drawer.a11y.close' | transloco"
+    >
+      <svg lucideX size="16" strokeWidth="2" aria-hidden="true"></svg>
+    </button>
+  </div>
+
+  <nav class="drawer-nav" [attr.aria-label]="'drawer.a11y.nav' | transloco">
+    <button
+      class="drawer-item"
+      type="button"
+      [class.active]="nav.currentScreen() === 'chat'"
+      (click)="nav.go('chat')"
+    >
+      <span class="label">{{ "drawer.items.chat" | transloco }}</span>
+    </button>
+    <button class="drawer-item" type="button" (click)="nav.askInChat('today')">
+      <span class="label">{{ "drawer.items.askToday" | transloco }}</span>
+    </button>
+
+    <span class="drawer-section">{{ "drawer.listsLabel" | transloco }}</span>
+    @for (row of listRows; track row.screen) {
+    <button
+      class="drawer-item indent"
+      type="button"
+      [class.active]="nav.currentScreen() === row.screen"
+      (click)="nav.go(row.screen)"
+    >
+      <span class="label">{{ row.labelKey | transloco }}</span>
+    </button>
+    }
+
+    <span class="drawer-section">{{ "drawer.historyLabel" | transloco }}</span>
+    <button
+      class="drawer-item indent"
+      type="button"
+      [class.active]="nav.currentScreen() === 'daily'"
+      (click)="nav.go('daily')"
+    >
+      <span class="label">{{ "drawer.items.daily" | transloco }}</span>
+    </button>
+  </nav>
+
+  <footer class="drawer-footer">
+    <span class="avatar" aria-hidden="true">{{ userInitial() }}</span>
+    <span class="user">
+      <span class="user-name">{{ "drawer.user.name" | transloco }}</span>
+      <span class="user-trial">{{ "drawer.user.trial" | transloco }}</span>
+    </span>
+    <button
+      class="round-button small"
+      type="button"
+      [attr.aria-label]="'drawer.a11y.settings' | transloco"
+    >
+      <svg lucideSettings size="15" strokeWidth="2" aria-hidden="true"></svg>
+    </button>
+  </footer>
+</aside>

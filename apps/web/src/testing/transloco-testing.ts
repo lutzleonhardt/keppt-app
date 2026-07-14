@@ -7,8 +7,9 @@ import en from "../../public/i18n/en.json";
 /**
  * Provides Transloco for component specs with the real catalogs loaded
  * statically — the app's HTTP loader cannot run under test. Specs assert the
- * translated German strings (the default language), i.e. what the user sees,
- * so a missing catalog key fails the test instead of rendering a raw key.
+ * translated strings from the real catalogs (German by default), so a missing
+ * catalog key fails the test instead of rendering a raw key. Runtime language
+ * switching mirrors the production configuration.
  */
 export function provideTranslocoTesting(): EnvironmentProviders {
   return importProvidersFrom(
@@ -18,6 +19,7 @@ export function provideTranslocoTesting(): EnvironmentProviders {
         availableLangs: ["de", "en"],
         defaultLang: "de",
         fallbackLang: "de",
+        reRenderOnLangChange: true,
       },
       preloadLangs: true,
     }),
