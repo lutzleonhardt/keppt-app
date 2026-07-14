@@ -38,6 +38,7 @@ export {
   type ReadFileResult,
   type WriteFileResult,
 } from "./tools.js";
+export { QUICK_REPLY_LABEL_MAX_LENGTH } from "./quick-replies.js";
 export {
   canRead,
   canWrite,

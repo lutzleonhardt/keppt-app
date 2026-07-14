@@ -1341,19 +1341,27 @@ Vitest suite against `InMemoryFileRepository` + a stub clock:
 ```ts
 suggest_quick_replies: tool({
   description:
-    "Propose 2–5 short follow-up answers the user can pick from. Use when the next user step has discrete, anticipatable options (yes/no, choose-one-of-three, accept/decline/defer). Do NOT use as a fallback for open-ended questions.",
+    "Surface 2–5 compact mobile button labels, each at most 40 characters. Put distinguishing words first; omit explanations and follow-up actions.",
   inputSchema: z.object({
-    options: z.array(z.string().min(1).max(60)).min(2).max(5),
+    question: z.string().min(1).max(200),
+    options: z
+      .array(z.preprocess(preprocessQuickReplyLabel, z.string().min(1).max(40)))
+      .min(2)
+      .max(5)
+      .refine((options) => new Set(options).size === options.length),
   }),
-  execute: async ({ options }) => ({ options }),
+  execute: async ({ question, options }) => ({
+    question,
+    options,
+  }),
 });
 ```
 
-The tool has no side effect — `execute` returns its input. Its presence in the `tool-call` stream is the signal to the renderer. (This mirrors how other `tool-call` parts are already consumed by the terminal output layer.) Schema bounds: 2–5 options, each 1–60 chars (long-enough labels stay readable in the numbered CLI rendering; short-enough to fit a future chip button).
+The tool has no side effect. Labels of 41–200 input characters are deterministically hard-clipped to at most 40 characters including `…`; inputs above the 200-character safety envelope and labels that collide after clipping remain invalid. Preprocessing keeps the provider-facing JSON Schema at `maxLength: 40`. The renderer trusts only the successful `tool-result`, never raw `tool-call` input.
 
 **CLI rendering:**
 
-- In `apps/cli/src/turn-loop.ts`'s `consumeStream`, on a `tool-call` for `suggest_quick_replies`, capture the options into `refs.lastQuickReplies: string[] | null`.
+- In `apps/cli/src/turn-loop.ts`'s `consumeStream`, capture the normalized question/options from a successful `tool-result` for `suggest_quick_replies` into `refs.lastQuickReplies: string[] | null`. Ignore invalid raw calls; keep their diagnostics in the CLI log without printing the SDK error to the user.
 - After the stream completes (post `endStream`), `terminal-output.ts` prints a single line:
   ```
   [1] Tag planen   [2] Warten auf zeigen   [3] Erstmal nur erfassen
@@ -1376,14 +1384,14 @@ export interface TurnRefs {
 }
 ```
 
-Initialize to `null` in `main()`. Cleared at the *top* of `handleTurn` after the line has been expanded; assigned in the `tool-call` branch of `consumeStream`. The clear-then-maybe-set ordering means: if turn N proposed chips and turn N+1's LLM did not, the chips are gone for turn N+2.
+Initialize to `null` in `main()`. Cleared at the *top* of `handleTurn` after the line has been expanded; assigned in the successful `tool-result` branch of `consumeStream`. The clear-then-maybe-set ordering means: if turn N proposed chips and turn N+1's LLM did not, the chips are gone for turn N+2.
 
 ### Acceptance
 
 Vitest suite against the `streamText` mock (`MockLanguageModelV4`):
 
-- **T6-AC-01:** Tool schema rejects an `options` array of length 1 with a Zod parse error; rejects length 6; rejects an empty string option; rejects a 61-char option. All paths land as `tool-error` (standard SDK conversion of `execute` throws is not exercised — Zod fails before `execute`).
-- **T6-AC-02:** A streamed `tool-call` for `suggest_quick_replies({ options: ["a","b","c"] })` populates `refs.lastQuickReplies` exactly to `["a","b","c"]`. Terminal output contains `[1] a` `[2] b` `[3] c`.
+- **T6-AC-01:** Tool schema rejects an `options` array of length 1, length 6, empty/whitespace-only labels, labels above the 200-character safety envelope, and labels that collide after clipping. Labels of 41–200 characters are normalized to at most 40; the production provider schema remains `maxLength: 40`.
+- **T6-AC-02:** A successful streamed `tool-result` for `suggest_quick_replies({ question, options: ["a","b","c"] })` populates `refs.lastQuickReplies` exactly to `["a","b","c"]`. Terminal output contains the question plus `[1] a` `[2] b` `[3] c`; invalid calls render no chips.
 - **T6-AC-03:** With `refs.lastQuickReplies = ["Tag planen", "Warten auf zeigen", "Erstmal nur erfassen"]`, REPL line `"2"` expands to `"Warten auf zeigen"` before reaching `handleTurn`. The session's recorded user message is `"Warten auf zeigen"`, not `"2"`.
 - **T6-AC-04:** REPL line `"warten auf zeigen"` (matching option-2 verbatim, free text) is passed through unchanged — no number-expansion path.
 - **T6-AC-05:** REPL line `"4"` with only three options: no expansion (out of range); the string `"4"` reaches `handleTurn` as-is.

@@ -141,6 +141,7 @@ async function makeHarness(): Promise<{
   refs: TurnRefs;
   terminal: CapturedTerminal;
   store: FsSessionStore;
+  cliLogger: MemoryLogger;
 }> {
   const vaultPath = await mkdtemp(path.join(tmpdir(), "keppt-quick-replies-"));
   tempDirs.push(vaultPath);
@@ -169,6 +170,7 @@ async function makeHarness(): Promise<{
     refs,
     terminal,
     store,
+    cliLogger,
   };
 }
 
@@ -202,6 +204,37 @@ describe("quick replies", () => {
         input: { question, options: ["a", "b", "c"] },
       },
     });
+  });
+
+  it("renders and stores the successful normalized result, not overlong call input", async () => {
+    const { deps, refs, terminal } = await makeHarness();
+    const question =
+      "Was meint „Garagenprojekt“ – nur das Lüftungsgitter oder ein größeres Vorhaben?";
+    modelState.model = sequencedMockModel([
+      streamResult(
+        quickReplyChunks(question, [
+          "Nur das Lüftungsgitter – kann in Next Actions, Inbox-Eintrag löschen",
+          "Größeres Projekt – lass uns die Einzelschritte aufdröseln",
+          "Ist was anderes – ich erklär's gleich",
+        ]),
+      ),
+    ]);
+
+    await handleTurn(deps, refs, "weiter", new AbortController());
+
+    const normalized = [
+      "Nur das Lüftungsgitter – kann in Next A…",
+      "Größeres Projekt – lass uns die Einzels…",
+      "Ist was anderes – ich erklär's gleich",
+    ];
+    expect(refs.lastQuickReplies).toEqual(normalized);
+    expect(terminal.events).toContainEqual({
+      kind: "quickReplies",
+      payload: { question, options: normalized },
+    });
+    expect(terminal.events.some((event) => event.kind === "toolError")).toBe(
+      false,
+    );
   });
 
   it("expands a numeric pick before handleTurn records the user message (T6-AC-03)", async () => {
@@ -253,6 +286,21 @@ describe("quick replies", () => {
 
     expect(refs.lastQuickReplies).toBeNull();
     expect(terminal.events.some((e) => e.kind === "quickReplies")).toBe(false);
+    expect(terminal.events.some((e) => e.kind === "toolError")).toBe(false);
+  });
+
+  it("does not render or expose a schema-invalid overlong raw call", async () => {
+    const { deps, refs, terminal, cliLogger } = await makeHarness();
+    modelState.model = sequencedMockModel([
+      streamResult(quickReplyChunks("Was passt?", ["Ja", "x".repeat(201)])),
+    ]);
+
+    await handleTurn(deps, refs, "weiter", new AbortController());
+
+    expect(refs.lastQuickReplies).toBeNull();
+    expect(terminal.events.some((e) => e.kind === "quickReplies")).toBe(false);
+    expect(terminal.events.some((e) => e.kind === "toolError")).toBe(false);
+    expect(cliLogger.byCode("stream.tool_error")).toHaveLength(1);
   });
 
   it("clears stale suggestions when the next model turn does not call the tool (T6-AC-07)", async () => {

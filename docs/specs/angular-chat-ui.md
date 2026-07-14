@@ -275,8 +275,9 @@ export interface UserChatMessage {
 
 // Tool vocabulary mirrors the backend's work tools; the displayed verb + icon
 // are derived client-side from the structured call, not sent by the backend.
-// `suggest_quick_replies` is intentionally NOT a ToolName — the adapter maps it
-// to a content message's quick replies, so it can never become a tool row.
+// `suggest_quick_replies` is intentionally NOT a ToolName — the adapter maps a
+// successful tool result to a content message's normalized quick replies, so an
+// invalid raw call can never become either a chip or a tool row.
 export type ToolName =
   | "read_file"
   | "list_files"
@@ -316,6 +317,7 @@ export interface AssistantContentMessage {
 
 export interface QuickReply {
   id: string;
+  /** Backend-normalized mobile button label; at most 40 characters. */
   label: string;
   action?: string;
 }

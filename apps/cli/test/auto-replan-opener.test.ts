@@ -148,6 +148,7 @@ async function makeHarness(date = "2026-05-20"): Promise<{
   store: FsSessionStore;
   repo: LocalFileRepository;
   vaultPath: string;
+  cliLogger: MemoryLogger;
 }> {
   const vaultPath = await mkdtemp(path.join(tmpdir(), "keppt-auto-replan-"));
   tempDirs.push(vaultPath);
@@ -174,6 +175,7 @@ async function makeHarness(date = "2026-05-20"): Promise<{
     store,
     repo,
     vaultPath,
+    cliLogger,
   };
 }
 
@@ -232,6 +234,36 @@ describe("Auto-Replan opener", () => {
     const saved = await store.loadOrCreate("2026-05-20");
     expect(saved.autoReplanRanFor).toBe("2026-05-20");
     expect(saved.messages[0]).toEqual(refs.session.messages[0]);
+  });
+
+  it("drops and only logs an invalid quick-reply call from the opener", async () => {
+    const { deps, refs, terminal, repo, cliLogger } = await makeHarness();
+    await repo.write(
+      "tasks/next-actions.md",
+      "- [ ] Steuer vorbereiten",
+      "seed",
+    );
+    refs.lastQuickReplies = ["alte Auswahl"];
+    modelState.model = sequencedMockModel([
+      streamResult(
+        quickReplyChunks("Was möchtest du tun?", ["Planen", "x".repeat(201)]),
+      ),
+    ]);
+
+    await runAutoReplanOpener(deps, refs);
+
+    expect(refs.lastQuickReplies).toBeNull();
+    expect(terminal.events.some((event) => event.kind === "quickReplies")).toBe(
+      false,
+    );
+    expect(terminal.events.some((event) => event.kind === "toolError")).toBe(
+      false,
+    );
+    expect(cliLogger.byCode("stream.tool_error")).toHaveLength(1);
+    expect(cliLogger.byCode("stream.tool_error")[0]?.meta).toMatchObject({
+      toolName: "suggest_quick_replies",
+      autoReplan: true,
+    });
   });
 
   it("T9-AC-05: empty context skips banner, stream, messages, and marker", async () => {

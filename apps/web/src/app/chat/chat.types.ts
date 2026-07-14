@@ -69,6 +69,7 @@ export function isAssistantContentMessage(message: ChatMessage): message is Assi
 
 export interface QuickReply {
   id: string;
+  /** Backend-normalized mobile button label; at most 40 characters. */
   label: string;
   action?: string;
 }

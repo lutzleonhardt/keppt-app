@@ -3,6 +3,7 @@ import type {
   LanguageModelV4StreamResult,
 } from "@ai-sdk/provider";
 import {
+  asSchema,
   hasToolCall,
   isStepCount,
   simulateReadableStream,
@@ -21,6 +22,11 @@ import { InMemoryFileRepository } from "../in-memory-file-repository.js";
 import { MemoryLogger, type LogEvent, type Logger } from "../logging.js";
 import type { TaskOccurrenceSearchResult } from "../task-occurrences.js";
 import { buildTools, TASK_FILE_REMINDER } from "../tools.js";
+import {
+  normalizeQuickReplyLabel,
+  QUICK_REPLY_LABEL_INPUT_MAX_LENGTH,
+  QUICK_REPLY_LABEL_MAX_LENGTH,
+} from "../quick-replies.js";
 
 class TrapRepository implements FileRepository {
   reads: string[] = [];
@@ -285,7 +291,21 @@ describe("buildTools — suggest_quick_replies", () => {
       { question: "Was?", options: ["a", "b", "c", "d", "e", "f"] },
     ],
     ["empty option", { question: "Was?", options: ["a", ""] }],
-    ["61-char option", { question: "Was?", options: ["a", "x".repeat(61)] }],
+    ["whitespace option", { question: "Was?", options: ["a", "   "] }],
+    [
+      "over-safety-limit option",
+      {
+        question: "Was?",
+        options: ["a", "x".repeat(QUICK_REPLY_LABEL_INPUT_MAX_LENGTH + 1)],
+      },
+    ],
+    [
+      "colliding normalized options",
+      {
+        question: "Was?",
+        options: [`${"x".repeat(40)}a`, `${"x".repeat(40)}b`],
+      },
+    ],
     ["missing question", { options: ["a", "b"] }],
     ["empty question", { question: "", options: ["a", "b"] }],
     ["201-char question", { question: "x".repeat(201), options: ["a", "b"] }],
@@ -317,13 +337,75 @@ describe("buildTools — suggest_quick_replies", () => {
     ]);
   });
 
+  it("normalizes overlong mobile labels to at most 40 characters", async () => {
+    const { toolErrors, toolResults, modelCalls } = await runQuickReplyCall({
+      question:
+        "Was meint „Garagenprojekt“ – nur das Lüftungsgitter oder ein größeres Vorhaben?",
+      options: [
+        "Nur das Lüftungsgitter – kann in Next Actions, Inbox-Eintrag löschen",
+        "Größeres Projekt – lass uns die Einzelschritte aufdröseln",
+        "Ist was anderes – ich erklär's gleich",
+      ],
+    });
+
+    expect(modelCalls).toBe(1);
+    expect(toolErrors).toEqual([]);
+    expect(toolResults).toEqual([
+      {
+        question:
+          "Was meint „Garagenprojekt“ – nur das Lüftungsgitter oder ein größeres Vorhaben?",
+        options: [
+          "Nur das Lüftungsgitter – kann in Next A…",
+          "Größeres Projekt – lass uns die Einzels…",
+          "Ist was anderes – ich erklär's gleich",
+        ],
+      },
+    ]);
+    const result = toolResults[0] as { options: string[] };
+    expect(result.options.every((option) => option.length <= 40)).toBe(true);
+    expect(
+      result.options.every(
+        (option) => Array.from(option).length <= QUICK_REPLY_LABEL_MAX_LENGTH,
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts and normalizes a label exactly at the safety limit", async () => {
+    const { toolErrors, toolResults } = await runQuickReplyCall({
+      question: "Was?",
+      options: ["a", "x".repeat(QUICK_REPLY_LABEL_INPUT_MAX_LENGTH)],
+    });
+
+    expect(toolErrors).toEqual([]);
+    expect(toolResults).toEqual([
+      {
+        question: "Was?",
+        options: ["a", `${"x".repeat(39)}…`],
+      },
+    ]);
+  });
+
+  it("keeps the production provider schema at maxLength 40", async () => {
+    const tools = buildTools(
+      new InMemoryFileRepository({ now: () => FIXED_NOW }),
+    );
+    const schema = (await asSchema(tools.suggest_quick_replies.inputSchema)
+      .jsonSchema) as {
+      properties?: { options?: { items?: { maxLength?: number } } };
+    };
+
+    expect(schema.properties?.options?.items?.maxLength).toBe(
+      QUICK_REPLY_LABEL_MAX_LENGTH,
+    );
+  });
+
   // 2026-05-21: tool description rewritten around the new `question`
   // requirement. The old "MUST call instead of ending with a bare …"
   // wording is gone because the schema enforces context; what the
   // description still pins is the no-listing-substitute carve-out
   // (gpt-5.4-mini regression: chips on "Was steht morgen an?") and
   // the question-shape contract.
-  it("describes the required question field and listing carve-out", () => {
+  it("describes compact mobile labels, examples, and the listing carve-out", () => {
     const tools = buildTools(
       new InMemoryFileRepository({ now: () => FIXED_NOW }),
     );
@@ -334,7 +416,39 @@ describe("buildTools — suggest_quick_replies", () => {
       "complete sentence naming the choice you offer",
     );
     expect(tools.suggest_quick_replies.description).toContain(
+      "at most 40 characters",
+    );
+    expect(tools.suggest_quick_replies.description).toContain(
+      "mutually distinct",
+    );
+    expect(tools.suggest_quick_replies.description).toContain(
+      'Good labels: "Yes, do it", "Adjust", "Nur Lüftungsgitter", "Größeres Projekt"',
+    );
+    expect(tools.suggest_quick_replies.description).toContain("Bad label:");
+    expect(tools.suggest_quick_replies.description).toContain(
+      "omit explanations or follow-up actions",
+    );
+    expect(tools.suggest_quick_replies.description).toContain(
       'a listing question like "Was steht morgen an?" gets the list in prose, not chips',
+    );
+  });
+});
+
+describe("normalizeQuickReplyLabel", () => {
+  it("keeps 40 characters unchanged and ellipsizes 41", () => {
+    expect(normalizeQuickReplyLabel("x".repeat(40))).toBe("x".repeat(40));
+    expect(normalizeQuickReplyLabel("x".repeat(41))).toBe(`${"x".repeat(39)}…`);
+  });
+
+  it("trims and collapses whitespace before measuring", () => {
+    expect(normalizeQuickReplyLabel("  Yes,   do it\nnow  ")).toBe(
+      "Yes, do it now",
+    );
+  });
+
+  it("does not split a surrogate pair at the truncation boundary", () => {
+    expect(normalizeQuickReplyLabel(`${"a".repeat(37)}🙂tail`)).toBe(
+      `${"a".repeat(37)}🙂…`,
     );
   });
 });

@@ -172,7 +172,14 @@ describe("buildSystemPrompt", () => {
 
     expect(prompt).toContain("`suggest_quick_replies` is for 2-5");
     expect(prompt).toContain("complete sentence naming the choice");
-    expect(prompt).toContain("never use chips for open-ended questions");
+    expect(prompt).toContain("compact mobile button labels");
+    expect(prompt).toContain("at most 40 characters");
+    expect(prompt).toContain("mutually distinct");
+    expect(prompt).toContain(
+      'Good: "Yes, do it", "Adjust", "Nur Lüftungsgitter", "Größeres Projekt"',
+    );
+    expect(prompt).toContain("no explanation or follow-up action");
+    expect(prompt).toContain("Never use chips for open-ended questions");
     expect(prompt).toContain("speech-to-text");
     expect(prompt).toContain("homophones");
     expect(prompt).toContain('"stimmt das?"');

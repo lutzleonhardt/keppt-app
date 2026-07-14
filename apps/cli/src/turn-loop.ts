@@ -25,6 +25,7 @@ import {
   formatToday,
   type LocalFileRepository,
   type Logger,
+  type QuickRepliesResult,
   type Session,
 } from "@gtd/core";
 import { FsSessionStore } from "./fs-session-store.js";
@@ -87,7 +88,9 @@ export function readTurnClock(): Date {
   return parsed;
 }
 
-type StreamHandle = ReturnType<typeof streamText>;
+type StreamHandle = ReturnType<
+  typeof streamText<ReturnType<typeof buildTools>>
+>;
 
 export async function handleTurn(
   deps: TurnDeps,
@@ -342,30 +345,42 @@ async function consumeStream(
   deps: TurnDeps,
   refs: TurnRefs,
 ): Promise<{
-  quickReplyPayload: { question: string; options: string[] } | null;
+  quickReplyPayload: QuickRepliesResult | null;
 }> {
-  // The `quickReplyPayload` carries the parsed { question, options } shape
-  // captured during the stream so handleTurn can render both in one
-  // terminal call. `refs.lastQuickReplies` keeps just the options array
-  // for cross-turn numeric expansion (next user turn picks "2" → resolved
-  // against options); the question is single-turn UI and does not need
-  // to persist.
-  let quickReplyPayload: { question: string; options: string[] } | null = null;
+  // Capture quick replies only from the successful tool result. The AI SDK
+  // also emits an `invalid: true` tool-call before a validation tool-error;
+  // accepting raw call input here would render and persist rejected labels.
+  // `refs.lastQuickReplies` keeps just the normalized options for cross-turn
+  // numeric expansion; the question is single-turn UI and does not persist.
+  let quickReplyPayload: QuickRepliesResult | null = null;
   for await (const part of result.fullStream) {
     switch (part.type) {
       case "text-delta":
         deps.terminal.assistantText(part.text);
         break;
       case "tool-call":
-        if (part.toolName === "suggest_quick_replies") {
-          quickReplyPayload = quickReplyPayloadFromInput(part.input);
-          refs.lastQuickReplies = quickReplyPayload?.options ?? null;
-        } else {
+        if (part.toolName !== "suggest_quick_replies") {
           deps.terminal.toolStatus(part.toolName, part.input);
         }
         break;
+      case "tool-result":
+        // Static results come from our validated local tool execution. Exclude
+        // the SDK's dynamic-tool variant so `output` stays concretely typed.
+        if (
+          part.dynamic !== true &&
+          part.toolName === "suggest_quick_replies"
+        ) {
+          quickReplyPayload = part.output;
+          refs.lastQuickReplies = part.output.options;
+        }
+        break;
       case "tool-error":
-        deps.terminal.toolError(part.toolName, part.error);
+        if (part.toolName === "suggest_quick_replies") {
+          quickReplyPayload = null;
+          refs.lastQuickReplies = null;
+        } else {
+          deps.terminal.toolError(part.toolName, part.error);
+        }
         deps.cliLogger.warn({
           message: `tool ${part.toolName} returned an error`,
           code: "stream.tool_error",
@@ -378,19 +393,6 @@ async function consumeStream(
     }
   }
   return { quickReplyPayload };
-}
-
-function quickReplyPayloadFromInput(
-  input: unknown,
-): { question: string; options: string[] } | null {
-  if (!input || typeof input !== "object") return null;
-  const obj = input as Record<string, unknown>;
-  const question = obj.question;
-  const options = obj.options;
-  if (typeof question !== "string" || question.length === 0) return null;
-  if (!Array.isArray(options)) return null;
-  if (!options.every((option) => typeof option === "string")) return null;
-  return { question, options: options.slice() };
 }
 
 // Phase 2 of the two-phase save: response messages join the session only

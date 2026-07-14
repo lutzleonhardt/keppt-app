@@ -7,6 +7,7 @@ import {
   formatToday,
   gatherAutoReplanContext,
   type AutoReplanContext,
+  type QuickRepliesResult,
 } from "@gtd/core";
 import type { TurnDeps, TurnRefs } from "./turn-loop.js";
 import { MODEL_ID, model, providerOptions } from "./model-provider.js";
@@ -19,7 +20,9 @@ const MAX_STEPS = 10;
 const AUTO_REPLAN_BANNER =
   "[Auto-Replan] Tagesstart-Check über letzte 5 Dailies + Next-Actions/Waiting…";
 
-type StreamHandle = ReturnType<typeof streamText>;
+type StreamHandle = ReturnType<
+  typeof streamText<ReturnType<typeof buildTools>>
+>;
 
 export async function maybeRunAutoReplanOpener(
   deps: TurnDeps,
@@ -173,24 +176,35 @@ async function consumeAutoReplanStream(
   deps: TurnDeps,
   refs: TurnRefs,
 ): Promise<{
-  quickReplyPayload: { question: string; options: string[] } | null;
+  quickReplyPayload: QuickRepliesResult | null;
 }> {
-  let quickReplyPayload: { question: string; options: string[] } | null = null;
+  let quickReplyPayload: QuickRepliesResult | null = null;
   for await (const part of result.fullStream) {
     switch (part.type) {
       case "text-delta":
         deps.terminal.assistantText(part.text);
         break;
       case "tool-call":
-        if (part.toolName === "suggest_quick_replies") {
-          quickReplyPayload = quickReplyPayloadFromInput(part.input);
-          refs.lastQuickReplies = quickReplyPayload?.options ?? null;
-        } else {
+        if (part.toolName !== "suggest_quick_replies") {
           deps.terminal.toolStatus(part.toolName, part.input);
         }
         break;
+      case "tool-result":
+        if (
+          part.dynamic !== true &&
+          part.toolName === "suggest_quick_replies"
+        ) {
+          quickReplyPayload = part.output;
+          refs.lastQuickReplies = part.output.options;
+        }
+        break;
       case "tool-error":
-        deps.terminal.toolError(part.toolName, part.error);
+        if (part.toolName === "suggest_quick_replies") {
+          quickReplyPayload = null;
+          refs.lastQuickReplies = null;
+        } else {
+          deps.terminal.toolError(part.toolName, part.error);
+        }
         deps.cliLogger.warn({
           message: `tool ${part.toolName} returned an error`,
           code: "stream.tool_error",
@@ -203,19 +217,6 @@ async function consumeAutoReplanStream(
     }
   }
   return { quickReplyPayload };
-}
-
-function quickReplyPayloadFromInput(
-  input: unknown,
-): { question: string; options: string[] } | null {
-  if (!input || typeof input !== "object") return null;
-  const obj = input as Record<string, unknown>;
-  const question = obj.question;
-  const options = obj.options;
-  if (typeof question !== "string" || question.length === 0) return null;
-  if (!Array.isArray(options)) return null;
-  if (!options.every((option) => typeof option === "string")) return null;
-  return { question, options: options.slice() };
 }
 
 async function persistAutoReplanTurn(

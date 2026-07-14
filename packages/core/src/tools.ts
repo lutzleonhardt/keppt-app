@@ -16,6 +16,10 @@ import { type Logger, NoopLogger, safeLog } from "./logging.js";
 import { formatToday } from "./search.js";
 import { findTaskOccurrences } from "./task-occurrences.js";
 import type { SearchResult } from "./file-repository.js";
+import {
+  preprocessQuickReplyLabel,
+  QUICK_REPLY_LABEL_MAX_LENGTH,
+} from "./quick-replies.js";
 
 const filePathSchema = z.string();
 const changeSummarySchema = z.string();
@@ -360,7 +364,7 @@ export interface BuildToolsOptions {
 export function buildTools(
   repo: FileRepository,
   options: BuildToolsOptions = {},
-): ToolSet {
+) {
   const now = options.now ?? (() => new Date());
   // safeLog enforces the Logger contract's non-throwing requirement at
   // the seam: even if an external adapter (Pino transport, network sink,
@@ -384,6 +388,9 @@ export function buildTools(
   // offset/limit, à la Claude Code grep/head/tail but as first-class tools).
   // Natural execution slot is Task 6 hardening or earlier if a trigger fires.
   // Do not speculatively add a cap here — the spec is the source of truth.
+  // `satisfies` checks the tool-map contract without erasing concrete tool
+  // names and output types. A `: ToolSet` return annotation would turn typed
+  // stream results back into generic/unknown outputs in downstream consumers.
   return {
     read_file: tool({
       description:
@@ -468,15 +475,36 @@ export function buildTools(
     }),
     suggest_quick_replies: tool({
       description:
-        'Terminal UI tool: surface 2–5 short follow-up answers under a question. The `question` field is REQUIRED and renders as the prose line above the chips — it must be a complete sentence naming the choice you offer (e.g. "Soll ich Rasen morgen auch in Focus aufnehmen?"), not a label or topic noun. Use only when the user\'s next step has discrete, anticipatable options (yes/no, choose-one-of-three, accept/decline/defer). Do NOT use for open-ended questions, and NEVER as a substitute for an informational answer the user asked for: a listing question like "Was steht morgen an?" gets the list in prose, not chips.',
+        'Mobile UI tool: surface 2–5 compact button labels under a question. The `question` field is REQUIRED and renders as the prose line above the chips — it must be a complete sentence naming the choice you offer (e.g. "Soll ich Rasen morgen auch in Focus aufnehmen?"), not a label or topic noun. Every option MUST be at most 40 characters, mutually distinct, use one short phrase, put the distinguishing words first, and omit explanations or follow-up actions. Good labels: "Yes, do it", "Adjust", "Nur Lüftungsgitter", "Größeres Projekt". Bad label: "Nur das Lüftungsgitter – in Next Actions eintragen und den Inbox-Eintrag löschen". Use only when the user\'s next step has discrete, anticipatable options (yes/no, choose-one-of-three, accept/decline/defer). Do NOT use for open-ended questions, and NEVER as a substitute for an informational answer the user asked for: a listing question like "Was steht morgen an?" gets the list in prose, not chips.',
       inputSchema: z.object({
         question: z.string().min(1).max(200),
-        options: z.array(z.string().min(1).max(60)).min(2).max(5),
+        // Labels with 41–200 characters are clipped to at most 40 characters.
+        // If clipping makes two options identical, the entire tool call is
+        // rejected as invalid and no quick replies are rendered.
+        options: z
+          .array(
+            z.preprocess(
+              preprocessQuickReplyLabel,
+              z
+                .string()
+                .min(1)
+                .max(QUICK_REPLY_LABEL_MAX_LENGTH)
+                .describe(
+                  "Compact, distinct mobile button label; at most 40 characters. Put the distinguishing words first and omit explanations or follow-up actions.",
+                ),
+            ),
+          )
+          .min(2)
+          .max(5)
+          .refine(
+            (options) => new Set(options).size === options.length,
+            "Quick reply labels must remain distinct after normalization.",
+          ),
       }),
       execute: async ({ question, options }): Promise<QuickRepliesResult> => ({
         question,
         options,
       }),
     }),
-  };
+  } satisfies ToolSet;
 }

@@ -8,11 +8,11 @@ import type {
 
 /**
  * A mock turn is an ordered block list in generation order — the same shape the
- * real ChatService adapter will produce from the backend tool-call stream. A
+ * real ChatService adapter will produce from the backend stream. A
  * `tool` block is one structured tool call; `prose` is assistant text; `chips`
- * stands in for `suggest_quick_replies` (always last, at most once). The mock
- * never represents `suggest_quick_replies` as a tool block, so it can never leak
- * into a tool row — exactly the adapter contract for the real service.
+ * stands in for a successful normalized `suggest_quick_replies` result (always
+ * last, at most once). The mock never represents a raw quick-reply call as a
+ * tool block, so invalid calls cannot leak into chips or tool rows.
  */
 export interface MockToolBlock {
   readonly kind: "tool";
