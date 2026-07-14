@@ -1,0 +1,156 @@
+{
+  "chat": {
+    "subtitle": {
+      "session": "Today · {{date}}",
+      "empty": "Ready to capture"
+    },
+    "empty": {
+      "title": "What's on\nyour mind?",
+      "hint": "Tap the microphone — or just type."
+    }
+  },
+  "mic": {
+    "title": "Capture",
+    "status": {
+      "recording": "Listening …",
+      "transcribing": "Processing …",
+      "error": "Didn't hear anything",
+      "ready": "Ready"
+    },
+    "prompt": {
+      "recording": "Just start talking. I'll write it down.",
+      "transcribing": "One moment — I'm writing it down.",
+      "error": "I didn't understand that. Try again."
+    },
+    "hint": {
+      "recording": "Tap ✓ when you're done",
+      "transcribing": "Working on it …"
+    },
+    "a11y": {
+      "cancel": "Cancel",
+      "confirm": "Use recording",
+      "retry": "Record again"
+    }
+  },
+  "composer": {
+    "placeholder": "Ask Keppt …",
+    "a11y": {
+      "region": "Compose message",
+      "message": "Message",
+      "mic": "Open voice input",
+      "send": "Send message",
+      "stop": "Stop response"
+    }
+  },
+  "tools": {
+    "line": {
+      "plain": "{{value}}",
+      "allFiles": "all files",
+      "query": "“{{query}}”"
+    },
+    "group": {
+      "read": {
+        "running": "Reading {{count}} files …",
+        "done": "{{count}} files read"
+      },
+      "search": {
+        "running": "Searching ({{count}}) …",
+        "done": "{{count}} searches"
+      },
+      "write": {
+        "running": "Writing {{count}} changes …",
+        "done": "{{count}} changes"
+      },
+      "mixed": {
+        "running": "{{count}} steps …",
+        "done": "{{count}} steps"
+      }
+    }
+  },
+  "drawer": {
+    "brand": "Keppt.",
+    "tagline1": "Capture everything.",
+    "tagline2": "Manage nothing.",
+    "ask": {
+      "today": "What's on today?"
+    },
+    "listsLabel": "Lists",
+    "historyLabel": "History",
+    "items": {
+      "chat": "Chat",
+      "askToday": "Ask about today",
+      "inbox": "Inbox",
+      "focus": "Focus",
+      "next": "Next steps",
+      "waiting": "Waiting on",
+      "someday": "Maybe someday",
+      "daily": "Daily Notes"
+    },
+    "user": {
+      "name": "Lutz",
+      "trial": "Trial · 11 days left"
+    },
+    "a11y": {
+      "drawer": "Navigation menu",
+      "nav": "Sections",
+      "close": "Close menu",
+      "settings": "Settings"
+    }
+  },
+  "vault": {
+    "askInChat": "ask in chat →",
+    "state": {
+      "loading": "Loading content …",
+      "error": "Content could not be loaded.",
+      "retry": "Try again",
+      "missing": "This file could not be found.",
+      "emptyFile": "This file is empty.",
+      "emptyDaily": "No Daily Notes yet."
+    },
+    "inbox": {
+      "title": "Inbox",
+      "subtitle": "Not sorted yet",
+      "hint": "Everything that wanted in. Say “Clean up the inbox”",
+      "ask": "Clean up the inbox"
+    },
+    "focus": {
+      "title": "Focus",
+      "subtitle": "This week · 3–5 priorities",
+      "hint": "What really counts for you — the rest can wait."
+    },
+    "next": {
+      "title": "Next steps",
+      "subtitle": "Concrete next actions · grouped",
+      "hint": "Everything you could do lives here. Ask “What fits me right now?”",
+      "ask": "What fits me right now?"
+    },
+    "waiting": {
+      "title": "Waiting on",
+      "subtitle": "Blocked · not on you",
+      "hint": "I won't follow up on my own — feel free to ask.",
+      "ask": "What am I waiting for?"
+    },
+    "someday": {
+      "title": "Maybe someday",
+      "subtitle": "No time pressure · no guilt",
+      "hint": "Ideas land here. We'll look at them together in the weekly review."
+    },
+    "daily": {
+      "title": "Daily Notes",
+      "subtitle": "Day plan & journal",
+      "today": "Today"
+    },
+    "a11y": {
+      "back": "Back"
+    }
+  },
+  "a11y": {
+    "chatScreen": "Keppt chat",
+    "conversation": "Conversation",
+    "quickReplies": "Quick replies",
+    "menu": "Open menu",
+    "moreOptions": "More options",
+    "toolSteps": "Steps performed",
+    "toolRunning": "{{label}} – running"
+  }
+}

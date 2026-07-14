@@ -1,0 +1,196 @@
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(26, 24, 20, 0.32);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+.drawer-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(312px, 86vw);
+  z-index: 110;
+  display: flex;
+  flex-direction: column;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 44px);
+  background: var(--keppt-paper);
+  transform: translateX(-100%);
+  transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.drawer.open {
+  transform: translateX(0);
+  box-shadow: 0 30px 60px -10px rgba(26, 24, 20, 0.18);
+}
+
+/* Focus lands here programmatically on open; no ring on the container itself. */
+.drawer:focus {
+  outline: none;
+}
+
+.drawer-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 6px 18px 0;
+}
+
+.drawer-brand {
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-date {
+  color: var(--keppt-ink-3);
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.brand {
+  margin-top: 2px;
+  color: var(--keppt-ink);
+  font-family: var(--keppt-font-serif);
+  font-style: italic;
+  font-size: 38px;
+  letter-spacing: -0.7px;
+  line-height: 1;
+}
+
+.taglines {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  color: var(--keppt-ink-2);
+  font-size: 13px;
+  letter-spacing: -0.05px;
+  line-height: 1.4;
+}
+
+.round-button {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--keppt-ink-4);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--keppt-ink);
+  cursor: pointer;
+}
+
+.round-button:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.round-button.small {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+}
+
+.drawer-nav {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 18px 12px 8px;
+  overflow-y: auto;
+}
+
+.drawer-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px 12px 14px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--keppt-ink);
+  font-family: inherit;
+  font-size: 15px;
+  letter-spacing: -0.1px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.drawer-item.indent {
+  padding-left: 32px;
+}
+
+.drawer-item.active {
+  background: var(--keppt-paper-alt);
+}
+
+@media (hover: hover) {
+  .drawer-item:not(.active):hover {
+    background: var(--keppt-paper-2);
+  }
+}
+
+.drawer-item .label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-section {
+  padding: 14px 16px 6px;
+  color: var(--keppt-ink-3);
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.drawer-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px calc(env(safe-area-inset-bottom, 0px) + 26px);
+  border-top: 1px solid var(--keppt-hairline);
+}
+
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--keppt-paper-alt);
+  color: var(--keppt-ink);
+  font-family: var(--keppt-font-serif);
+  font-style: italic;
+  font-size: 15px;
+}
+
+.user {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.user-name {
+  color: var(--keppt-ink);
+  font-size: 13.5px;
+}
+
+.user-trial {
+  color: var(--keppt-ink-3);
+  font-size: 11.5px;
+}

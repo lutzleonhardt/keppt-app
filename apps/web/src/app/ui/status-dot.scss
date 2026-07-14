@@ -1,0 +1,9 @@
+:host {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--keppt-accent);
+  box-shadow: 0 0 0 4px var(--keppt-accent-soft);
+  vertical-align: middle;
+}

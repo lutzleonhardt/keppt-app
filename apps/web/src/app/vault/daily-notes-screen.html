@@ -1,0 +1,51 @@
+<main class="vault-screen" [attr.aria-label]="'vault.daily.title' | transloco">
+  <keppt-vault-page-header
+    [title]="'vault.daily.title' | transloco"
+    [subtitle]="'vault.daily.subtitle' | transloco"
+    (menuPressed)="nav.openDrawer()"
+  />
+
+  <div class="day-list">
+    @if (days.status() === "error") {
+    <p class="vault-state" role="alert">
+      {{ "vault.state.error" | transloco }}
+      <button
+        class="vault-state__retry"
+        type="button"
+        (click)="retryDailyIndex()"
+      >
+        {{ "vault.state.retry" | transloco }}
+      </button>
+    </p>
+    } @else if (!days.hasValue()) {
+    <p class="vault-state" role="status">
+      {{ "vault.state.loading" | transloco }}
+    </p>
+    } @else if (days.value().length === 0) {
+    <p class="vault-state">{{ "vault.state.emptyDaily" | transloco }}</p>
+    } @else { @for (day of dayCards(); track day.date) {
+    <button
+      class="day-card"
+      type="button"
+      [class.today]="day.isToday"
+      (click)="nav.openDailyNote(day.date)"
+    >
+      <span class="day-text">
+        <span class="day-meta">
+          <span class="day-weekday">{{ day.weekdayLabel }}</span>
+          @if (day.isToday) {
+          <span class="today-badge">{{ "vault.daily.today" | transloco }}</span>
+          }
+        </span>
+        <span class="day-date">{{ day.dateLabel }}</span>
+      </span>
+      <svg
+        lucideChevronRight
+        size="16"
+        strokeWidth="2"
+        aria-hidden="true"
+      ></svg>
+    </button>
+    } }
+  </div>
+</main>

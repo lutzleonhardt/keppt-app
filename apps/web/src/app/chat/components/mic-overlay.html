@@ -1,0 +1,94 @@
+<section
+  #overlayRoot
+  class="mic-overlay keppt-fade"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="mic-overlay-title"
+  tabindex="-1"
+>
+  <header class="overlay-header">
+    <span class="icon-spacer" aria-hidden="true"></span>
+
+    <div class="overlay-title">
+      <keppt-monogram [size]="22" />
+      <div class="title-stack">
+        <span id="mic-overlay-title" class="heading">{{ "mic.title" | transloco }}</span>
+        <span class="status">
+          <keppt-status-dot />
+          <span>{{ status() }}</span>
+        </span>
+      </div>
+    </div>
+
+    <span class="icon-spacer" aria-hidden="true"></span>
+  </header>
+
+  <div class="capture-stage">
+    <p class="prompt">{{ prompt() }}</p>
+
+    <div class="mic-visual" aria-hidden="true">
+      <span
+        class="halo halo-outer"
+        [class.keppt-pulse-1]="recording()"
+      ></span>
+      <span
+        class="halo halo-inner"
+        [class.keppt-pulse-2]="recording()"
+      ></span>
+      <span class="core" [class.listening]="recording()">
+        @if (recording()) {
+          <span class="waveform">
+            @for (bar of waveformBars; track $index) {
+              <span
+                class="bar"
+                [style.height.px]="bar"
+                [style.animation-delay.s]="$index * 0.09"
+              ></span>
+            }
+          </span>
+        } @else if (transcribing()) {
+          <span class="spinner"></span>
+        } @else {
+          <svg lucideMic size="28" strokeWidth="2"></svg>
+        }
+      </span>
+    </div>
+
+    <span class="hint">
+      @if (hintKey(); as key) {
+        {{ key | transloco }}
+      }
+    </span>
+  </div>
+
+  <div class="overlay-actions">
+    <button
+      class="capture-button cancel"
+      type="button"
+      [attr.aria-label]="'mic.a11y.cancel' | transloco"
+      (click)="cancel.emit()"
+    >
+      <svg lucideX size="20" strokeWidth="2" aria-hidden="true"></svg>
+    </button>
+
+    @if (recording()) {
+      <button
+        class="capture-button confirm"
+        type="button"
+        [attr.aria-label]="'mic.a11y.confirm' | transloco"
+        (click)="stop.emit()"
+      >
+        <svg lucideCheck size="22" strokeWidth="2.4" aria-hidden="true"></svg>
+      </button>
+    } @else if (errored()) {
+      <button
+        class="capture-button confirm retry"
+        type="button"
+        [attr.aria-label]="'mic.a11y.retry' | transloco"
+        (click)="retry.emit()"
+      >
+        <svg lucideMic size="20" strokeWidth="2" aria-hidden="true"></svg>
+      </button>
+    }
+  </div>
+</section>

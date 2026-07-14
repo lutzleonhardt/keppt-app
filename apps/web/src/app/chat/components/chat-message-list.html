@@ -1,0 +1,23 @@
+<section
+  #scrollViewport
+  class="conversation"
+  [attr.aria-label]="'a11y.conversation' | transloco"
+  (scroll)="updateScrollAnchor()"
+>
+  @if (messages().length === 0) {
+    <div class="empty-chat">
+      <p class="empty-title">{{ "chat.empty.title" | transloco }}</p>
+      <span class="empty-hint">{{ "chat.empty.hint" | transloco }}</span>
+    </div>
+  } @else {
+    <div class="message-stack">
+      @for (item of renderItems(); track item.id) {
+        @if (item.kind === "tool-group") {
+          <keppt-tool-group [tools]="item.tools" />
+        } @else {
+          <keppt-chat-message [message]="item.message" />
+        }
+      }
+    </div>
+  }
+</section>

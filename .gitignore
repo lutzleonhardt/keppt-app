@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.angular/
 coverage/
 *.log
 .DS_Store
@@ -12,8 +13,4 @@ coverage/
 # keppt-app internal state (audit trail, session state).
 # Guard against dogfooding the CLI against the repo root.
 .keppt/
-/.idea/.gitignore
-/.idea/GTD-Companion.iml
-/.idea/modules.xml
-/.idea/vcs.xml
-/.idea/git_toolbox_prj.xml
+.idea/

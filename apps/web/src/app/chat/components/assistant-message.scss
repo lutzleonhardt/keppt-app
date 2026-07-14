@@ -1,0 +1,18 @@
+:host {
+  display: contents;
+}
+
+.assistant-message {
+  display: grid;
+  justify-self: start;
+  gap: 10px;
+  max-width: min(90%, 600px);
+  color: var(--keppt-ink);
+  line-height: 1.44;
+}
+
+@media (max-width: 420px) {
+  .assistant-message {
+    max-width: 94%;
+  }
+}

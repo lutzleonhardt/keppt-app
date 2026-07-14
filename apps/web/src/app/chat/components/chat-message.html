@@ -1,0 +1,11 @@
+@if (userMessage(); as message) {
+  <keppt-user-message [message]="message" />
+} @else if (typingMessage()) {
+  <article class="message typing-message" aria-label="Keppt denkt nach">
+    <span aria-hidden="true"></span>
+    <span aria-hidden="true"></span>
+    <span aria-hidden="true"></span>
+  </article>
+} @else if (contentMessage(); as message) {
+  <keppt-assistant-message [message]="message" />
+}

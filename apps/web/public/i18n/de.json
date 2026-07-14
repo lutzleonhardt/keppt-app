@@ -1,0 +1,156 @@
+{
+  "chat": {
+    "subtitle": {
+      "session": "Heute · {{date}}",
+      "empty": "Bereit zum Erfassen"
+    },
+    "empty": {
+      "title": "Was liegt dir\nim Kopf?",
+      "hint": "Tippe auf das Mikrofon — oder schreib einfach."
+    }
+  },
+  "mic": {
+    "title": "Erfassen",
+    "status": {
+      "recording": "Höre zu …",
+      "transcribing": "Verarbeite …",
+      "error": "Nichts gehört",
+      "ready": "Bereit"
+    },
+    "prompt": {
+      "recording": "Sprich einfach drauflos. Ich schreibe mit.",
+      "transcribing": "Einen Moment — ich schreibe es auf.",
+      "error": "Ich habe nichts verstanden. Probier es nochmal."
+    },
+    "hint": {
+      "recording": "Tippe ✓, wenn du fertig bist",
+      "transcribing": "Wird verarbeitet …"
+    },
+    "a11y": {
+      "cancel": "Abbrechen",
+      "confirm": "Aufnahme übernehmen",
+      "retry": "Erneut aufnehmen"
+    }
+  },
+  "composer": {
+    "placeholder": "Frag Keppt …",
+    "a11y": {
+      "region": "Nachricht verfassen",
+      "message": "Nachricht",
+      "mic": "Spracheingabe öffnen",
+      "send": "Nachricht senden",
+      "stop": "Antwort abbrechen"
+    }
+  },
+  "tools": {
+    "line": {
+      "plain": "{{value}}",
+      "allFiles": "alle Dateien",
+      "query": "„{{query}}“"
+    },
+    "group": {
+      "read": {
+        "running": "Liest {{count}} Dateien …",
+        "done": "{{count}} Dateien gelesen"
+      },
+      "search": {
+        "running": "Sucht ({{count}}) …",
+        "done": "{{count}} Suchen"
+      },
+      "write": {
+        "running": "Schreibt {{count}} Änderungen …",
+        "done": "{{count}} Änderungen"
+      },
+      "mixed": {
+        "running": "{{count}} Schritte …",
+        "done": "{{count}} Schritte"
+      }
+    }
+  },
+  "drawer": {
+    "brand": "Keppt.",
+    "tagline1": "Capture everything.",
+    "tagline2": "Manage nothing.",
+    "ask": {
+      "today": "Was steht heute an?"
+    },
+    "listsLabel": "Listen",
+    "historyLabel": "Verlauf",
+    "items": {
+      "chat": "Chat",
+      "askToday": "Heute fragen",
+      "inbox": "Inbox",
+      "focus": "Fokus",
+      "next": "Nächste Schritte",
+      "waiting": "Warten auf",
+      "someday": "Vielleicht irgendwann",
+      "daily": "Daily Notes"
+    },
+    "user": {
+      "name": "Lutz",
+      "trial": "Trial · noch 11 Tage"
+    },
+    "a11y": {
+      "drawer": "Navigationsmenü",
+      "nav": "Bereiche",
+      "close": "Menü schließen",
+      "settings": "Einstellungen"
+    }
+  },
+  "vault": {
+    "askInChat": "im Chat fragen →",
+    "state": {
+      "loading": "Inhalt wird geladen …",
+      "error": "Inhalt konnte nicht geladen werden.",
+      "retry": "Erneut versuchen",
+      "missing": "Diese Datei wurde nicht gefunden.",
+      "emptyFile": "Diese Datei ist leer.",
+      "emptyDaily": "Noch keine Daily Notes."
+    },
+    "inbox": {
+      "title": "Inbox",
+      "subtitle": "Noch nicht sortiert",
+      "hint": "Alles, was rein wollte. Sag „Räum die Inbox auf“",
+      "ask": "Räum die Inbox auf"
+    },
+    "focus": {
+      "title": "Fokus",
+      "subtitle": "Diese Woche · 3–5 Prioritäten",
+      "hint": "Was wirklich auf dich zählt — der Rest darf warten."
+    },
+    "next": {
+      "title": "Nächste Schritte",
+      "subtitle": "Konkrete nächste Aktionen · gruppiert",
+      "hint": "Hier liegt alles, was du machen könntest. Frag „Was passt jetzt zu mir?“",
+      "ask": "Was passt jetzt zu mir?"
+    },
+    "waiting": {
+      "title": "Warten auf",
+      "subtitle": "Blockiert · liegt nicht bei dir",
+      "hint": "Ich hake nicht von selbst nach — frag mich gern.",
+      "ask": "Worauf warte ich?"
+    },
+    "someday": {
+      "title": "Vielleicht irgendwann",
+      "subtitle": "Ohne Zeitdruck · ohne schlechtes Gewissen",
+      "hint": "Hier landen Ideen. Wir schauen beim Weekly Review gemeinsam drauf."
+    },
+    "daily": {
+      "title": "Daily Notes",
+      "subtitle": "Tagesplan & Protokoll",
+      "today": "Heute"
+    },
+    "a11y": {
+      "back": "Zurück"
+    }
+  },
+  "a11y": {
+    "chatScreen": "Keppt Chat",
+    "conversation": "Unterhaltung",
+    "quickReplies": "Schnellantworten",
+    "menu": "Menü öffnen",
+    "moreOptions": "Weitere Optionen",
+    "toolSteps": "Ausgeführte Schritte",
+    "toolRunning": "{{label}} – läuft"
+  }
+}

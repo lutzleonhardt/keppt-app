@@ -1,0 +1,27 @@
+:host {
+  display: contents;
+}
+
+.user-message {
+  display: grid;
+  justify-self: end;
+  max-width: min(86%, 520px);
+  padding: 10px 14px;
+  border-radius: 18px 18px 4px 18px;
+  background: var(--keppt-ink);
+  color: var(--keppt-paper);
+  font-size: 14.5px;
+  line-height: 1.4;
+  letter-spacing: -0.1px;
+  overflow-wrap: anywhere;
+}
+
+.user-message p {
+  margin: 0;
+}
+
+@media (max-width: 420px) {
+  .user-message {
+    max-width: 92%;
+  }
+}

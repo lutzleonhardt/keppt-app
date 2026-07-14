@@ -1,0 +1,42 @@
+<main class="chat-screen" [attr.aria-label]="'a11y.chatScreen' | transloco">
+  <!-- While the mic overlay (a modal dialog) is open, the visually covered
+       background leaves the tab order and the accessibility tree. -->
+  <keppt-session-header
+    [hasMessages]="hasMessages()"
+    (menuPressed)="openDrawer()"
+    [attr.inert]="store.micOverlayVisible() ? '' : null"
+  />
+
+  <keppt-chat-message-list
+    [messages]="store.messages()"
+    [attr.inert]="store.micOverlayVisible() ? '' : null"
+  />
+
+  @if (store.activeQuickReplies().length) {
+    <keppt-quick-replies
+      [replies]="store.activeQuickReplies()"
+      (replySelected)="submitQuickReply($event)"
+      [attr.inert]="store.micOverlayVisible() ? '' : null"
+    />
+  }
+
+  <keppt-chat-input
+    [draft]="store.draft()"
+    [canSubmit]="store.canSubmit()"
+    [busy]="store.busy()"
+    (draftChange)="updateDraft($event)"
+    (submitMessage)="submitDraft()"
+    (cancelMessage)="cancelResponse()"
+    (openMic)="openMicOverlay()"
+    [attr.inert]="store.micOverlayVisible() ? '' : null"
+  />
+
+  @if (store.micOverlayVisible()) {
+    <keppt-mic-overlay
+      [state]="store.micState()"
+      (cancel)="cancelMicOverlay()"
+      (stop)="finishRecording()"
+      (retry)="retryRecording()"
+    />
+  }
+</main>

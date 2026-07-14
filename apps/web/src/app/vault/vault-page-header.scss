@@ -1,0 +1,54 @@
+.vault-page-header {
+  padding: 8px 18px 0;
+}
+
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.round-button {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--keppt-ink-4);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--keppt-ink);
+  cursor: pointer;
+}
+
+.round-button:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.header-spacer {
+  width: 36px;
+  height: 36px;
+}
+
+.title-block {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+}
+
+.page-subtitle {
+  color: var(--keppt-ink-3);
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.page-title {
+  margin: 2px 0 0;
+  color: var(--keppt-ink);
+  font-family: var(--keppt-font-serif);
+  font-style: italic;
+  font-size: 38px;
+  font-weight: 400;
+  letter-spacing: -0.7px;
+  line-height: 1.05;
+}

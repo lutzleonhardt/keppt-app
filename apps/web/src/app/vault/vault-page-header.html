@@ -1,0 +1,30 @@
+<header class="vault-page-header">
+  <div class="header-row">
+    @if (back()) {
+      <button
+        class="round-button"
+        type="button"
+        (click)="backPressed.emit()"
+        [attr.aria-label]="'vault.a11y.back' | transloco"
+      >
+        <svg lucideArrowLeft size="18" strokeWidth="2" aria-hidden="true"></svg>
+      </button>
+    } @else {
+      <button
+        class="round-button"
+        type="button"
+        (click)="menuPressed.emit()"
+        [attr.aria-label]="'a11y.menu' | transloco"
+      >
+        <svg lucideMenu size="18" strokeWidth="2" aria-hidden="true"></svg>
+      </button>
+    }
+    <keppt-monogram [size]="22" />
+    <span class="header-spacer" aria-hidden="true"></span>
+  </div>
+
+  <div class="title-block">
+    <span class="page-subtitle">{{ subtitle() }}</span>
+    <h1 class="page-title">{{ title() }}</h1>
+  </div>
+</header>
