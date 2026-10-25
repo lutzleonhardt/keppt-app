@@ -60,10 +60,10 @@
 //     objects — the CLI's `appendCliLogEntry` knows how to expand them.
 //
 // Where redaction lives. `redactSensitiveHeaders` is the single source of
-// truth for header redaction across CLI and future backend. Payload-level
-// redaction (prompts, file contents, provider bodies) belongs to the cloud
-// adapter that ships in Phase 2a.0 — do not add it here. CLI sinks may
-// stay verbose because the JSONL is developer-owned.
+// truth for header redaction across CLI and backend. Payload-level
+// redaction (prompts, file contents, provider bodies) lives in the server's
+// Pino adapter (`apps/server/src/backend-logger.ts`) — do not add it here.
+// CLI sinks may stay verbose because the JSONL is developer-owned.
 //
 // Currently emitted codes (registry — keep in sync when adding a seam):
 //   debug — `repo.search.path_skipped`
@@ -73,6 +73,9 @@
 //   warn  — `tool.edit_file.invalid_path`
 //   warn  — `tool.edit_file.retry_budget_exhausted`
 //   warn  — `stream.tool_error`                     (CLI only)
+//   info  — `server.vault_ready`                    (server only)
+//   info  — `server.listening`                      (server only)
+//   error — `http.unhandled_error`                  (server only)
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 

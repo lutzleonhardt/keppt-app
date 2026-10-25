@@ -11,6 +11,7 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "dev": "pnpm -C packages/core build && pnpm --filter @gtd/cli dev --debug",
+    "dev:server": "pnpm -C packages/core build && pnpm --filter @gtd/server dev",
     "cost": "pnpm --filter @gtd/cli exec tsx ../../scripts/cost.ts"
   },
   "devDependencies": {

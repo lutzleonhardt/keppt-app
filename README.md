@@ -90,7 +90,7 @@ Want updates without checking? Beta list on [getkeppt.com](https://getkeppt.com)
 
 | Layer | Phase 1 (now) | Target (Phase 2+) |
 |---|---|---|
-| Language / runtime | TypeScript, Node ≥ 20 | same |
+| Language / runtime | TypeScript, Node ≥ 22.22.3 | same |
 | LLM | Anthropic, DeepSeek, or OpenAI via Vercel AI SDK | same, provider-agnostic |
 | Storage | `LocalFileRepository` → Obsidian vault | `SupabaseFileRepository` (PostgreSQL + RLS) |
 | UI | CLI (readline) | Angular 19 + Capacitor + Hashbrown Generative UI |
@@ -98,9 +98,9 @@ Want updates without checking? Beta list on [getkeppt.com](https://getkeppt.com)
 | Backend | — | Node.js + Express/Fastify, SSE streaming |
 | Auth | — | Supabase Auth (Apple/Google/Email) |
 
-## Run it locally (Phase 1)
+## Run it locally
 
-Prerequisites: Node ≥ 20 (`.nvmrc` pins 20), pnpm.
+Prerequisites: Node ≥ 22.22.3 (`.nvmrc` pins it), pnpm.
 
 ```sh
 pnpm install
@@ -119,6 +119,19 @@ GTD_PROVIDER=openai \
 OPENAI_API_KEY=... \
 pnpm --filter @gtd/cli dev
 ```
+
+To run the Express server (Phase 2a dev path: local vault, stub auth), set
+the vault path and the stub user. `PORT` (default 3333) and `LOG_LEVEL`
+(`debug|info|warn|error`, default `info`) are optional. Logs are JSON lines
+on stdout; pipe through `pnpm dlx pino-pretty` to read them.
+
+```sh
+VAULT_PATH=/path/to/vault \
+DEV_USER_ID=lutz \
+pnpm dev:server
+```
+
+Check with `curl -i localhost:3333/api/health` → `{"status":"ok"}`.
 
 ## Repository layout
 
