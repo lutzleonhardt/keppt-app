@@ -1,12 +1,16 @@
 import { createServer, type AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
-import { MemoryLogger } from "@gtd/core";
+import { InMemoryFileRepository, MemoryLogger } from "@gtd/core";
 
 import { createApp } from "../app.js";
 import { startServer } from "../start-server.js";
 
 function app() {
-  return createApp({ logger: new MemoryLogger(), devUserId: "lutz" });
+  return createApp({
+    logger: new MemoryLogger(),
+    devUserId: "lutz",
+    fileRepository: new InMemoryFileRepository(),
+  });
 }
 
 describe("startServer", () => {

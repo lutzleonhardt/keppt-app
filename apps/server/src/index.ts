@@ -1,3 +1,4 @@
+import { LocalFileRepository } from "@gtd/core";
 import { createApp } from "./app.js";
 import { createBackendLogger } from "./backend-logger.js";
 import { ConfigError, readServerConfig, type ServerConfig } from "./config.js";
@@ -8,7 +9,12 @@ async function main(): Promise<void> {
   const config = readConfigOrExit();
   const logger = createBackendLogger({ level: config.logLevel });
   await initializeVault(config.vaultPath, logger);
-  const app = createApp({ logger, devUserId: config.devUserId });
+  const fileRepository = new LocalFileRepository(config.vaultPath, { logger });
+  const app = createApp({
+    logger,
+    devUserId: config.devUserId,
+    fileRepository,
+  });
   await startServer(app, config.port);
   logger.info({
     code: "server.listening",

@@ -1,10 +1,11 @@
 import type { IsoLocalDate } from "../i18n/local-date";
 
 /**
- * The vault file model mirrors `packages/core/src/gtd-layout.ts`: the five
- * fixed task files plus one `daily/YYYY-MM-DD.md` note per day. The web app is
- * mock-first and has no workspace dependency on core, so the allowlist is
- * duplicated here — keep both in sync if the layout ever changes.
+ * Copy of the vault layout in `packages/core/src/gtd-task-files.ts`
+ * (`GTD_TASK_FILES`) and `packages/core/src/gtd-layout.ts` (`dailyNoteDate`):
+ * the five fixed task files plus one `daily/YYYY-MM-DD.md` note per day.
+ * Duplicated because `@gtd/core` is a Node package (its barrel pulls in
+ * `node:fs`) and no browser-safe entry point exists yet — keep both in sync.
  */
 export const VAULT_TASK_FILES = [
   "tasks/inbox.md",

@@ -3,7 +3,7 @@ import { GTD_TASK_FILES } from "./gtd-task-files.js";
 
 const TASK_FILE_SET: ReadonlySet<string> = new Set(GTD_TASK_FILES);
 
-const DAILY_RE = /^daily\/\d{4}-\d{2}-\d{2}\.md$/;
+const DAILY_NOTE_PATH = /^daily\/((\d{4})-(\d{2})-(\d{2}))\.md$/;
 const ARCHIVE_DAILY_RE = /^archive\/daily\/\d{4}-\d{2}-\d{2}\.md$/;
 
 // Task 5 redesign (2026-05-20): daily/ is unified. Past, today, and future
@@ -17,13 +17,30 @@ const ARCHIVE_DAILY_RE = /^archive\/daily\/\d{4}-\d{2}-\d{2}\.md$/;
 // out_of_scope. Repo-level deletion is NOT performed; the files just stop
 // being routinely surfaced.
 
+// Single definition of the daily-note path shape, shared by the gates, the
+// occurrence search, and the HTTP vault API. Requires a real calendar date so
+// `daily/2026-02-30.md` is out of scope everywhere instead of a nonsense file.
+export function dailyNoteDate(filePath: string): string | undefined {
+  const match = DAILY_NOTE_PATH.exec(filePath);
+  if (match === null) return undefined;
+  const year = Number(match[2]);
+  const month = Number(match[3]);
+  const day = Number(match[4]);
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  const isCalendarDate =
+    probe.getUTCFullYear() === year &&
+    probe.getUTCMonth() === month - 1 &&
+    probe.getUTCDate() === day;
+  return isCalendarDate ? match[1] : undefined;
+}
+
 // LLM-facing read allowlist: the 5 GTD task files and any date-formatted
 // `daily/YYYY-MM-DD.md`. Throws InvalidPathError on traversal/.keppt/etc so
 // the tools layer can distinguish "invalid_path" from "out_of_scope".
 export function canRead(filePath: string, _today: string): boolean {
   validateFilePath(filePath);
   if (TASK_FILE_SET.has(filePath)) return true;
-  if (DAILY_RE.test(filePath)) return true;
+  if (dailyNoteDate(filePath) !== undefined) return true;
   return false;
 }
 
@@ -36,7 +53,7 @@ export function canRead(filePath: string, _today: string): boolean {
 export function canWrite(filePath: string, _today: string): boolean {
   validateFilePath(filePath);
   if (TASK_FILE_SET.has(filePath)) return true;
-  if (DAILY_RE.test(filePath)) return true;
+  if (dailyNoteDate(filePath) !== undefined) return true;
   return false;
 }
 
@@ -45,8 +62,8 @@ export function canWrite(filePath: string, _today: string): boolean {
 // to deny full rewrites of historical plans (R6); `edit_file` does not
 // consult it, so narrow inline corrections still work.
 export function isPastDaily(filePath: string, today: string): boolean {
-  if (!DAILY_RE.test(filePath)) return false;
-  return filePath < `daily/${today}.md`;
+  const date = dailyNoteDate(filePath);
+  return date !== undefined && date < today;
 }
 
 // Search-scope predicates mirror the canRead allowlist exactly. Search is a
@@ -57,7 +74,7 @@ export function isPastDaily(filePath: string, today: string): boolean {
 // because search iterates over already-listed paths.
 export function isInActiveScope(filePath: string, _today: string): boolean {
   if (TASK_FILE_SET.has(filePath)) return true;
-  if (DAILY_RE.test(filePath)) return true;
+  if (dailyNoteDate(filePath) !== undefined) return true;
   return false;
 }
 

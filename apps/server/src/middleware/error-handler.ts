@@ -37,6 +37,10 @@ export function errorHandler(logger: Logger): ErrorRequestHandler {
       res.status(err.status).json(body);
       return;
     }
+    // Errors the router raises with their own `status` (e.g. `URIError` 400 on
+    // malformed percent-encoding in `/api/files/%zz`) deliberately land here
+    // as 500: clients send fixed vault paths, so such a request is a client
+    // bug worth an error log line. Revisit once request bodies are parsed.
     (req.log ?? logger).error({
       code: "http.unhandled_error",
       message: "Unhandled error while handling request",

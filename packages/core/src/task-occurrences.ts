@@ -4,6 +4,7 @@ import {
   type FileRepository,
 } from "./file-repository.js";
 import { TASK_OCCURRENCE_TASK_FILES } from "./gtd-task-files.js";
+import { dailyNoteDate } from "./gtd-layout.js";
 
 export interface TaskOccurrenceBlock {
   file: string;
@@ -15,8 +16,6 @@ export interface TaskOccurrenceSearchResult {
   searchedFiles: string[];
   blocks: TaskOccurrenceBlock[];
 }
-
-const DAILY_FILE_RE = /^daily\/(\d{4}-\d{2}-\d{2})\.md$/;
 
 interface WorkingBlock {
   file: string;
@@ -86,14 +85,10 @@ async function listDailySurfaceFiles(
   const paths = await repo.list("daily/");
   return paths
     .filter((path) => {
-      const date = dailyDate(path);
-      return date !== null && date >= cutoff;
+      const date = dailyNoteDate(path);
+      return date !== undefined && date >= cutoff;
     })
     .sort();
-}
-
-function dailyDate(filePath: string): string | null {
-  return DAILY_FILE_RE.exec(filePath)?.[1] ?? null;
 }
 
 function offsetDate(date: string, days: number): string {

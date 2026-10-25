@@ -4,6 +4,7 @@ import { InvalidPathError } from "../file-repository.js";
 import {
   canRead,
   canWrite,
+  dailyNoteDate,
   isCanonicalTaskFile,
   isInActiveScope,
   isInArchiveScope,
@@ -195,7 +196,9 @@ describe("gtd-layout — isCanonicalTaskFile", () => {
   });
 
   it("returns false for archive paths and non-allowlisted files", () => {
-    expect(isCanonicalTaskFile("archive/daily/2026-05-01.md", TODAY)).toBe(false);
+    expect(isCanonicalTaskFile("archive/daily/2026-05-01.md", TODAY)).toBe(
+      false,
+    );
     expect(isCanonicalTaskFile("archive/tasks/old.md", TODAY)).toBe(false);
     expect(isCanonicalTaskFile("tasks/random.md", TODAY)).toBe(false);
     expect(isCanonicalTaskFile("tasks/projects/work.md", TODAY)).toBe(false);
@@ -214,5 +217,41 @@ describe("gtd-layout — isCanonicalTaskFile", () => {
     expect(isCanonicalTaskFile(".keppt/foo.md", TODAY)).toBe(false);
     expect(() => isCanonicalTaskFile("/abs/path.md", TODAY)).not.toThrow();
     expect(isCanonicalTaskFile("/abs/path.md", TODAY)).toBe(false);
+  });
+});
+
+describe("gtd-layout — dailyNoteDate (shared daily-note definition)", () => {
+  it("extracts the ISO date of a daily note", () => {
+    expect(dailyNoteDate("daily/2026-07-14.md")).toBe("2026-07-14");
+    expect(dailyNoteDate("daily/2024-02-29.md")).toBe("2024-02-29");
+  });
+
+  it.each([
+    "tasks/inbox.md",
+    "daily/notes.md",
+    "daily/2026-1-1.md",
+    "daily/2026-07-14.md.bak",
+    "daily/2026-07-14.MD",
+    "archive/daily/2026-07-14.md",
+  ])("is undefined for the non-daily shape %s", (file) => {
+    expect(dailyNoteDate(file)).toBeUndefined();
+  });
+
+  it.each([
+    "daily/2026-13-01.md",
+    "daily/2026-00-10.md",
+    "daily/2026-02-30.md",
+    "daily/2025-02-29.md",
+    "daily/2026-04-31.md",
+  ])("is undefined for the impossible calendar date in %s", (file) => {
+    expect(dailyNoteDate(file)).toBeUndefined();
+  });
+
+  it("keeps an impossible calendar date out of every gate", () => {
+    const file = "daily/2026-02-30.md";
+    expect(canRead(file, TODAY)).toBe(false);
+    expect(canWrite(file, TODAY)).toBe(false);
+    expect(isInActiveScope(file, TODAY)).toBe(false);
+    expect(isPastDaily(file, TODAY)).toBe(false);
   });
 });

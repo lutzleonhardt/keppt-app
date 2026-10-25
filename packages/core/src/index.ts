@@ -42,6 +42,7 @@ export { QUICK_REPLY_LABEL_MAX_LENGTH } from "./quick-replies.js";
 export {
   canRead,
   canWrite,
+  dailyNoteDate,
   isCanonicalTaskFile,
   isInActiveScope,
   isInArchiveScope,
