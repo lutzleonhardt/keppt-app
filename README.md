@@ -133,6 +133,18 @@ pnpm dev:server
 
 Check with `curl -i localhost:3333/api/health` → `{"status":"ok"}`.
 
+To run the Angular app, start the server as above (the vault screens read
+through it), then in a second terminal:
+
+```sh
+pnpm --filter web dev
+```
+
+`ng serve` listens on `http://localhost:4200` and proxies `/api` to the
+server on port 3333 (`apps/web/proxy.conf.json`). Without the server the
+vault screens show their error state; the chat still runs on its mock
+until Task 8.
+
 ## Repository layout
 
 ```

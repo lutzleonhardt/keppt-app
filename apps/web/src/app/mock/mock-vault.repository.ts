@@ -4,7 +4,7 @@ import { VaultRepository } from "../vault/vault.repository";
 import type { DailyNoteRef, VaultFile } from "../vault/vault.types";
 import { mockDailyIndex, mockVaultFiles } from "./mock-vault-data";
 
-/** Deterministic async repository used until the HTTP vault adapter lands. */
+/** Deterministic async repository over the reference fixtures, for tests. */
 @Injectable()
 export class MockVaultRepository extends VaultRepository {
   protected readonly files: Readonly<Record<string, string>> = mockVaultFiles;
