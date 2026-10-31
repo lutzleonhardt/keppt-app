@@ -37,6 +37,8 @@ Execution order = numeric order. Tasks 1–8 run against the dogfooding vault; 9
 1. Express server skeleton + operational logging foundation (2a.0)
 2. Files + daily-index read endpoints (`GET /api/files/*`, `GET /api/daily-notes`)
 3. Wire vault screens to the backend (`HttpVaultRepository` + dev proxy)
+3.1. Browser-safe core layout entry (`@gtd/core/layout`) — Task-3 follow-up, post-created 2026-10-31 during the Task-3 wrap-up; closes the item Task-2 decision 11 deferred (the web copy of the vault layout). Prerequisite of 3.2.
+3.2. Shared API contract package (`@gtd/api`) — Task-3 follow-up, post-created 2026-10-31: `HttpVaultRepository` had to read the API error body through an untyped cast because no wire contract is shared between server and web, and the error code is `string` on the server, so nothing checks the client's `"file_not_found"` literal.
 4. Extract the shared turn engine from the CLI into `packages/core` (behavior-preserving)
 5. Move the Auto-Replan opener onto the engine + synthetic-message origin marker
 6. Detached chat-turn execution + session event stream (`POST /api/chat`, `GET /api/chat/stream`, cancel) + client timezone + daily turn cap
@@ -163,6 +165,69 @@ Replace the mock vault data path in `apps/web` with HTTP against Task 2. First v
 
 - Abstract classes are the DI tokens (deliberate, spec'd) — the swap is exactly one `useClass` line per boundary; presentational components and Resources are untouched (spec AC: replacing mocks "must not require rewriting presentational components").
 - `provideHttpClient()` is already configured (XHR backend) — fine for request/response reads; streaming concerns only Task 8.
+
+---
+
+## Task 3.1: Browser-safe core layout entry (`@gtd/core/layout`)
+
+### Instructions
+
+Give `packages/core` a second entry point that carries the vault layout rule without any Node dependency, so the web app (and Task 3.2's contract package) import the one definition instead of copying it. Behavior-preserving: server, CLI and core internals keep importing `@gtd/core`.
+
+- **`src/layout/` with its own barrel.** Move `gtd-task-files.ts` there as-is; extract `DAILY_NOTE_PATH` + `dailyNoteDate` from `gtd-layout.ts` into `src/layout/daily-note.ts` (`gtd-layout.ts` imports them back; `canRead`/`canWrite`/`isPastDaily`/`isInActiveScope` stay where they are — the gates are not a browser concern). Add `IsoDate` (`${number}-${number}-${number}`) next to `dailyNoteDate`, whose return type becomes `IsoDate | undefined` (it validates exactly that shape). Nothing under `src/layout/` imports from outside the folder.
+- **`exports["./layout"]`** → `dist/layout/index.{js,d.ts}`; the main barrel re-exports the folder so existing imports are untouched.
+- **Guard:** `packages/core/tsconfig.layout.json` extending the package config with `types: []`, `lib: ["ES2022"]`, `include: ["src/layout/**/*.ts"]`, run by core's `typecheck` script — a `node:*` import anywhere behind the entry point fails typecheck (TypeScript follows imports transitively).
+- **Web consumes it:** `apps/web` adds `@gtd/core: workspace:*`; `vault.types.ts` replaces the `VAULT_TASK_FILES` copy and its "keep both in sync" comment with imports (`VaultTaskFile` = `GtdTaskFilePath`), `i18n/local-date.ts` re-exports `IsoDate` as `IsoLocalDate` (or the three consumers rename — implementer's call). Resolution goes through the package `exports` like the server's; a tsconfig `paths` mapping onto core's `src` is rejected unless the Angular bundler cannot consume `dist`.
+- **Build order:** `pnpm -r` is topological; a direct `pnpm --filter web typecheck|test` needs `@gtd/core` built first — the same gotcha the server has; add the line to README.
+
+### Acceptance
+
+- **T3.1-AC-01:** `pnpm --filter @gtd/core typecheck` runs the layout guard; a probe `import "node:fs"` placed under `src/layout/` fails it (probe removed, result in the log).
+- **T3.1-AC-02:** `apps/web` imports `GTD_TASK_FILES`, `GtdTaskFilePath` and `IsoDate` from `@gtd/core/layout`; the `VAULT_TASK_FILES` copy is gone; `ng build` and `ng test` succeed.
+- **T3.1-AC-03:** Core, server and CLI behavior unchanged: `pnpm -r test` green with the same counts (core 317 · server 85 · cli 57 · web 119); `gtd-layout.test.ts`'s `dailyNoteDate` block still passes against the moved module.
+- **T3.1-AC-04:** `dailyNoteDate` returns `IsoDate | undefined`; `DailyNoteRef.date` (server `routes/daily-notes.ts`) is typed `IsoDate` without a cast.
+
+### Key Locations
+
+- New: `packages/core/src/layout/{index,gtd-task-files,daily-note}.ts`, `packages/core/tsconfig.layout.json`
+- Modify: `packages/core/{package.json,src/index.ts,src/gtd-layout.ts}`, `apps/web/{package.json,src/app/vault/vault.types.ts,src/app/i18n/local-date.ts}`, `apps/server/src/routes/daily-notes.ts`, `README.md`
+- Reference: Task-2 log decisions 10–11 (why the copy exists), `apps/web/tsconfig.json` (`moduleResolution: bundler`), `apps/web/tsconfig.spec.json` (`types: []` precedent)
+
+### Key Discoveries
+
+- `gtd-task-files.ts` has no imports; `gtd-layout.ts` imports `validateFilePath` from `file-repository.ts` — hence the extraction instead of moving the whole file.
+- pnpm's strict `node_modules` already enforces the package direction (core never declares `@gtd/api`); the guard needed is Node-freedom inside core, not import direction.
+
+---
+
+## Task 3.2: Shared API contract package (`@gtd/api`)
+
+### Instructions
+
+Create `packages/api`, the HTTP wire contract shared by `apps/server` and `apps/web`: TypeScript only, no `node:*` imports, the only dependency is `@gtd/core` (layout entry). Built like core (`tsc` → `dist`, `exports` with `types`/`default`), Vitest for the one runtime function. Direction is fixed by `package.json` declarations: api → core, server and web → api, never core → api.
+
+- **Error contract.** `API_ERROR_CODES` as a readonly tuple with the codes in use — `invalid_path`, `path_out_of_scope`, `file_not_found`, `not_found`, `internal_error`, `turn_in_flight` (409 per the core design; `error-handler.test.ts` already throws it) — and `ApiErrorCode` derived from it; later tasks extend the tuple together with the throw site. `ApiErrorPayload { code; message; requestId }`, `ErrorBody { error: ApiErrorPayload }`, and `apiErrorOf(body: unknown): ApiErrorPayload | undefined` — the single place that inspects an untrusted body (parsed JSON, text, `ProgressEvent`, `null`); it returns a payload only when `code` is a member of the tuple, so the type is honest.
+- **DTOs.** `FileContentBody { content: string }`, `DailyNoteRef { date: IsoDate; isToday: boolean }` (`IsoDate` from `@gtd/core/layout`). Success bodies stay trusted as typed — no zod, no runtime validation beyond the error guard (YAGNI until an untrusted hop exists).
+- **Server:** `ApiError.code: ApiErrorCode`; `ErrorBody`, `FileContentBody`, `DailyNoteRef` imported from `@gtd/api`, local declarations removed. **Web:** `http-vault.repository.ts` decides via `apiErrorOf(error.error)?.code === "file_not_found"`; `ApiErrorBody`, `FileContentBody` and the cast go; `vault.types.ts` re-exports `DailyNoteRef` so consumers keep their import path.
+- **OUT:** session/replay DTOs and SSE event types (Tasks 7/8 add them here when they exist), moving `canRead`/gates to the browser, Sheriff/ESLint boundary tooling (pnpm enforces the package direction; app-internal layering is a later chore, see the improvements register).
+
+### Acceptance
+
+- **T3.2-AC-01:** `apiErrorOf` unit tests: valid body → payload; unknown code, text body, `ProgressEvent`-shaped object, `null` → `undefined`.
+- **T3.2-AC-02:** `new ApiError(409, "no_such_code", …)` is a compile error (pinned with `@ts-expect-error` in `error-handler.test.ts`); every error response still matches `ErrorBody`; server suite green.
+- **T3.2-AC-03:** `HttpVaultRepository` spec green unchanged; no `as` cast on an error body remains in `apps/web/src` (grep).
+- **T3.2-AC-04:** `pnpm -r typecheck` and `pnpm -r test` green; web screen specs unchanged (XC-03).
+
+### Key Locations
+
+- New: `packages/api/{package.json,tsconfig.json,src/index.ts,src/errors.ts,src/files.ts,src/daily-notes.ts,src/__tests__/errors.test.ts}`
+- Modify: `apps/server/{package.json,src/middleware/error-handler.ts,src/routes/files.ts,src/routes/daily-notes.ts,src/__tests__/error-handler.test.ts}`, `apps/web/{package.json,src/app/vault/http-vault.repository.ts,src/app/vault/vault.types.ts}`, `README.md`
+- Reference: Task-3 log decisions 1, 3, 9 (strict 404 mapping; why the body is read defensively; 500-without-body from the dev proxy), `packages/core/package.json` (template)
+
+### Key Discoveries
+
+- The server's `ApiError.code` is `string` today, so sharing the type alone would not catch a client-side typo — the tuple/union is the actual gain.
+- `HttpErrorResponse.error` is `any` in Angular; the guard cannot be avoided, only moved into one tested place.
 
 ---
 
