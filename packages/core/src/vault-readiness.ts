@@ -18,9 +18,9 @@
 // know about `changedBy` and won't second-guess what the caller built.
 
 import { FileNotFoundError, type FileRepository } from "./file-repository.js";
-import { GTD_TASK_FILES } from "./gtd-task-files.js";
+import { GTD_TASK_FILES } from "./layout/gtd-task-files.js";
 
-export { GTD_TASK_FILES } from "./gtd-task-files.js";
+export { GTD_TASK_FILES } from "./layout/gtd-task-files.js";
 
 const FIRST_RUN_SUMMARY = "first-run task-file init";
 

@@ -4,16 +4,16 @@ import { InvalidPathError } from "../file-repository.js";
 import {
   canRead,
   canWrite,
-  dailyNoteDate,
   isCanonicalTaskFile,
   isInActiveScope,
   isInArchiveScope,
   isPastDaily,
-} from "../gtd-layout.js";
+} from "../access-policy.js";
+import { dailyNoteDate } from "../layout/daily-note.js";
 
 const TODAY = "2026-05-08";
 
-describe("gtd-layout — canRead (T5-AC-01)", () => {
+describe("access-policy — canRead (T5-AC-01)", () => {
   it("allows each of the 5 GTD task files", () => {
     for (const f of [
       "tasks/inbox.md",
@@ -67,7 +67,7 @@ describe("gtd-layout — canRead (T5-AC-01)", () => {
   });
 });
 
-describe("gtd-layout — canWrite (T5-AC-02)", () => {
+describe("access-policy — canWrite (T5-AC-02)", () => {
   it("allows the 5 GTD task files", () => {
     expect(canWrite("tasks/inbox.md", TODAY)).toBe(true);
     expect(canWrite("tasks/focus.md", TODAY)).toBe(true);
@@ -102,7 +102,7 @@ describe("gtd-layout — canWrite (T5-AC-02)", () => {
   });
 });
 
-describe("gtd-layout — isPastDaily (R6 write_file carve-out)", () => {
+describe("access-policy — isPastDaily (R6 write_file carve-out)", () => {
   // The predicate isolates strictly-past dailies for the write_file hard
   // guard. edit_file does not consult it — narrow corrections per R6 still
   // need to land — so the predicate is intentionally write-only.
@@ -125,7 +125,7 @@ describe("gtd-layout — isPastDaily (R6 write_file carve-out)", () => {
   });
 });
 
-describe("gtd-layout — isInActiveScope / isInArchiveScope (T5-AC-03)", () => {
+describe("access-policy — isInActiveScope / isInArchiveScope (T5-AC-03)", () => {
   // Search predicates mirror canRead exactly: any path search returns must
   // also be readable, otherwise search snippets are an exfiltration channel.
 
@@ -172,7 +172,7 @@ describe("gtd-layout — isInActiveScope / isInArchiveScope (T5-AC-03)", () => {
   });
 });
 
-describe("gtd-layout — isCanonicalTaskFile", () => {
+describe("access-policy — isCanonicalTaskFile", () => {
   // Pure predicate: the five task files plus today's daily note. Shape
   // mirrors canWrite's decision without throwing on invalid input — the
   // tool layer only calls it after canWrite/canRead has already validated.
@@ -220,7 +220,7 @@ describe("gtd-layout — isCanonicalTaskFile", () => {
   });
 });
 
-describe("gtd-layout — dailyNoteDate (shared daily-note definition)", () => {
+describe("access-policy — dailyNoteDate (shared daily-note definition)", () => {
   it("extracts the ISO date of a daily note", () => {
     expect(dailyNoteDate("daily/2026-07-14.md")).toBe("2026-07-14");
     expect(dailyNoteDate("daily/2024-02-29.md")).toBe("2024-02-29");

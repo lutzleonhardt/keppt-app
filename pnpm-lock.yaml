@@ -97,6 +97,9 @@ importers:
       '@angular/router':
         specifier: ^22.0.0
         version: 22.0.6(@angular/common@22.0.6(@angular/core@22.0.6(@angular/compiler@22.0.6)(rxjs@7.8.2)(zone.js@0.16.2))(rxjs@7.8.2))(@angular/core@22.0.6(@angular/compiler@22.0.6)(rxjs@7.8.2)(zone.js@0.16.2))(@angular/platform-browser@22.0.6(@angular/common@22.0.6(@angular/core@22.0.6(@angular/compiler@22.0.6)(rxjs@7.8.2)(zone.js@0.16.2))(rxjs@7.8.2))(@angular/core@22.0.6(@angular/compiler@22.0.6)(rxjs@7.8.2)(zone.js@0.16.2)))(rxjs@7.8.2)
+      '@gtd/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@jsverse/transloco':
         specifier: ^8.4.0
         version: 8.4.0(@angular/core@22.0.6(@angular/compiler@22.0.6)(rxjs@7.8.2)(zone.js@0.16.2))(rxjs@7.8.2)(typescript@6.0.3)

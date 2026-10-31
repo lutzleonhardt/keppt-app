@@ -39,20 +39,14 @@ export {
   type WriteFileResult,
 } from "./tools.js";
 export { QUICK_REPLY_LABEL_MAX_LENGTH } from "./quick-replies.js";
+export * from "./layout/index.js";
 export {
   canRead,
   canWrite,
-  dailyNoteDate,
   isCanonicalTaskFile,
   isInActiveScope,
   isInArchiveScope,
-} from "./gtd-layout.js";
-export {
-  GTD_TASK_FILES,
-  GTD_TASK_FILE_PATHS,
-  TASK_OCCURRENCE_TASK_FILES,
-  type GtdTaskFilePath,
-} from "./gtd-task-files.js";
+} from "./access-policy.js";
 export {
   ensureGtdTaskFiles,
   type EnsureGtdTaskFilesResult,

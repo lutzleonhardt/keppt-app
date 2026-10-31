@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { FileRepository } from "../file-repository.js";
 import { FileNotFoundError, InvalidPathError } from "../file-repository.js";
-import { canRead } from "../gtd-layout.js";
+import { canRead } from "../access-policy.js";
 
 export interface ContractHarness {
   repo: FileRepository;

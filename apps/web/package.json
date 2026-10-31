@@ -15,6 +15,7 @@
     "@angular/core": "^22.0.0",
     "@angular/platform-browser": "^22.0.0",
     "@angular/router": "^22.0.0",
+    "@gtd/core": "workspace:*",
     "@jsverse/transloco": "^8.4.0",
     "@lucide/angular": "^1.23.0",
     "marked": "^18.0.4",

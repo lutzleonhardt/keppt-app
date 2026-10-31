@@ -11,7 +11,7 @@ import {
   canWrite,
   isCanonicalTaskFile,
   isPastDaily,
-} from "./gtd-layout.js";
+} from "./access-policy.js";
 import { type Logger, NoopLogger, safeLog } from "./logging.js";
 import { formatToday } from "./search.js";
 import { findTaskOccurrences } from "./task-occurrences.js";

@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": [],
+    "lib": ["ES2022"],
+    "noUncheckedSideEffectImports": true,
+    "noEmit": true
+  },
+  "include": ["src/layout/**/*.ts"]
+}

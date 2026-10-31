@@ -1,5 +1,5 @@
 import type { SearchResult, SearchScope } from "./file-repository.js";
-import { isInActiveScope, isInArchiveScope } from "./gtd-layout.js";
+import { isInActiveScope, isInArchiveScope } from "./access-policy.js";
 
 const SNIPPET_CONTEXT = 40; // chars either side of the match → ~80-char window
 

@@ -1,9 +1,9 @@
 import { validateFilePath } from "./file-repository.js";
-import { GTD_TASK_FILES } from "./gtd-task-files.js";
+import { dailyNoteDate } from "./layout/daily-note.js";
+import { GTD_TASK_FILES } from "./layout/gtd-task-files.js";
 
 const TASK_FILE_SET: ReadonlySet<string> = new Set(GTD_TASK_FILES);
 
-const DAILY_NOTE_PATH = /^daily\/((\d{4})-(\d{2})-(\d{2}))\.md$/;
 const ARCHIVE_DAILY_RE = /^archive\/daily\/\d{4}-\d{2}-\d{2}\.md$/;
 
 // Task 5 redesign (2026-05-20): daily/ is unified. Past, today, and future
@@ -16,23 +16,6 @@ const ARCHIVE_DAILY_RE = /^archive\/daily\/\d{4}-\d{2}-\d{2}\.md$/;
 // are no longer readable through the LLM gate — read_file on them returns
 // out_of_scope. Repo-level deletion is NOT performed; the files just stop
 // being routinely surfaced.
-
-// Single definition of the daily-note path shape, shared by the gates, the
-// occurrence search, and the HTTP vault API. Requires a real calendar date so
-// `daily/2026-02-30.md` is out of scope everywhere instead of a nonsense file.
-export function dailyNoteDate(filePath: string): string | undefined {
-  const match = DAILY_NOTE_PATH.exec(filePath);
-  if (match === null) return undefined;
-  const year = Number(match[2]);
-  const month = Number(match[3]);
-  const day = Number(match[4]);
-  const probe = new Date(Date.UTC(year, month - 1, day));
-  const isCalendarDate =
-    probe.getUTCFullYear() === year &&
-    probe.getUTCMonth() === month - 1 &&
-    probe.getUTCDate() === day;
-  return isCalendarDate ? match[1] : undefined;
-}
 
 // LLM-facing read allowlist: the 5 GTD task files and any date-formatted
 // `daily/YYYY-MM-DD.md`. Throws InvalidPathError on traversal/.keppt/etc so

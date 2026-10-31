@@ -12,11 +12,15 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./layout": {
+      "types": "./dist/layout/index.d.ts",
+      "default": "./dist/layout/index.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.layout.json",
     "test": "vitest run"
   },
   "devDependencies": {

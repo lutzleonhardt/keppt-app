@@ -1114,7 +1114,7 @@ describe("buildTools — task-file reminder field", () => {
   // T4.3-AC-05 (revised under Task 5 redesign): future daily notes are now
   // writable through canWrite, but the reminder is still today-only because
   // isCanonicalTaskFile remains today-bound. The write lands, the reminder
-  // does not fire. The helper-level pin lives in gtd-layout.test.ts.
+  // does not fire. The helper-level pin lives in access-policy.test.ts.
   it("write_file against a future daily note succeeds without a reminder", async () => {
     const repo = new InMemoryFileRepository({ now: () => FIXED_NOW });
     const output = await runSingleToolCall(repo, "write_file", {

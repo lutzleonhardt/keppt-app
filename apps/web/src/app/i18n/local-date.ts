@@ -1,27 +1,25 @@
 import { InjectionToken } from "@angular/core";
-
-/** A calendar date without a time or timezone, serialized as `YYYY-MM-DD`. */
-export type IsoLocalDate = `${number}-${number}-${number}`;
+import type { IsoDate } from "@gtd/core/layout";
 
 const TRANSLOCO_LOCALES: Readonly<Record<string, string>> = {
   de: "de-DE",
   en: "en-US",
 };
 
-function systemLocalToday(): IsoLocalDate {
+function systemLocalToday(): IsoDate {
   const today = new Date();
   const year = today.getFullYear();
   const month = String(today.getMonth() + 1).padStart(2, "0");
   const day = String(today.getDate()).padStart(2, "0");
 
-  return `${year}-${month}-${day}` as IsoLocalDate;
+  return `${year}-${month}-${day}` as IsoDate;
 }
 
 /**
  * Today's calendar date in the system's local timezone. Tests and embedding
  * environments can override this token to make "today" deterministic.
  */
-export const APP_TODAY = new InjectionToken<IsoLocalDate>("APP_TODAY", {
+export const APP_TODAY = new InjectionToken<IsoDate>("APP_TODAY", {
   providedIn: "root",
   factory: systemLocalToday,
 });

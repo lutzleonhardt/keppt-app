@@ -3,8 +3,8 @@ import {
   InvalidPathError,
   type FileRepository,
 } from "./file-repository.js";
-import { TASK_OCCURRENCE_TASK_FILES } from "./gtd-task-files.js";
-import { dailyNoteDate } from "./gtd-layout.js";
+import { dailyNoteDate } from "./layout/daily-note.js";
+import { TASK_OCCURRENCE_TASK_FILES } from "./layout/gtd-task-files.js";
 
 export interface TaskOccurrenceBlock {
   file: string;

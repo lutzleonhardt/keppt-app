@@ -1,8 +1,13 @@
 import express, { type Router } from "express";
-import { dailyNoteDate, formatToday, type FileRepository } from "@gtd/core";
+import {
+  dailyNoteDate,
+  formatToday,
+  type FileRepository,
+  type IsoDate,
+} from "@gtd/core";
 
 export interface DailyNoteRef {
-  date: string;
+  date: IsoDate;
   isToday: boolean;
 }
 

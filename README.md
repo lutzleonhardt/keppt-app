@@ -145,6 +145,11 @@ server on port 3333 (`apps/web/proxy.conf.json`). Without the server the
 vault screens show their error state; the chat still runs on its mock
 until Task 8.
 
+The Angular app and the server both consume `@gtd/core` from its `dist`
+build. `pnpm -r build|test` orders the packages topologically, but a direct
+`pnpm --filter web typecheck|test|build` (or `--filter @gtd/server`) needs
+`pnpm --filter @gtd/core build` first.
+
 ## Repository layout
 
 ```
