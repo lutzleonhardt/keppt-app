@@ -1,4 +1,5 @@
 import type { ErrorRequestHandler, RequestHandler } from "express";
+import type { ApiErrorCode, ErrorBody } from "@gtd/api";
 import type { Logger } from "@gtd/core";
 
 // The one way for a route to produce a client-facing error with a stable
@@ -7,16 +8,12 @@ import type { Logger } from "@gtd/core";
 export class ApiError extends Error {
   constructor(
     readonly status: number,
-    readonly code: string,
+    readonly code: ApiErrorCode,
     message: string,
   ) {
     super(message);
     this.name = "ApiError";
   }
-}
-
-export interface ErrorBody {
-  error: { code: string; message: string; requestId: string };
 }
 
 export const notFoundHandler: RequestHandler = (_req, _res, next) => {

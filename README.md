@@ -145,16 +145,20 @@ server on port 3333 (`apps/web/proxy.conf.json`). Without the server the
 vault screens show their error state; the chat still runs on its mock
 until Task 8.
 
-The Angular app and the server both consume `@gtd/core` from its `dist`
-build. `pnpm -r build|test` orders the packages topologically, but a direct
+The Angular app and the server both consume `@gtd/core` and the shared
+HTTP contract `@gtd/api` from their `dist` builds. `pnpm -r build|test`
+orders the packages topologically, but a direct
 `pnpm --filter web typecheck|test|build` (or `--filter @gtd/server`) needs
-`pnpm --filter @gtd/core build` first.
+`pnpm --filter @gtd/core build` and `pnpm --filter @gtd/api build` first.
 
 ## Repository layout
 
 ```
 apps/cli/             # CLI entrypoint (Phase 1)
+apps/server/          # Express server (Phase 2a): vault read API, later chat + sessions
+apps/web/             # Angular app (Phase 2a): chat UI + vault screens
 packages/core/        # Shared core: file repository, history log, (later) prompts, tools, sessions
+packages/api/         # HTTP wire contract shared by server and web (error codes, DTOs)
 docs/specs/           # Architecture & product specs
 docs/plans/           # Phase plans, broken into single-commit tasks
 docs/task-log/        # Per-task wrap-ups (the build log)

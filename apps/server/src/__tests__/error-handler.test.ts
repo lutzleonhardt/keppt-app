@@ -1,13 +1,13 @@
 import express from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
+import type { ErrorBody } from "@gtd/api";
 import { MemoryLogger } from "@gtd/core";
 
 import {
   ApiError,
   errorHandler,
   notFoundHandler,
-  type ErrorBody,
 } from "../middleware/error-handler.js";
 import {
   REQUEST_ID_HEADER,
@@ -98,5 +98,11 @@ describe("errorHandler", () => {
       code: "not_found",
       requestId: res.headers[REQUEST_ID_HEADER.toLowerCase()],
     });
+  });
+
+  it("rejects a code outside API_ERROR_CODES at compile time", () => {
+    // @ts-expect-error — `code` is the closed `ApiErrorCode` union, not string
+    const error = new ApiError(409, "no_such_code", "typo in the code");
+    expect(error).toBeInstanceOf(ApiError);
   });
 });

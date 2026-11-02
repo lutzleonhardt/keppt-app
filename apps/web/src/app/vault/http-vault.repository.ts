@@ -1,19 +1,10 @@
 import { HttpClient, HttpErrorResponse } from "@angular/common/http";
 import { inject, Injectable } from "@angular/core";
+import { apiErrorOf, type FileContentBody } from "@gtd/api";
 import { firstValueFrom } from "rxjs";
 
 import { VaultRepository } from "./vault.repository";
 import type { DailyNoteRef, VaultFile } from "./vault.types";
-
-/** Response body of `GET /api/files/{path}`. */
-interface FileContentBody {
-  readonly content: string;
-}
-
-/** Error body of every API error response; read defensively, never trusted. */
-interface ApiErrorBody {
-  readonly error?: { readonly code?: unknown };
-}
 
 /**
  * Reads the vault through the server's `/api` endpoints. URLs are relative:
@@ -42,15 +33,12 @@ export class HttpVaultRepository extends VaultRepository {
   }
 }
 
+// `HttpErrorResponse.error` is untyped (parsed JSON, text, or a
+// `ProgressEvent`); the shared guard is the only reader of it.
 function isFileNotFound(error: unknown): boolean {
   return (
     error instanceof HttpErrorResponse &&
     error.status === 404 &&
-    apiErrorCode(error.error) === "file_not_found"
+    apiErrorOf(error.error)?.code === "file_not_found"
   );
-}
-
-function apiErrorCode(body: unknown): string | undefined {
-  const code = (body as ApiErrorBody | null)?.error?.code;
-  return typeof code === "string" ? code : undefined;
 }

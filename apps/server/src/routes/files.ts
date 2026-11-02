@@ -1,4 +1,5 @@
 import express, { type Router } from "express";
+import type { FileContentBody } from "@gtd/api";
 import {
   canRead,
   FileNotFoundError,
@@ -7,10 +8,6 @@ import {
   type FileRepository,
 } from "@gtd/core";
 import { ApiError } from "../middleware/error-handler.js";
-
-export interface FileContentBody {
-  content: string;
-}
 
 // Express 5 delivers a named wildcard as decoded path segments
 // (`["tasks", "inbox.md"]`), so vault paths containing `/` arrive intact where

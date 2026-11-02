@@ -1,15 +1,6 @@
 import express, { type Router } from "express";
-import {
-  dailyNoteDate,
-  formatToday,
-  type FileRepository,
-  type IsoDate,
-} from "@gtd/core";
-
-export interface DailyNoteRef {
-  date: IsoDate;
-  isToday: boolean;
-}
+import type { DailyNoteRef } from "@gtd/api";
+import { dailyNoteDate, formatToday, type FileRepository } from "@gtd/core";
 
 // Index of existing daily notes from filenames alone — no content is read.
 // `isToday` is decided here because the client contract treats the
