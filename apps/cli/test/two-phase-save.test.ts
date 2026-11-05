@@ -18,10 +18,10 @@ import type {
 
 import {
   buildRequest,
+  FsSessionStore,
   Session,
   type SessionStore,
 } from "@gtd/core";
-import { FsSessionStore } from "../src/fs-session-store.js";
 
 // Mirrors the two-phase save contract the CLI implements in
 // apps/cli/src/index.ts:

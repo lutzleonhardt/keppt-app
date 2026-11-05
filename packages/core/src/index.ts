@@ -85,6 +85,7 @@ export {
   type PruneToolResultsResult,
 } from "./tool-result-pruning.js";
 export { Session, type SessionStore } from "./sessions.js";
+export { FsSessionStore, type FsSessionStoreOps } from "./fs-session-store.js";
 export {
   MemoryTurnLogger,
   NoopTurnLogger,
@@ -92,6 +93,14 @@ export {
   type TurnLogger,
 } from "./turn-log.js";
 export { formatToday } from "./search.js";
+export {
+  runTurn,
+  type ProviderOptions,
+  type TurnEngineDeps,
+  type TurnInput,
+} from "./turn-engine.js";
+export type { TurnErrorPhase, TurnResult, TurnSink } from "./turn-sink.js";
+export { writeTurnArtifact, type TurnLogContext } from "./turn-artifact.js";
 export {
   MAX_INPUT_CHARS,
   REJECTION_MESSAGE,

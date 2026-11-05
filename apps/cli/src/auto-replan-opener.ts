@@ -6,14 +6,15 @@ import {
   buildTools,
   formatToday,
   gatherAutoReplanContext,
+  writeTurnArtifact,
   type AutoReplanContext,
   type QuickRepliesResult,
+  type TurnLogContext,
 } from "@gtd/core";
 import type { TurnDeps, TurnRefs } from "./turn-loop.js";
 import { MODEL_ID, model, providerOptions } from "./model-provider.js";
 import { appendCliErrorLog } from "./cli-error-log.js";
 import { formatCliError } from "./cli-errors.js";
-import { writeTurnArtifact, type TurnLogContext } from "./turn-artifact.js";
 
 const AUTO_REPLAN_DAYS_BACK = 5;
 const MAX_STEPS = 10;
@@ -78,7 +79,7 @@ export async function runAutoReplanOpener(
         system: systemText,
         messages: requestMessages,
         providerOptions: providerOptions(),
-        cliLogger: deps.cliLogger,
+        logger: deps.cliLogger,
       };
     }
 

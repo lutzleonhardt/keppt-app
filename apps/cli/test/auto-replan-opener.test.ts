@@ -9,8 +9,12 @@ import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LocalFileRepository, MemoryLogger, Session } from "@gtd/core";
-import { FsSessionStore } from "../src/fs-session-store.js";
+import {
+  FsSessionStore,
+  LocalFileRepository,
+  MemoryLogger,
+  Session,
+} from "@gtd/core";
 import type { TerminalOutput } from "../src/terminal-output.js";
 
 const modelState = vi.hoisted((): { model: unknown } => ({ model: undefined }));

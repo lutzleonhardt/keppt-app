@@ -13,19 +13,17 @@ import type { ModelMessage, ToolModelMessage, ToolResultPart } from "ai";
 
 import {
   buildRequest,
+  FsSessionStore,
   MemoryLogger,
   MemoryTurnLogger,
+  writeTurnArtifact,
+  type TurnLogContext,
   type TurnLogger,
 } from "@gtd/core";
-import { FsSessionStore } from "../src/fs-session-store.js";
 import {
   FsTurnLogger,
   type FsTurnLoggerOps,
 } from "../src/fs-turn-logger.js";
-import {
-  writeTurnArtifact,
-  type TurnLogContext,
-} from "../src/turn-artifact.js";
 
 // Drives the production `writeTurnArtifact` helper across the same exit
 // paths the CLI uses (ok / aborted / stream_error). Stream-side scaffolding
@@ -146,7 +144,7 @@ function makeCtx(args: MakeCtxArgs): {
         disableParallelToolUse: true,
         cacheControl: { type: "ephemeral" as const },
       },
-      cliLogger: logger,
+      logger,
     },
   };
 }

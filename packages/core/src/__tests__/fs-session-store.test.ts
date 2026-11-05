@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   FsSessionStore,
   type FsSessionStoreOps,
-} from "../src/fs-session-store.js";
+} from "../fs-session-store.js";
 
 const tempDirs: string[] = [];
 afterEach(async () => {

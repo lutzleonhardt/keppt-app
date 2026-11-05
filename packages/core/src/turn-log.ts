@@ -46,10 +46,25 @@ export interface TurnLogRecord {
  * added at that point — not pre-emptively.
  */
 export interface TurnLogger {
+  /**
+   * Allocate the id of the next record. The engine stamps it before the
+   * request snapshot so the record's `turnId` and its storage key
+   * (filename, row) always agree.
+   */
+  nextTurnId(): string;
   writeTurn(record: TurnLogRecord): Promise<void>;
 }
 
+function formatTurnId(counter: number): string {
+  return `turn-${String(counter).padStart(3, "0")}`;
+}
+
 export class NoopTurnLogger implements TurnLogger {
+  private counter = 0;
+  nextTurnId(): string {
+    this.counter += 1;
+    return formatTurnId(this.counter);
+  }
   async writeTurn(_record: TurnLogRecord): Promise<void> {
     // Intentionally empty — used by tests / non-DEBUG runs that don't
     // care about the artifact but still need to satisfy the contract.
@@ -58,6 +73,11 @@ export class NoopTurnLogger implements TurnLogger {
 
 export class MemoryTurnLogger implements TurnLogger {
   readonly records: TurnLogRecord[] = [];
+  private counter = 0;
+  nextTurnId(): string {
+    this.counter += 1;
+    return formatTurnId(this.counter);
+  }
   async writeTurn(record: TurnLogRecord): Promise<void> {
     this.records.push(record);
   }

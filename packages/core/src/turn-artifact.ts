@@ -1,5 +1,6 @@
 import type { ModelMessage, StepResult, ToolSet } from "ai";
-import type { Logger, TurnLogRecord, TurnLogger } from "@gtd/core";
+import type { Logger } from "./logging.js";
+import type { TurnLogRecord, TurnLogger } from "./turn-log.js";
 
 /**
  * Per-turn context the artifact writer needs across all three exit paths
@@ -16,7 +17,7 @@ export interface TurnLogContext {
   system: string;
   messages: readonly ModelMessage[];
   providerOptions: unknown;
-  cliLogger: Logger;
+  logger: Logger;
 }
 
 /**
@@ -39,9 +40,8 @@ export type TurnOutcomeInput =
 /**
  * Assemble the per-turn artifact and dispatch it to the logger. Logs the
  * common stream-time fields plus the outcome-specific tail. Failures from
- * the underlying `writeTurn` are caught and surfaced via the CLI logger
- * (`code: "turn_log.write_failed"`) — debug logging must not bubble into
- * the REPL.
+ * the underlying `writeTurn` are caught and surfaced via the injected logger
+ * (`code: "turn_log.write_failed"`) — debug logging must not break the turn.
  */
 export async function writeTurnArtifact(
   ctx: TurnLogContext,
@@ -98,7 +98,7 @@ export async function writeTurnArtifact(
   try {
     await ctx.turnLogger.writeTurn(record);
   } catch (writeErr) {
-    ctx.cliLogger.warn({
+    ctx.logger.warn({
       message: "turn log write failed",
       code: "turn_log.write_failed",
       err: writeErr,

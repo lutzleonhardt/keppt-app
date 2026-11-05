@@ -15,9 +15,8 @@ interface SessionJSON {
  * the accompanying `SessionStore.save` rejects (Phase-1 or Phase-2 save
  * failure — see Task 4.1 plan and `apps/cli/src/index.ts`).
  *
- * Persistence lives behind `SessionStore`. Core does not import `node:fs` —
- * the CLI provides `FsSessionStore`, Phase 2a will provide a Supabase-backed
- * store implementing the same interface.
+ * Persistence lives behind `SessionStore` (`FsSessionStore` for the vault on
+ * disk; the hosted beta adds a Supabase-backed store).
  */
 export class Session {
   readonly date: string;
@@ -162,9 +161,9 @@ export class Session {
 }
 
 /**
- * Per-day persistence for `Session`. CLI provides a filesystem-backed
- * implementation; Phase 2a will provide a Supabase-backed implementation
- * against the `messages` table. Core stays storage-agnostic.
+ * Per-day persistence for `Session`. `FsSessionStore` is the filesystem-backed
+ * implementation; the hosted beta adds a Supabase-backed one. The turn engine
+ * sees only this interface.
  */
 export interface SessionStore {
   /**

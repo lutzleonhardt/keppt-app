@@ -1,6 +1,6 @@
 import * as nodeFs from "node:fs/promises";
 import path from "node:path";
-import { Session, type SessionStore } from "@gtd/core";
+import { Session, type SessionStore } from "./sessions.js";
 
 /**
  * The subset of `node:fs/promises` `FsSessionStore` actually uses. Exposed
@@ -24,10 +24,9 @@ export type FsSessionStoreOps = Pick<
  * truncated mix. `fsync` is deliberately omitted (same throughput vs.
  * post-crash-window trade-off as `cli-error-log.ts` JSONL appends).
  *
- * `apps/cli` owns this implementation because `packages/core` is shared with
- * the Phase-2a web/Supabase target, which has no `node:fs`. The same
- * `SessionStore` interface in core gets a Supabase-backed implementation
- * there.
+ * Node-only like `LocalFileRepository`; the browser-safe surface of core is
+ * the `@gtd/core/layout` entry, not the package root. The hosted beta adds a
+ * Supabase-backed `SessionStore` next to it.
  */
 export class FsSessionStore implements SessionStore {
   private readonly fs: FsSessionStoreOps;

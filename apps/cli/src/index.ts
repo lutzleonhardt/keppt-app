@@ -4,10 +4,10 @@ import { stdin, stdout } from "node:process";
 import {
   ensureGtdTaskFiles,
   formatToday,
+  FsSessionStore,
   LocalFileRepository,
   MAX_INPUT_CHARS,
 } from "@gtd/core";
-import { FsSessionStore } from "./fs-session-store.js";
 import { FsTurnLogger } from "./fs-turn-logger.js";
 import { createCliLogger } from "./cli-logger.js";
 import { formatCliError } from "./cli-errors.js";

@@ -11,11 +11,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   formatToday,
+  FsSessionStore,
   LocalFileRepository,
   MemoryLogger,
   Session,
 } from "@gtd/core";
-import { FsSessionStore } from "../src/fs-session-store.js";
 import { expandQuickReplyLine } from "../src/quick-replies.js";
 import {
   formatQuickReplies,
