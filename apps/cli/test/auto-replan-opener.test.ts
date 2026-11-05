@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type {
@@ -14,6 +15,7 @@ import {
   LocalFileRepository,
   MemoryLogger,
   Session,
+  type FsSessionStoreOps,
 } from "@gtd/core";
 import type { TerminalOutput } from "../src/terminal-output.js";
 
@@ -184,7 +186,7 @@ async function makeHarness(date = "2026-05-20"): Promise<{
 }
 
 describe("Auto-Replan opener", () => {
-  it("T9-AC-04/T9-AC-10: successful opener persists the synthetic user message, response messages, and marker", async () => {
+  it("T9-AC-04/T9-AC-10/T5-AC-04: successful opener persists the fabricated prefix and response messages with origin opener", async () => {
     const { deps, refs, terminal, store, repo } = await makeHarness();
     await repo.write(
       "tasks/next-actions.md",
@@ -202,25 +204,19 @@ describe("Auto-Replan opener", () => {
 
     await runAutoReplanOpener(deps, refs);
 
-    expect(refs.session.autoReplanRanFor).toBe("2026-05-20");
-    expect(refs.session.messages[0]).toMatchObject({ role: "user" });
-    expect(typeof refs.session.messages[0]?.content).toBe("string");
-    expect(refs.session.messages[0]?.content).toContain(
-      "Day rollover for 2026-05-20",
-    );
-    expect(refs.session.messages[0]?.content).toContain(
-      "## daily/2026-05-20.md",
-    );
-    expect(refs.session.messages[0]?.content).toContain(
+    const [kickoff, calls, results, instruction] = refs.session.messages;
+    expect(kickoff).toMatchObject({ role: "user" });
+    expect(kickoff?.content).toContain("Day rollover for 2026-05-20");
+    expect(calls).toMatchObject({ role: "assistant" });
+    expect(results).toMatchObject({ role: "tool" });
+    expect(instruction).toMatchObject({ role: "user" });
+    expect(instruction?.content).toContain(
       "Use daily/2026-05-20.md as today's current plan context",
     );
-    expect(refs.session.messages[0]?.content).toContain(
-      'Later chip examples: "später/verschieben/ignorieren" -> source Plan box [-]',
-    );
-    expect(refs.session.messages[0]?.content).toContain(
-      '"erledigt" -> source [x]',
-    );
-    expect(refs.session.messages.length).toBeGreaterThan(1);
+    expect(refs.session.messages.length).toBeGreaterThan(4);
+    for (const msg of refs.session.messages) {
+      expect(refs.session.originOf(msg)).toBe("opener");
+    }
     expect(refs.lastQuickReplies).toEqual(["Tag planen", "Warten anzeigen"]);
     expect(terminal.events).toContainEqual({
       kind: "autoReplanBanner",
@@ -236,8 +232,8 @@ describe("Auto-Replan opener", () => {
     });
 
     const saved = await store.loadOrCreate("2026-05-20");
-    expect(saved.autoReplanRanFor).toBe("2026-05-20");
     expect(saved.messages[0]).toEqual(refs.session.messages[0]);
+    expect(saved.originOf(saved.messages[0]!)).toBe("opener");
   });
 
   it("drops and only logs an invalid quick-reply call from the opener", async () => {
@@ -266,30 +262,71 @@ describe("Auto-Replan opener", () => {
     expect(cliLogger.byCode("stream.tool_error")).toHaveLength(1);
     expect(cliLogger.byCode("stream.tool_error")[0]?.meta).toMatchObject({
       toolName: "suggest_quick_replies",
-      autoReplan: true,
+      origin: "opener",
     });
   });
 
-  it("T9-AC-05: empty context skips banner, stream, messages, and marker", async () => {
-    const { deps, refs, terminal } = await makeHarness();
+  it("T9-AC-05/T5-AC-01: empty context skips banner, stream and messages, and writes nothing", async () => {
+    const { deps, refs, terminal, store } = await makeHarness();
     modelState.model = failingMockModel("should not be called");
 
     await runAutoReplanOpener(deps, refs);
 
     expect(refs.session.messages).toHaveLength(0);
-    expect(refs.session.autoReplanRanFor).toBeUndefined();
     expect(terminal.events).toEqual([]);
+    expect(existsSync(store.sessionFilePath("2026-05-20"))).toBe(false);
   });
 
-  it("T9-AC-06: maybeRunAutoReplanOpener is a no-op when today's marker is already set", async () => {
+  it("T5-AC-02: a save failure after the opener stream leaves no session file and no chips", async () => {
+    const { deps, refs, terminal, repo, vaultPath } = await makeHarness();
+    await repo.write("tasks/waiting.md", "- [ ] Antwort von Max", "seed");
+    const ops: FsSessionStoreOps = {
+      mkdir,
+      readFile,
+      writeFile,
+      rename: async () => {
+        throw new Error("disk full");
+      },
+    };
+    deps.sessionStore = new FsSessionStore(vaultPath, ops);
+    modelState.model = sequencedMockModel([
+      streamResult(quickReplyChunks("Was tun?", ["Planen"])),
+    ]);
+
+    await runAutoReplanOpener(deps, refs);
+
+    expect(refs.session.messages).toHaveLength(0);
+    expect(refs.lastQuickReplies).toBeNull();
+    expect(
+      existsSync(path.join(vaultPath, ".keppt", "sessions", "2026-05-20.json")),
+    ).toBe(false);
+    const kinds = terminal.events.map((event) => event.kind);
+    expect(kinds.indexOf("endStream")).toBeLessThan(
+      kinds.indexOf("errorSummary"),
+    );
+    expect(terminal.events.at(-1)).toMatchObject({
+      kind: "errorSummary",
+      payload: expect.stringContaining("Error (session_save_phase2)"),
+    });
+    const log = await readFile(
+      path.join(vaultPath, ".keppt", "logs", "cli-errors.jsonl"),
+      "utf8",
+    );
+    expect(log).toContain('"phase":"session_save_phase2"');
+  });
+
+  it("T9-AC-06/T5-AC-01: maybeRunAutoReplanOpener is a no-op when today's session already has messages", async () => {
     const { deps, refs, terminal, repo } = await makeHarness();
     await repo.write("tasks/waiting.md", "- [ ] Antwort von Max", "seed");
-    refs.session.setAutoReplanRanFor("2026-05-20");
+    refs.session.appendTurn(
+      [{ role: "user", content: "schon unterwegs" }],
+      1_000,
+    );
     modelState.model = failingMockModel("should not be called");
 
     await maybeRunAutoReplanOpener(deps, refs);
 
-    expect(refs.session.messages).toHaveLength(0);
+    expect(refs.session.messages).toHaveLength(1);
     expect(terminal.events).toEqual([]);
   });
 
@@ -304,7 +341,6 @@ describe("Auto-Replan opener", () => {
 
     expect(terminal.events[0]).toMatchObject({ kind: "autoReplanBanner" });
     expect(refs.session.messages[0]).toMatchObject({ role: "user" });
-    expect(refs.session.autoReplanRanFor).toBe("2026-05-20");
   });
 
   it("T9-AC-08: dayRolloverGuard announces the boundary, runs opener, then handles the submitted turn", async () => {
@@ -340,12 +376,10 @@ describe("Auto-Replan opener", () => {
     expect(bannerIndex).toBeGreaterThanOrEqual(0);
     expect(openerIndex).toBeGreaterThan(bannerIndex);
     expect(refs.session.date).toBe("2026-05-21");
-    expect(refs.session.autoReplanRanFor).toBe("2026-05-21");
     expect(refs.session.messages.some((msg) => msg.role === "user")).toBe(true);
     expect(refs.lastQuickReplies).toBeNull();
 
     const saved = await store.loadOrCreate("2026-05-21");
-    expect(saved.autoReplanRanFor).toBe("2026-05-21");
     expect(
       saved.messages.some(
         (msg) =>
@@ -356,14 +390,13 @@ describe("Auto-Replan opener", () => {
     ).toBe(true);
   });
 
-  it("T9-AC-09: stream failure leaves marker unset, logs the error, and resolves", async () => {
+  it("T9-AC-09: stream failure persists nothing, logs the error, and resolves", async () => {
     const { deps, refs, terminal, repo, vaultPath } = await makeHarness();
     await repo.write("tasks/waiting.md", "- [ ] Antwort von Max", "seed");
     modelState.model = failingMockModel();
 
     await runAutoReplanOpener(deps, refs);
 
-    expect(refs.session.autoReplanRanFor).toBeUndefined();
     expect(refs.session.messages).toHaveLength(0);
     expect(terminal.events.some((event) => event.kind === "errorSummary")).toBe(
       true,
@@ -372,6 +405,6 @@ describe("Auto-Replan opener", () => {
       path.join(vaultPath, ".keppt", "logs", "cli-errors.jsonl"),
       "utf8",
     );
-    expect(log).toContain("auto_replan_stream");
+    expect(log).toContain('"phase":"stream"');
   });
 });

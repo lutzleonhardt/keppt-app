@@ -1,5 +1,5 @@
-// The user-turn pipeline shared by every entrypoint: persist the user
-// message (Phase 1), stream the model with the per-turn tool set, report
+// The turn pipeline shared by every entrypoint: persist typed input (Phase
+// 1, user turns only), stream the model with the per-turn tool set, report
 // progress to a `TurnSink`, persist the response (Phase 2), write the
 // optional debug artifact. Entrypoints own everything around it — the turn
 // clock, day rollover, error rendering, and the concrete repository, store
@@ -16,7 +16,7 @@ import {
 } from "ai";
 import type { FileRepository } from "./file-repository.js";
 import type { Logger } from "./logging.js";
-import { buildRequest } from "./request-builder.js";
+import { buildRequest, type BuildRequestResult } from "./request-builder.js";
 import type { Session, SessionStore } from "./sessions.js";
 import { buildTools, type QuickRepliesResult } from "./tools.js";
 import { writeTurnArtifact, type TurnLogContext } from "./turn-artifact.js";
@@ -52,11 +52,25 @@ export interface TurnEngineDeps {
   sink: TurnSink;
 }
 
-export interface TurnInput {
+export interface UserTurnInput {
+  kind: "user";
   session: Session;
   userText: string;
   abortSignal: AbortSignal;
 }
+
+/**
+ * The Auto-Replan opener. `openerMessages` (see `buildAutoReplanOpener`)
+ * exist only in the request until the response arrives, then land in the
+ * session together with it in one save. Not abortable.
+ */
+export interface OpenerTurnInput {
+  kind: "opener";
+  session: Session;
+  openerMessages: ModelMessage[];
+}
+
+export type TurnInput = UserTurnInput | OpenerTurnInput;
 
 type StreamHandle = ReturnType<
   typeof streamText<ReturnType<typeof buildTools>>
@@ -73,35 +87,40 @@ export async function runTurn(
 
 async function executeTurn(
   deps: TurnEngineDeps,
-  { session, userText, abortSignal }: TurnInput,
+  turn: TurnInput,
 ): Promise<TurnResult> {
+  // Wall clock, not `now()`: stamps are compared against file mtimes.
+  const turnStartedAt = Date.now();
+  const opened = await openTurn(deps, turn, turnStartedAt);
+  if (!opened.ok) {
+    return { outcome: "error", phase: "session_save_phase1", err: opened.err };
+  }
+  return streamTurn(deps, turn, opened.unsaved, turnStartedAt);
+}
+
+// Build the request, stream, report to the sink, persist the turn in one
+// save, write the artifact. `unsaved` are the turn's messages the session
+// does not hold yet (see `openTurn`).
+async function streamTurn(
+  deps: TurnEngineDeps,
+  turn: TurnInput,
+  unsaved: ModelMessage[],
+  turnStartedAt: number,
+): Promise<TurnResult> {
+  const { session } = turn;
+  const abortSignal = turn.kind === "user" ? turn.abortSignal : undefined;
+
   // Rebuilt per turn: the edit_file retry budget lives in this closure and
   // must not leak into the next turn.
   const tools = buildTools(deps.repo, { now: deps.now, logger: deps.logger });
-
-  // Wall clock, not `now()`: stamps are compared against file mtimes.
-  const turnStartedAt = Date.now();
-  const phase1 = await persistTurnMessages(
-    deps.sessionStore,
-    session,
-    [{ role: "user", content: userText }],
-    turnStartedAt,
-  );
-  if (!phase1.ok) {
-    return { outcome: "error", phase: "session_save_phase1", err: phase1.err };
-  }
-
   const recorder = createTurnRecorder(deps, turnStartedAt);
   try {
-    // `session.messages` flows in as-is: the pruner looks stamps up by
-    // object identity (`createdAtOf`), so nothing may rebuild the messages
-    // between the session and the request.
-    const { system, messages } = buildRequest({
-      today: deps.now(),
-      messages: session.messages,
-      fileVersionAt: deps.fileVersionAt,
-      messageCreatedAt: (msg) => session.createdAtOf(msg) ?? Date.now(),
-    });
+    const { system, messages } = buildTurnRequest(
+      deps,
+      session,
+      unsaved,
+      turnStartedAt,
+    );
     recorder.requestBuilt(system, messages);
 
     const result = streamText({
@@ -120,7 +139,7 @@ async function executeTurn(
       onError: () => {},
     });
 
-    const { quickReplies, aborted } = await consumeStream(result, deps);
+    const { quickReplies, aborted } = await consumeStream(result, deps, turn);
     if (aborted) {
       await recorder.aborted();
       return { outcome: "aborted" };
@@ -128,11 +147,12 @@ async function executeTurn(
     if (quickReplies) deps.sink.quickReplies(quickReplies);
 
     const response = await result.response;
-    const phase2 = await persistTurnMessages(
-      deps.sessionStore,
-      session,
-      response.messages,
-      turnStartedAt,
+    const phase2 = await saveAtomically(deps.sessionStore, session, () =>
+      session.appendTurn(
+        [...unsaved, ...response.messages],
+        turnStartedAt,
+        turn.kind,
+      ),
     );
 
     await recorder.completed(result, response.messages);
@@ -141,12 +161,77 @@ async function executeTurn(
       ? { outcome: "ok" }
       : { outcome: "error", phase: "session_save_phase2", err: phase2.err };
   } catch (err) {
-    if (abortSignal.aborted) {
+    if (abortSignal?.aborted) {
       await recorder.aborted();
       return { outcome: "aborted" };
     }
     await recorder.failed(err);
     return { outcome: "error", phase: "stream", err };
+  }
+}
+
+type SaveOutcome = { ok: true } | { ok: false; err: unknown };
+
+// `session.messages` flows in as-is: the pruner looks stamps up by object
+// identity (`createdAtOf`), so nothing may rebuild the messages between the
+// session and the request. `unsaved` messages are not in the session yet and
+// carry this turn's stamp.
+function buildTurnRequest(
+  deps: TurnEngineDeps,
+  session: Session,
+  unsaved: readonly ModelMessage[],
+  turnStartedAt: number,
+): BuildRequestResult {
+  return buildRequest({
+    today: deps.now(),
+    messages: [...session.messages, ...unsaved],
+    fileVersionAt: deps.fileVersionAt,
+    messageCreatedAt: (msg) =>
+      unsaved.includes(msg)
+        ? turnStartedAt
+        : (session.createdAtOf(msg) ?? Date.now()),
+  });
+}
+
+// What a turn adds to the request before the session holds it. A user turn
+// saves its message first (Phase 1) so typed input survives a crash
+// mid-stream and `unsaved` is empty afterwards; the opener has nothing to
+// protect and must leave nothing behind on failure, so its prefix stays
+// unsaved until the final save.
+async function openTurn(
+  deps: TurnEngineDeps,
+  turn: TurnInput,
+  turnStartedAt: number,
+): Promise<
+  { ok: true; unsaved: ModelMessage[] } | { ok: false; err: unknown }
+> {
+  if (turn.kind === "opener") return { ok: true, unsaved: turn.openerMessages };
+  const userMessage: ModelMessage = { role: "user", content: turn.userText };
+  const phase1 = await saveAtomically(deps.sessionStore, turn.session, () =>
+    turn.session.appendTurn([userMessage], turnStartedAt, turn.kind),
+  );
+  return phase1.ok ? { ok: true, unsaved: [] } : phase1;
+}
+
+// Every message of a turn carries the same stamp, `turnStartedAt`: it is
+// strictly less than any file mtime the turn produces, so a same-turn read →
+// edit of one file leaves the read looking older than the edit and the
+// pruner's drift check fires next turn. On a failed save the in-memory
+// mutation is rolled back so no later prompt is built from messages that
+// never reached the store.
+async function saveAtomically(
+  store: SessionStore,
+  session: Session,
+  mutate: () => void,
+): Promise<SaveOutcome> {
+  const restore = session.snapshot();
+  mutate();
+  try {
+    await store.save(session);
+    return { ok: true };
+  } catch (err) {
+    restore();
+    return { ok: false, err };
   }
 }
 
@@ -214,32 +299,10 @@ function createTurnRecorder(
   };
 }
 
-// One half of the two-phase save. Every message of a turn carries the same
-// stamp, `turnStartedAt`: it is strictly less than any file mtime the turn
-// produces, so a same-turn read → edit of one file leaves the read looking
-// older than the edit and the pruner's drift check fires next turn. On a
-// failed save the in-memory append is rolled back so no later prompt is
-// built from messages that never reached the store.
-async function persistTurnMessages(
-  store: SessionStore,
-  session: Session,
-  messages: ModelMessage[],
-  turnStartedAt: number,
-): Promise<{ ok: true } | { ok: false; err: unknown }> {
-  const restore = session.snapshot();
-  session.appendTurn(messages, turnStartedAt);
-  try {
-    await store.save(session);
-    return { ok: true };
-  } catch (err) {
-    restore();
-    return { ok: false, err };
-  }
-}
-
 async function consumeStream(
   result: StreamHandle,
   { sink, logger }: TurnEngineDeps,
+  turn: TurnInput,
 ): Promise<{ quickReplies: QuickRepliesResult | null; aborted: boolean }> {
   // Quick replies come only from the validated tool result. The SDK also
   // emits an `invalid: true` tool-call before a validation tool-error, and
@@ -275,7 +338,7 @@ async function consumeStream(
           message: `tool ${part.toolName} returned an error`,
           code: "stream.tool_error",
           err: part.error,
-          meta: { toolName: part.toolName },
+          meta: { toolName: part.toolName, origin: turn.kind },
         });
         break;
       case "error":

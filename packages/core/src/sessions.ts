@@ -1,144 +1,109 @@
 import type { ModelMessage } from "ai";
 
+/**
+ * The kind of turn a message belongs to — the engine's `TurnInput["kind"]`.
+ * `opener` is the Auto-Replan opener: its kickoff and instruction messages
+ * are user-role but were never typed, its read_file calls were fabricated.
+ * Display surfaces hide opener user/tool content; the model always sees
+ * the full history (`buildRequest` ignores the origin).
+ */
+export type MessageOrigin = "user" | "opener";
+
+export interface SessionEntry {
+  message: ModelMessage;
+  /** ms epoch at which the turn containing the message started. */
+  createdAt: number;
+  origin: MessageOrigin;
+}
+
 interface SessionJSON {
   date: string;
-  messages: ModelMessage[];
-  createdAt: number[];
-  autoReplanRanFor?: string;
+  entries: SessionEntry[];
 }
+
+const MESSAGE_ORIGINS: readonly string[] = ["user", "opener"];
 
 /**
  * A conversation log for one calendar day. Identity is `date` (YYYY-MM-DD).
  *
- * Encapsulates the invariant `messages.length === createdAt.length` and the
- * snapshot/restore seam used by the CLI to roll back an in-memory append when
- * the accompanying `SessionStore.save` rejects (Phase-1 or Phase-2 save
- * failure — see Task 4.1 plan and `apps/cli/src/index.ts`).
+ * Each message is stored with its turn stamp and origin as one entry, so
+ * the bookkeeping cannot drift apart. `messages` is a `readonly` view with
+ * the same object identities, which is what `createdAtOf`/`originOf` and the
+ * pruner's lookups rely on. The snapshot/restore seam lets the turn engine
+ * roll back an in-memory append when the accompanying `SessionStore.save`
+ * rejects.
  *
  * Persistence lives behind `SessionStore` (`FsSessionStore` for the vault on
  * disk; the hosted beta adds a Supabase-backed store).
  */
 export class Session {
   readonly date: string;
-  // Parallel arrays kept internal so the `length === length` invariant is the
-  // class's responsibility, not the caller's. `messages` is exposed as a
-  // `readonly` view so `streamText({ messages: session.messages })` works
-  // without translation.
-  private readonly _messages: ModelMessage[];
-  private readonly _createdAt: number[];
-  private _autoReplanRanFor: string | undefined;
+  private readonly _entries: SessionEntry[];
 
-  private constructor(
-    date: string,
-    messages: ModelMessage[],
-    createdAt: number[],
-    autoReplanRanFor?: string,
-  ) {
+  private constructor(date: string, entries: SessionEntry[]) {
     this.date = date;
-    this._messages = messages;
-    this._createdAt = createdAt;
-    this._autoReplanRanFor = autoReplanRanFor;
+    this._entries = entries;
   }
 
   static createEmpty(date: string): Session {
-    return new Session(date, [], []);
+    return new Session(date, []);
   }
 
   /**
    * Rehydrate a `Session` from a parsed JSON blob. Validates the shape and
-   * the `messages.length === createdAt.length` invariant; throws on
-   * malformed input rather than silently producing an inconsistent session.
+   * throws on malformed input rather than silently producing an
+   * inconsistent session.
    */
   static fromJSON(raw: unknown): Session {
     if (raw === null || typeof raw !== "object") {
       throw new Error("Session.fromJSON: expected an object");
     }
     const obj = raw as Record<string, unknown>;
-    const { date, messages, createdAt, autoReplanRanFor } = obj;
+    const { date } = obj;
     if (typeof date !== "string" || date.length === 0) {
       throw new Error("Session.fromJSON: missing or invalid `date`");
     }
-    if (!Array.isArray(messages)) {
-      throw new Error("Session.fromJSON: `messages` must be an array");
-    }
-    if (
-      !Array.isArray(createdAt) ||
-      !createdAt.every((n) => typeof n === "number")
-    ) {
-      throw new Error(
-        "Session.fromJSON: `createdAt` must be an array of numbers",
-      );
-    }
-    if (messages.length !== createdAt.length) {
-      throw new Error(
-        `Session.fromJSON: invariant violation — messages.length (${messages.length}) !== createdAt.length (${createdAt.length})`,
-      );
-    }
-    if (
-      autoReplanRanFor !== undefined &&
-      (typeof autoReplanRanFor !== "string" || autoReplanRanFor.length === 0)
-    ) {
-      throw new Error(
-        "Session.fromJSON: `autoReplanRanFor` must be a non-empty string when present",
-      );
-    }
-    return new Session(
-      date,
-      (messages as ModelMessage[]).slice(),
-      createdAt.slice(),
-      autoReplanRanFor,
-    );
+    return new Session(date, parseEntries(obj.entries));
   }
 
   get messages(): readonly ModelMessage[] {
-    return this._messages;
+    return this._entries.map((entry) => entry.message);
   }
 
-  get autoReplanRanFor(): string | undefined {
-    return this._autoReplanRanFor;
-  }
-
-  setAutoReplanRanFor(date: string): void {
-    this._autoReplanRanFor = date;
-  }
-
-  /**
-   * Look up the ms-epoch timestamp at which `msg` was appended. Used by the
-   * pruner's drift check via the CLI closure. O(n) `indexOf`; n stays small
-   * in Phase 1 (K + active context).
-   */
+  /** Turn stamp of `msg`, looked up by object identity; `undefined` for foreign messages. */
   createdAtOf(msg: ModelMessage): number | undefined {
-    const i = this._messages.indexOf(msg);
-    return i >= 0 ? this._createdAt[i] : undefined;
+    return this.entryOf(msg)?.createdAt;
+  }
+
+  originOf(msg: ModelMessage): MessageOrigin | undefined {
+    return this.entryOf(msg)?.origin;
   }
 
   /**
-   * Append a turn's worth of messages, stamping each with the same
-   * `createdAtMs`. The two-phase save uses this once per phase (Phase 1:
-   * just the user message; Phase 2: assistant + tool messages).
+   * Append a turn's worth of messages, all stamped `createdAtMs` and
+   * attributed to `origin`. The two-phase save uses this once per phase;
+   * the opener once for its whole turn.
    */
-  appendTurn(messages: ModelMessage[], createdAtMs: number): void {
-    for (const m of messages) {
-      this._messages.push(m);
-      this._createdAt.push(createdAtMs);
+  appendTurn(
+    messages: readonly ModelMessage[],
+    createdAtMs: number,
+    origin: MessageOrigin = "user",
+  ): void {
+    for (const message of messages) {
+      this._entries.push({ message, createdAt: createdAtMs, origin });
     }
   }
 
   /**
-   * Capture current lengths and return a `restore()` closure that truncates
-   * both internal arrays back to those lengths. Used by the CLI to roll
-   * back an in-memory append when the accompanying `SessionStore.save`
-   * rejects, so the next turn does not build prompts from messages that
-   * never reached disk.
+   * Capture the current length and return a `restore()` closure that drops
+   * every entry appended since. Used to roll back an in-memory append when
+   * the accompanying `SessionStore.save` rejects, so the next turn does not
+   * build prompts from messages that never reached the store.
    */
   snapshot(): () => void {
-    const mLen = this._messages.length;
-    const tLen = this._createdAt.length;
-    const autoReplanRanFor = this._autoReplanRanFor;
+    const length = this._entries.length;
     return () => {
-      this._messages.length = mLen;
-      this._createdAt.length = tLen;
-      this._autoReplanRanFor = autoReplanRanFor;
+      this._entries.length = length;
     };
   }
 
@@ -148,16 +113,56 @@ export class Session {
    * a separate mapper.
    */
   toJSON(): SessionJSON {
-    const json: SessionJSON = {
-      date: this.date,
-      messages: this._messages,
-      createdAt: this._createdAt,
-    };
-    if (this._autoReplanRanFor !== undefined) {
-      json.autoReplanRanFor = this._autoReplanRanFor;
-    }
-    return json;
+    return { date: this.date, entries: this._entries };
   }
+
+  private entryOf(msg: ModelMessage): SessionEntry | undefined {
+    return this._entries.find((entry) => entry.message === msg);
+  }
+}
+
+function parseEntries(raw: unknown): SessionEntry[] {
+  if (!Array.isArray(raw)) {
+    throw new Error("Session.fromJSON: `entries` must be an array");
+  }
+  return raw.map(parseEntry);
+}
+
+function parseEntry(raw: unknown, index: number): SessionEntry {
+  const entry = requireObject(raw, `entries[${index}]`) as Record<
+    string,
+    unknown
+  >;
+  const { createdAt } = entry;
+  if (typeof createdAt !== "number") {
+    throw new Error(
+      `Session.fromJSON: entries[${index}].createdAt must be a number`,
+    );
+  }
+  return {
+    message: requireObject(
+      entry.message,
+      `entries[${index}].message`,
+    ) as ModelMessage,
+    createdAt,
+    origin: parseOrigin(entry.origin, index),
+  };
+}
+
+function requireObject(value: unknown, what: string): object {
+  if (value === null || typeof value !== "object") {
+    throw new Error(`Session.fromJSON: ${what} must be an object`);
+  }
+  return value;
+}
+
+function parseOrigin(value: unknown, index: number): MessageOrigin {
+  if (typeof value !== "string" || !MESSAGE_ORIGINS.includes(value)) {
+    throw new Error(
+      `Session.fromJSON: entries[${index}].origin must be "user" or "opener"`,
+    );
+  }
+  return value as MessageOrigin;
 }
 
 /**

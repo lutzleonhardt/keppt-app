@@ -155,7 +155,7 @@ function summaries(terminal: { events: Event[] }): string[] {
 }
 
 describe("handleTurn rendering", () => {
-  it("renders a stream error with the Stream error prefix and the log path, without endStream", async () => {
+  it("renders a stream error as Error (stream) with the log path, without endStream", async () => {
     const { deps, refs, terminal } = await makeHarness();
     modelState.model = new MockLanguageModelV4({
       doStream: async () => {
@@ -167,7 +167,7 @@ describe("handleTurn rendering", () => {
 
     expect(terminal.events.map((e) => e.kind)).toEqual(["errorSummary"]);
     const [summary] = summaries(terminal);
-    expect(summary).toMatch(/^\nStream error: /);
+    expect(summary).toMatch(/^\nError \(stream\): /);
     expect(summary).toContain("provider down");
     expect(summary).toContain(
       `\nDetails logged to: ${path.join(deps.vaultPath, ".keppt", "logs", "cli-errors.jsonl")}`,
@@ -211,12 +211,12 @@ describe("handleTurn rendering", () => {
       "errorSummary",
     ]);
     expect(summaries(terminal)[0]).toMatch(
-      /^\nSession save failed after successful stream: /,
+      /^\nError \(session_save_phase2\): /,
     );
     expect(refs.lastQuickReplies).toEqual(["Ja", "Nein"]);
   });
 
-  it("renders a Phase-1 save failure as Session save failed and never calls the model", async () => {
+  it("renders a Phase-1 save failure as Error (session_save_phase1) and never calls the model", async () => {
     const { deps, refs, terminal } = await makeHarness(1);
     const model = new MockLanguageModelV4({
       doStream: async () => streamResult(quickReplyChunks()),
@@ -226,7 +226,9 @@ describe("handleTurn rendering", () => {
     await handleTurn(deps, refs, "hallo", new AbortController());
 
     expect(terminal.events.map((e) => e.kind)).toEqual(["errorSummary"]);
-    expect(summaries(terminal)[0]).toMatch(/^\nSession save failed: /);
+    expect(summaries(terminal)[0]).toMatch(
+      /^\nError \(session_save_phase1\): /,
+    );
     expect(model.doStreamCalls).toHaveLength(0);
     expect(refs.session.messages).toEqual([]);
   });

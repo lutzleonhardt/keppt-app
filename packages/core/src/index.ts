@@ -71,6 +71,8 @@ export {
   type TaskOccurrenceSearchResult,
 } from "./task-occurrences.js";
 export {
+  AUTO_REPLAN_DAYS_BACK,
+  buildAutoReplanOpener,
   gatherAutoReplanContext,
   type AutoReplanContext,
 } from "./auto-replan.js";
@@ -84,7 +86,12 @@ export {
   type PruneToolResultsOptions,
   type PruneToolResultsResult,
 } from "./tool-result-pruning.js";
-export { Session, type SessionStore } from "./sessions.js";
+export {
+  Session,
+  type MessageOrigin,
+  type SessionEntry,
+  type SessionStore,
+} from "./sessions.js";
 export { FsSessionStore, type FsSessionStoreOps } from "./fs-session-store.js";
 export {
   MemoryTurnLogger,
@@ -95,9 +102,11 @@ export {
 export { formatToday } from "./search.js";
 export {
   runTurn,
+  type OpenerTurnInput,
   type ProviderOptions,
   type TurnEngineDeps,
   type TurnInput,
+  type UserTurnInput,
 } from "./turn-engine.js";
 export type { TurnErrorPhase, TurnResult, TurnSink } from "./turn-sink.js";
 export { writeTurnArtifact, type TurnLogContext } from "./turn-artifact.js";

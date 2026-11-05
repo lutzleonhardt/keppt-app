@@ -75,7 +75,7 @@ async function makeVault(): Promise<string> {
 }
 
 describe("two-phase save", () => {
-  it("T4.1-AC-12: happy path — successful turn ends with user + response messages on disk, parallel createdAt arrays", async () => {
+  it("T4.1-AC-12: happy path — successful turn ends with user + response messages on disk, stamped per entry", async () => {
     const vault = await makeVault();
     const store = new FsSessionStore(vault);
     const session = await store.loadOrCreate("2026-05-19");
@@ -414,7 +414,7 @@ describe("two-phase save", () => {
     const day1 = JSON.parse(
       await readFile(store.sessionFilePath("2026-05-19"), "utf8"),
     );
-    expect(day1.messages).toEqual([
+    expect(day1.entries.map((e: { message: unknown }) => e.message)).toEqual([
       { role: "user", content: "before midnight" },
     ]);
 
@@ -422,7 +422,7 @@ describe("two-phase save", () => {
     const day2 = JSON.parse(
       await readFile(store.sessionFilePath("2026-05-20"), "utf8"),
     );
-    expect(day2.messages).toEqual([
+    expect(day2.entries.map((e: { message: unknown }) => e.message)).toEqual([
       { role: "user", content: "after midnight" },
     ]);
   });

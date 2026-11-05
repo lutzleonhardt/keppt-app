@@ -22,3 +22,17 @@ export function dailyNoteDate(filePath: string): IsoDate | undefined {
   // behind this one narrowing.
   return isCalendarDate ? (match[1] as IsoDate) : undefined;
 }
+
+/**
+ * Shift a `YYYY-MM-DD` key by whole days. Calendar arithmetic in UTC, so the
+ * result never depends on the host time zone or DST.
+ */
+export function offsetDate(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const timestamp = Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1);
+  const shifted = new Date(timestamp + days * 24 * 60 * 60 * 1000);
+  const y = shifted.getUTCFullYear();
+  const m = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(shifted.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}

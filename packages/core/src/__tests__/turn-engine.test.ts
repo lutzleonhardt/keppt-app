@@ -1,7 +1,11 @@
-import { simulateReadableStream } from "ai";
+import { simulateReadableStream, type ModelMessage } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  buildAutoReplanOpener,
+  gatherAutoReplanContext,
+} from "../auto-replan.js";
 import { InMemoryFileRepository } from "../in-memory-file-repository.js";
 import { MemoryLogger } from "../logging.js";
 import { Session, type SessionStore } from "../sessions.js";
@@ -164,8 +168,10 @@ async function makeHarness(
   };
   const session = Session.createEmpty(DATE_KEY);
   const run = (userText = "hi", signal = new AbortController().signal) =>
-    runTurn(deps, { session, userText, abortSignal: signal });
-  return { deps, session, store, logger, events, run };
+    runTurn(deps, { kind: "user", session, userText, abortSignal: signal });
+  const runOpener = (openerMessages: ModelMessage[]) =>
+    runTurn(deps, { kind: "opener", session, openerMessages });
+  return { deps, repo, session, store, logger, events, run, runOpener };
 }
 
 afterEach(() => {
@@ -211,7 +217,7 @@ describe("runTurn", () => {
     // Phase 1 saved the user message alone, Phase 2 the whole turn.
     expect(store.saved).toHaveLength(2);
     expect(store.saved[0]).toMatchObject({
-      messages: [{ role: "user", content: "hi" }],
+      entries: [{ message: { role: "user", content: "hi" }, origin: "user" }],
     });
     expect(
       logger.events.filter((e) => e.code === "prompt.cache_usage"),
@@ -509,5 +515,169 @@ describe("runTurn", () => {
     expect(
       logger.events.filter((e) => e.code === "prompt.cache_usage"),
     ).toHaveLength(1);
+  });
+});
+
+// The Auto-Replan opener runs through the same engine with a fabricated
+// prefix instead of typed input: no Phase 1, one save at the end that also
+// every message attributed to origin `opener`.
+describe("runTurn (opener)", () => {
+  type PromptMessage =
+    MockLanguageModelV4["doStreamCalls"][number]["prompt"][number];
+
+  function promptTexts(msg: PromptMessage): string {
+    if (typeof msg.content === "string") return msg.content;
+    return msg.content
+      .map((part) =>
+        "text" in part && typeof part.text === "string" ? part.text : "",
+      )
+      .join("");
+  }
+
+  async function seedContext(repo: InMemoryFileRepository): Promise<void> {
+    await repo.write("daily/2026-05-07.md", "- [ ] Anna anrufen\n", "seed");
+    await repo.write(
+      "tasks/next-actions.md",
+      "- [ ] Steuer vorbereiten\n",
+      "seed",
+    );
+  }
+
+  it("T5-AC-04/T5-AC-07: streams from the fabricated prefix, persists prefix + response in one save with origin opener; the request ends with the instruction", async () => {
+    const model = sequencedModel([
+      streamResult(quickReplyChunks("Womit anfangen?", ["Steuer", "Anna"])),
+    ]);
+    const { repo, session, store, events, runOpener } =
+      await makeHarness(model);
+    await seedContext(repo);
+    const opener = buildAutoReplanOpener(
+      await gatherAutoReplanContext(repo, DATE_KEY),
+      DATE_KEY,
+    );
+
+    const result = await runOpener(opener);
+
+    expect(result).toEqual({ outcome: "ok" });
+    // One save, no Phase 1: the prefix reached the disk only with the response.
+    expect(store.saved).toHaveLength(1);
+    expect(session.messages.slice(0, opener.length)).toEqual(opener);
+    expect(session.messages.length).toBeGreaterThan(opener.length);
+    for (const msg of session.messages) {
+      expect(session.originOf(msg)).toBe("opener");
+    }
+    // The fabricated read_file calls are history, not stream events.
+    expect(events.map((e) => e.kind)).toEqual([
+      "assistantText",
+      "quickReplies",
+      "turnEnd",
+    ]);
+
+    const prompt = model.doStreamCalls[0]!.prompt;
+    const last = prompt.at(-1)!;
+    expect(last.role).toBe("user");
+    expect(promptTexts(last)).toContain("Briefly greet the user");
+    expect(last.providerOptions).toMatchObject({
+      anthropic: { cacheControl: { type: "ephemeral" } },
+    });
+    const toolMessage = prompt.find((m) => m.role === "tool")!;
+    // Six window dates (one present) + three task files.
+    expect(toolMessage.content.map((p) => p.toolCallId)).toEqual(
+      Array.from({ length: 9 }, (_, i) => `auto-replan-${i + 1}`),
+    );
+  });
+
+  it("T5-AC-02: a failing opener save leaves the session empty", async () => {
+    const model = sequencedModel([streamResult(textChunks("Morgen."))]);
+    const { repo, session, store, events, runOpener } =
+      await makeHarness(model);
+    await seedContext(repo);
+    store.failOnSave.add(1);
+    const opener = buildAutoReplanOpener(
+      await gatherAutoReplanContext(repo, DATE_KEY),
+      DATE_KEY,
+    );
+
+    const result = await runOpener(opener);
+
+    expect(result).toMatchObject({
+      outcome: "error",
+      phase: "session_save_phase2",
+    });
+    expect(store.saved).toHaveLength(0);
+    expect(session.messages).toHaveLength(0);
+    expect(events.at(-1)).toMatchObject({ kind: "turnEnd" });
+  });
+
+  it("an opener stream failure persists nothing", async () => {
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        throw new Error("provider down");
+      },
+    });
+    const { repo, session, store, runOpener } = await makeHarness(model);
+    await seedContext(repo);
+    const opener = buildAutoReplanOpener(
+      await gatherAutoReplanContext(repo, DATE_KEY),
+      DATE_KEY,
+    );
+
+    const result = await runOpener(opener);
+
+    expect(result).toMatchObject({ outcome: "error", phase: "stream" });
+    expect(store.saved).toHaveLength(0);
+    expect(session.messages).toHaveLength(0);
+  });
+
+  it("T5-AC-06: an edit to one context file after the opener drift-stubs that fabricated result in the next request and leaves the others intact", async () => {
+    const versions = new Map<string, number>();
+    const model = sequencedModel([
+      streamResult(textChunks("Guten Morgen.")),
+      streamResult(textChunks("Erledigt.")),
+    ]);
+    const { repo, session, runOpener, run } = await makeHarness(model, {
+      fileVersionAt: (filePath) => versions.get(filePath),
+    });
+    await seedContext(repo);
+    const opener = buildAutoReplanOpener(
+      await gatherAutoReplanContext(repo, DATE_KEY),
+      DATE_KEY,
+    );
+    await runOpener(opener);
+    const openerStamp = session.createdAtOf(session.messages[0]!)!;
+
+    // The chip turn edited next-actions; its version is newer than the
+    // opener's stamp while the daily and waiting file are untouched.
+    versions.set("tasks/next-actions.md", openerStamp + 1_000);
+    await run("Steuer ist erledigt");
+
+    const prompt = model.doStreamCalls[1]!.prompt;
+    const calls = prompt.find((m) => m.role === "assistant")!.content;
+    const pathById = new Map(
+      calls.flatMap((p) =>
+        p.type === "tool-call"
+          ? [[p.toolCallId, (p.input as { file_path: string }).file_path]]
+          : [],
+      ),
+    );
+    const toolMessage = prompt.find((m) => m.role === "tool")!;
+    const outputByPath = new Map(
+      toolMessage.content.map((p) => [pathById.get(p.toolCallId), p.output]),
+    );
+    expect(outputByPath.get("daily/2026-05-07.md")).toMatchObject({
+      type: "json",
+    });
+    expect(outputByPath.get("tasks/next-actions.md")).toMatchObject({
+      type: "text",
+      value: expect.stringContaining(
+        "result for tasks/next-actions.md — file has changed since",
+      ),
+    });
+    expect(outputByPath.get("tasks/waiting.md")).toMatchObject({
+      type: "json",
+    });
+    const last = prompt.at(-1)!;
+    expect(last.role).toBe("user");
+    expect(promptTexts(last)).toContain("<context-note>");
+    expect(promptTexts(last)).toContain("- tasks/next-actions.md");
   });
 });

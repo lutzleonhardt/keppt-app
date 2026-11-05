@@ -35,13 +35,26 @@ describe("Session", () => {
     expect(s.createdAtOf(a)).toBe(2_000);
   });
 
-  it("createdAtOf returns undefined for messages not in the session", () => {
+  it("appendTurn defaults the origin to user and records the opener origin per append", () => {
+    const s = Session.createEmpty("2026-05-19");
+    const typed = USER("typed");
+    const kickoff = USER("[Day rollover …]");
+    const greeting = ASSISTANT("Guten Morgen");
+    s.appendTurn([typed], 1_000);
+    s.appendTurn([kickoff, greeting], 2_000, "opener");
+    expect(s.originOf(typed)).toBe("user");
+    expect(s.originOf(kickoff)).toBe("opener");
+    expect(s.originOf(greeting)).toBe("opener");
+  });
+
+  it("createdAtOf and originOf return undefined for messages not in the session", () => {
     const s = Session.createEmpty("2026-05-19");
     s.appendTurn([USER("hi")], 1_000);
     expect(s.createdAtOf(USER("nope"))).toBeUndefined();
+    expect(s.originOf(USER("nope"))).toBeUndefined();
   });
 
-  it("messages getter exposes the same identities appendTurn was called with (indexOf lookups stay valid)", () => {
+  it("messages getter exposes the same identities appendTurn was called with (identity lookups stay valid)", () => {
     const s = Session.createEmpty("2026-05-19");
     const u = USER("hi");
     s.appendTurn([u], 1_000);
@@ -60,57 +73,46 @@ describe("Session", () => {
     expect(s.createdAtOf(s.messages[0]!)).toBe(1_000);
   });
 
-  it("snapshot() restores both messages and createdAt together (invariant preserved)", () => {
+  it("snapshot() drops stamps and origins of rolled-back messages together", () => {
     const s = Session.createEmpty("2026-05-19");
     const restore = s.snapshot();
     const a = ASSISTANT("first");
     const b = ASSISTANT("second");
-    s.appendTurn([a, b], 1_000);
+    s.appendTurn([a, b], 1_000, "opener");
     expect(s.messages).toHaveLength(2);
     restore();
     expect(s.messages).toHaveLength(0);
     expect(s.createdAtOf(a)).toBeUndefined();
-    expect(s.createdAtOf(b)).toBeUndefined();
+    expect(s.originOf(b)).toBeUndefined();
   });
 
-  it("snapshot() restores the auto-replan marker too", () => {
-    const s = Session.createEmpty("2026-05-19");
-    s.setAutoReplanRanFor("2026-05-19");
-    const restore = s.snapshot();
-    s.setAutoReplanRanFor("2026-05-20");
-
-    restore();
-
-    expect(s.autoReplanRanFor).toBe("2026-05-19");
-  });
-
-  it("toJSON returns the on-disk shape and JSON.stringify uses it", () => {
+  it("toJSON returns the on-disk entry shape and JSON.stringify uses it", () => {
     const s = Session.createEmpty("2026-05-19");
     const u = USER("hi");
     s.appendTurn([u], 1_000);
     const json = s.toJSON();
     expect(json).toEqual({
       date: "2026-05-19",
-      messages: [u],
-      createdAt: [1_000],
+      entries: [{ message: u, createdAt: 1_000, origin: "user" }],
     });
     const stringified = JSON.parse(JSON.stringify(s));
     expect(stringified).toEqual(json);
   });
 
-  it("fromJSON rehydrates a valid blob and roundtrips state", () => {
+  it("T5-AC-03: opener origins round-trip through toJSON/fromJSON", () => {
     const original = Session.createEmpty("2026-05-19");
     original.appendTurn([USER("a")], 1_000);
-    original.appendTurn([ASSISTANT("b")], 2_000);
-    original.setAutoReplanRanFor("2026-05-19");
+    original.appendTurn([USER("[kickoff]"), ASSISTANT("b")], 2_000, "opener");
 
     const round = Session.fromJSON(JSON.parse(JSON.stringify(original)));
     expect(round.date).toBe("2026-05-19");
-    expect(round.messages).toHaveLength(2);
+    expect(round.messages).toHaveLength(3);
     expect(round.messages[0]).toEqual(USER("a"));
     expect(round.createdAtOf(round.messages[0]!)).toBe(1_000);
+    expect(round.originOf(round.messages[0]!)).toBe("user");
     expect(round.createdAtOf(round.messages[1]!)).toBe(2_000);
-    expect(round.autoReplanRanFor).toBe("2026-05-19");
+    expect(round.originOf(round.messages[1]!)).toBe("opener");
+    expect(round.originOf(round.messages[2]!)).toBe("opener");
   });
 
   it("fromJSON rejects malformed input — not an object", () => {
@@ -119,56 +121,38 @@ describe("Session", () => {
   });
 
   it("fromJSON rejects malformed input — missing or invalid date", () => {
-    expect(() => Session.fromJSON({ messages: [], createdAt: [] })).toThrow(
+    expect(() => Session.fromJSON({ entries: [] })).toThrow(
       /missing or invalid `date`/,
     );
-    expect(() =>
-      Session.fromJSON({ date: "", messages: [], createdAt: [] }),
-    ).toThrow(/missing or invalid `date`/);
+    expect(() => Session.fromJSON({ date: "", entries: [] })).toThrow(
+      /missing or invalid `date`/,
+    );
   });
 
-  it("fromJSON rejects malformed input — non-array messages", () => {
+  it("fromJSON rejects malformed entries — not an array, bad message, bad stamp, bad origin", () => {
     expect(() =>
-      Session.fromJSON({ date: "2026-05-19", messages: "x", createdAt: [] }),
-    ).toThrow(/`messages` must be an array/);
-  });
-
-  it("fromJSON rejects malformed input — createdAt not an array of numbers", () => {
+      Session.fromJSON({ date: "2026-05-19", entries: "x" }),
+    ).toThrow(/`entries` must be an array/);
+    expect(() =>
+      Session.fromJSON({ date: "2026-05-19", entries: ["nope"] }),
+    ).toThrow(/entries\[0\] must be an object/);
     expect(() =>
       Session.fromJSON({
         date: "2026-05-19",
-        messages: [],
-        createdAt: ["nope"],
+        entries: [{ message: "x", createdAt: 1, origin: "user" }],
       }),
-    ).toThrow(/`createdAt` must be an array of numbers/);
-  });
-
-  it("fromJSON rejects invariant violation — messages.length !== createdAt.length", () => {
+    ).toThrow(/entries\[0\]\.message must be an object/);
     expect(() =>
       Session.fromJSON({
         date: "2026-05-19",
-        messages: [USER("a")],
-        createdAt: [1, 2],
+        entries: [{ message: USER("a"), createdAt: "1", origin: "user" }],
       }),
-    ).toThrow(/invariant violation/);
-  });
-
-  it("fromJSON rejects malformed input — invalid autoReplanRanFor marker", () => {
+    ).toThrow(/entries\[0\]\.createdAt must be a number/);
     expect(() =>
       Session.fromJSON({
         date: "2026-05-19",
-        messages: [],
-        createdAt: [],
-        autoReplanRanFor: "",
+        entries: [{ message: USER("a"), createdAt: 1, origin: "bot" }],
       }),
-    ).toThrow(/autoReplanRanFor/);
-    expect(() =>
-      Session.fromJSON({
-        date: "2026-05-19",
-        messages: [],
-        createdAt: [],
-        autoReplanRanFor: 123,
-      }),
-    ).toThrow(/autoReplanRanFor/);
+    ).toThrow(/entries\[0\]\.origin must be "user" or "opener"/);
   });
 });

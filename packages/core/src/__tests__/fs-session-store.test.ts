@@ -75,8 +75,12 @@ describe("FsSessionStore", () => {
     const file2 = store.sessionFilePath("2026-05-20");
     const raw1 = JSON.parse(await readFile(file1, "utf8"));
     const raw2 = JSON.parse(await readFile(file2, "utf8"));
-    expect(raw1.messages).toEqual([{ role: "user", content: "yesterday" }]);
-    expect(raw2.messages).toEqual([{ role: "user", content: "today" }]);
+    expect(raw1.entries).toEqual([
+      { message: { role: "user", content: "yesterday" }, createdAt: 1_000, origin: "user" },
+    ]);
+    expect(raw2.entries).toEqual([
+      { message: { role: "user", content: "today" }, createdAt: 2_000, origin: "user" },
+    ]);
   });
 
   it("creates the .keppt/sessions directory on first save", async () => {
@@ -91,7 +95,7 @@ describe("FsSessionStore", () => {
       path.join(vault, ".keppt", "sessions", "2026-05-19.json"),
     );
     const raw = JSON.parse(await readFile(file, "utf8"));
-    expect(raw.messages).toHaveLength(1);
+    expect(raw.entries).toHaveLength(1);
   });
 
   it("T4.1-AC-15: save writes via a same-directory tmp file + rename (atomic against partial writes)", async () => {
