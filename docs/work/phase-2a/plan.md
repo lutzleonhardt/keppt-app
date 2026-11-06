@@ -9,6 +9,8 @@
 
 > **Amendment 2026-11-06 (2) — Task 16 added (deferred).** Task 6.1 fixed that a turn belongs to the day it started on and that the day switch runs only on `POST /api/chat`. An app left open across midnight therefore keeps showing yesterday until the user types, and the next turn (opener + user turn) would render under yesterday's conversation. The fix spans server (`resync` on the day switch, switch at every entry point), client (reset, banner, navigation, archive) and a UX decision that needs tester feedback — pulled out as Task 16 with a trigger instead of being half-solved in 6.3/6.4.
 
+> **Amendment 2026-11-06 (3) — Task 17 added.** Task 6.1 gave the server its own copy of the CLI's `fileVersionAt` closure (vault mtime). The version source is a storage property — mtime on disk, `updated_at` on Supabase — so it belongs to `FileRepository` as a synchronous `versionOf(path)`, which Task-4 decision 14 had deferred until the Supabase repository exists. Pulled out as Task 17 rather than folded into 6.1: it changes the engine's dependency shape across core, CLI and server, and 6.1 is already review-sized. Small and self-contained; recommended right after `/commit 6.1`, before Task 10 adds the third implementation.
+
 ## Scope
 
 The shared core moves behind an Express server, and the Angular app's mocks are replaced by HTTP/SSE implementations. Two configurations of the same server: the **dev path** (`REPOSITORY=local`, `AUTH=stub`) runs against the real Obsidian vault and stays the daily-dogfooding surface throughout the build; the **beta path** (`REPOSITORY=supabase`, `AUTH=supabase`) is what testers get — Google login, Supabase persistence with RLS, web voice capture, installable PWA, hosted on a single container. End state: a tester logs in on the phone, speaks a brain dump on the couch, and watches the vault files change — the three core advantages (capture → files change, no maintenance via the Auto-Replan opener, trust via tool rows + readable files) are all live.
@@ -60,6 +62,7 @@ Execution order = numeric order. Tasks 1–8 run against the dogfooding vault; 9
 14. **DEFERRED** — Session history UI (list + read-only replay) + the session list endpoints
 15. **DEFERRED** — Vault editor mode with autosave + `PUT /api/files/*`
 16. **DEFERRED** — Day rollover under an open app: `resync` on the day switch, client reset, navigation/archive, midnight-cut UX decision (added 2026-11-06)
+17. `FileRepository.versionOf` — the file-version seam moves from injected closures (CLI + server) into the repository (added 2026-11-06; small, run right after 6.1)
 
 ---
 
@@ -877,6 +880,46 @@ Decision so far — no new event vocabulary. On a day switch the server clears t
 - Data consistency is already guaranteed by 6.1; this task is about the client's view of "today", not about the session files.
 - `resync` means "rebuild your view from the session" and already covers restart and cleared log — midnight is a third cause, not a new mechanism; a dedicated `day-rollover` event would only tell the client *why*, which the session DTO's date tells anyway.
 - The 6.3 session load must apply the same rule as the registry: while a turn is in flight, "today" is the turn's day, or session and stream come from different days.
+
+---
+
+## Task 17: `FileRepository.versionOf` — the file-version seam moves into the repository
+
+> **Added 2026-11-06** during the Task-6.1 wrap-up (user decision). Numbered after the deferred tasks but meant to run right after `/commit 6.1`: it is a mechanical refactor without behavior change, and Task 10 should implement `versionOf` for Supabase instead of inheriting a fourth closure.
+
+### Instructions
+
+`TurnEngineDeps.fileVersionAt` is an injected closure today (Task 4 decision 14 kept it out of the repository because the interface is otherwise async and `buildRequest` is a pure synchronous transform). Since Task 6.1 the closure exists twice, byte-identical: `apps/cli/src/turn-adapter.ts` (`makeFileVersionAt`) and `apps/server/src/vault-file-version.ts`. The version source is a property of the storage — mtime on disk, `updated_at` on Supabase — so it moves onto `FileRepository`.
+
+- **Interface:** `FileRepository` gains `versionOf(filePath: string): number | undefined` — the current version for drift detection, `undefined` when the file is missing. Synchronous by design and documented as the interface's one sync method: the request builder is a pure transform, and a remote repository answers from a per-turn snapshot.
+- **Implementations:** `LocalFileRepository.versionOf` = `statSync(join(vaultPath, filePath)).mtimeMs`, `undefined` on any error (the closure's body). `InMemoryFileRepository.versionOf` = a wall-clock ms timestamp recorded per `write`/`edit` (`Date.now()`, not the `now` option: the pruner compares against the engine's `Date.now()` turn stamps), `undefined` for paths never written. The shared repository contract test (`file-repository.contract.ts`) gains the `versionOf` cases.
+- **Engine:** `TurnEngineDeps` drops `fileVersionAt`; `buildTurnRequest` passes `(filePath) => deps.repo.versionOf(filePath)` to `buildRequest`, whose own `fileVersionAt` input stays (a pure function's parameter, also used by the pruner tests directly).
+- **Entrypoints:** CLI `createEngineDeps` and server `TurnRegistryDeps`/`index.ts` drop the closure; `makeFileVersionAt` and `apps/server/src/vault-file-version.ts` are deleted. Every `FileRepository` literal in tests gains `versionOf` (core fakes, CLI test deps, server `spyFileRepository`, `chat-harness`).
+- **Drift test:** T5-AC-06 simulates drift by writing `tasks/next-actions.md` through the repository after the opener turn with fake timers advanced past the turn stamp, instead of overriding `fileVersionAt`.
+- **Task 10 note:** the Supabase repository implements `versionOf` as a map lookup filled by one `updated_at` query per turn; the async refresh is Task 10's design, the interface here carries only the sync lookup.
+- **Docs:** `docs/development.md` ("Where Node is allowed" names the injected closure) and the Task-4 line in `docs/improvements.md` (closed by this task).
+
+### Acceptance
+
+- **T17-AC-01:** `fileVersionAt` no longer exists on `TurnEngineDeps`, `TurnRegistryDeps` or in any entrypoint; `rg fileVersionAt apps packages/core/src` lists only `request-builder.ts`, `tool-result-pruning.ts` and their tests.
+- **T17-AC-02:** `LocalFileRepository.versionOf` returns the mtime of an existing file and `undefined` for a missing or unsafe path; `InMemoryFileRepository.versionOf` returns a newer value after a write or edit and `undefined` for an unknown path (contract test, both implementations).
+- **T17-AC-03:** Drift detection is unchanged: T5-AC-06 and the pruning tests are green with the repository as the version source; core, CLI and server suites green with no test deleted.
+- **T17-AC-04 (XC-05):** CLI dogfooding behavior unchanged — an external edit between two turns still drift-stubs that file's `read_file` result in the next request (engine test; optional manual smoke).
+
+### Quick functional check
+
+`pnpm -C packages/core build && pnpm -C packages/core test && pnpm -C apps/cli test && pnpm -C apps/server test` all green, and `rg -n 'fileVersionAt' apps packages/core/src --glob '!**/dist/**'` shows only the request builder, the pruner and their tests.
+
+### Key Locations
+
+- Modify: `packages/core/src/{file-repository,local-file-repository,in-memory-file-repository,turn-engine}.ts`, `packages/core/src/__tests__/{file-repository.contract,local-file-repository.test,in-memory-file-repository.test,turn-engine.test}.ts`, `apps/cli/src/turn-adapter.ts` (+ CLI tests that build engine deps), `apps/server/src/chat/turn-registry.ts`, `apps/server/src/index.ts`, `apps/server/src/__tests__/{spy-file-repository,chat-harness}.ts`, `docs/development.md`, `docs/improvements.md`
+- Delete: `apps/server/src/vault-file-version.ts`
+- Reference: `packages/core/src/request-builder.ts` and `tool-result-pruning.ts` (the consumer side stays as is), Task 4 log decision 14, Task 6.1 log decision 17
+
+### Key Discoveries
+
+- The repository interface is otherwise async; `versionOf` is deliberately its one sync method because `buildRequest` is pure. Supabase keeps that by snapshotting once per turn.
+- In-memory versions must come from the wall clock like the engine's `turnStartedAt`; a test that needs "newer" advances fake timers, a same-millisecond write would not count as drift.
 
 ---
 
