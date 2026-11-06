@@ -5,6 +5,8 @@
 
 > **Amendment 2026-10-24 — beta-MVP cut.** The plan grew from a single-user dogfooding milestone into an invite-only hosted beta, because the next goal is handing the app to 5–10 testers within ~3 weeks. Decisions: (1) **PWA before Capacitor** — testers install the web app on the phone home screen; no App Store, no native shell. (2) **Voice via `MediaRecorder` + server-side STT** (OpenAI transcription), inverting the spec's "native STT first, Whisper v2" order; the native path stays a later option. (3) **Supabase light** — `files`/`file_history` per spec, but `sessions` as one JSONB row per user-day (no `messages` table yet), no migration script for the dogfooding vault, no Supabase checkpoint as a separate phase. (4) **Auth = Supabase Auth with Google only**, JWT verified locally on the server, invite allowlist by e-mail; OTP/magic-link login is trigger-gated (see Task 9). (5) Original Tasks 9/10 (session history UI, vault editor) are deferred to Tasks 14/15 with explicit triggers; image input (2a.5) is the first post-launch feature although the strategy roadmap had locked it into V1. Gaps the original plan missed, now folded in: server-side timezone (T6), empty-vault first contact (T8), mobile stream re-attach (T8), LLM reply language (T13), daily turn cap per user (T6), single-instance deployment constraint (T12). **Spec follow-up owed:** `architecture.md` Build Milestones 2a.2/2a.4, "Voice Input Quality", and the `sessions`/`messages` rows of "Database Schema" must be amended to this plan.
 
+> **Amendment 2026-11-06 — tracer-bullet re-cut of Tasks 6–8.** Tasks 6 (server chat surface), 7 (session read) and 8 (HttpChatService) were layer sweeps: nothing would have been visible in the app before the third of them landed, while the integration risk (SSE through the dev proxy, fetch streaming, the event reducer against the mock's block model) sits exactly between the layers. They are re-cut into five vertical slices 6.1–6.5, each verifiable end-to-end right after it lands; the real chat in the app arrives after 6.2. Order: server turn + event stream (6.1) → minimal client (6.2) → session boot + re-attach (6.3) → opener, empty-vault welcome, debug artifacts (6.4) → user-local day + daily turn cap (6.5). The core timezone plumbing moves to the end because the dev path runs in the process zone like the CLI. Vocabulary fixed on the way: the event `kind` is the persisted turn kind `"user" | "opener"` (Task-5 decision 16; `"auto-replan"`/`"synthetic"` are gone), `turn-end` carries the engine `phase` on an error, and the error codes are `input_rejected`, `invalid_request`, `turn_failed`, `turn_limit_reached`. T7-AC-03 (legacy session files) is dropped: there is no legacy reader since Task 5 amendment 4. Each new AC names the ID it replaces (`was T6-AC-NN`).
+
 ## Scope
 
 The shared core moves behind an Express server, and the Angular app's mocks are replaced by HTTP/SSE implementations. Two configurations of the same server: the **dev path** (`REPOSITORY=local`, `AUTH=stub`) runs against the real Obsidian vault and stays the daily-dogfooding surface throughout the build; the **beta path** (`REPOSITORY=supabase`, `AUTH=supabase`) is what testers get — Google login, Supabase persistence with RLS, web voice capture, installable PWA, hosted on a single container. End state: a tester logs in on the phone, speaks a brain dump on the couch, and watches the vault files change — the three core advantages (capture → files change, no maintenance via the Auto-Replan opener, trust via tool rows + readable files) are all live.
@@ -41,9 +43,13 @@ Execution order = numeric order. Tasks 1–8 run against the dogfooding vault; 9
 3.2. Shared API contract package (`@gtd/api`) — Task-3 follow-up, post-created 2026-10-31: `HttpVaultRepository` had to read the API error body through an untyped cast because no wire contract is shared between server and web, and the error code is `string` on the server, so nothing checks the client's `"file_not_found"` literal.
 4. Extract the shared turn engine from the CLI into `packages/core` (behavior-preserving)
 5. Move the Auto-Replan opener onto the engine + synthetic-message origin marker
-6. Detached chat-turn execution + session event stream (`POST /api/chat`, `GET /api/chat/stream`, cancel) + client timezone + daily turn cap
-7. Session read surface (`GET /api/sessions/today` replay DTO with attach cursor)
-8. `HttpChatService` — wire the chat UI to the event stream + empty-vault welcome + mobile re-attach policy — **the "it chats in the app" milestone**
+6. Re-cut 2026-11-06 into five vertical slices (Tasks 7 and 8 folded in; see the amendment above):
+6.1. Server chat turn — detached execution + session event stream (`POST /api/chat`, `GET /api/chat/stream`, cancel) — curl-visible
+6.2. `HttpChatService` — the chat UI talks to the server — **the "it chats in the app" milestone**
+6.3. Session boot + stream re-attach (`GET /api/sessions/today` replay DTO with attach cursor, reconnect, resync, error state)
+6.4. Day start — Auto-Replan opener on the server, empty-vault welcome, server debug artifacts
+6.5. User-local day (`X-Timezone`) + daily turn cap
+7./8. Folded into 6.2–6.4 (2026-11-06).
 9. Supabase Auth: Google login, local JWT verification, invite allowlist, per-request Supabase client
 10. Supabase persistence: `SupabaseFileRepository` + `SupabaseSessionStore` + `REPOSITORY` switch
 11. Web voice capture: `POST /api/transcribe` + `WebVoiceCaptureService` (`MediaRecorder`)
@@ -81,7 +87,7 @@ Contract: sync `void`, must never throw (wrap with core `safeLog`). Structured J
 
 Unknown errors → `internal_error` with a generic message; no stack traces, no provider bodies to the client. `GET /api/health` → `{ "status": "ok" }`.
 
-**Boot sequence:** read env (`VAULT_PATH`, `DEV_USER_ID`, `PORT` default 3333, provider API key check comes with Task 6), then run `ensureGtdTaskFiles` once with a dedicated `new LocalFileRepository(vaultPath, { changedBy: "system", logger })` handle — mirrors `apps/cli/src/index.ts` startup; idempotent; creations attributed to `system` in the history log. Core reads zero env vars — all env handling lives in the server entrypoint.
+**Boot sequence:** read env (`VAULT_PATH`, `DEV_USER_ID`, `PORT` default 3333, provider API key check comes with Task 6.1), then run `ensureGtdTaskFiles` once with a dedicated `new LocalFileRepository(vaultPath, { changedBy: "system", logger })` handle — mirrors `apps/cli/src/index.ts` startup; idempotent; creations attributed to `system` in the history log. Core reads zero env vars — all env handling lives in the server entrypoint.
 
 ### Acceptance
 
@@ -144,7 +150,7 @@ Replace the mock vault data path in `apps/web` with HTTP against Task 2. First v
 
 - **Dev proxy:** `apps/web/proxy.conf.json` forwarding `/api` → `http://localhost:3333`, wired via the `serve` target's `proxyConfig` in `angular.json`. Client code uses relative `/api/...` URLs (same convention as the Transloco loader's relative `/i18n/...`). No environments infrastructure is introduced — relative paths + proxy cover dev; base-URL/token handling arrives with auth in the beta plan.
 - **`HttpVaultRepository`** implementing the abstract class `VaultRepository` (`apps/web/src/app/vault/vault.repository.ts`): `readFile(file): Promise<string | null>` via `HttpClient` `GET /api/files/{file}` — 404 with code `file_not_found` resolves to `null`, any other failure rejects (feeds the Resource `error` state); `listDailyNotes()` via `GET /api/daily-notes`. Promise-based, Angular-free consumers unchanged. Swap `{ provide: VaultRepository, useClass: HttpVaultRepository }` in `app.config.ts`; `MockVaultRepository` stays for tests.
-- **Drop the `APP_TODAY` mock override** (`{ provide: APP_TODAY, useValue: MOCK_TODAY }` with `"2026-05-06"`) from `app.config.ts` — the root factory in `apps/web/src/app/i18n/local-date.ts` already returns the real local date. Consumers: `app-drawer.ts`, `session-header.ts`. Known cosmetic transition state: `MockChatService` (active until Task 8) keeps its fixed-date German demo content while header/drawer show the real date — acceptable and deliberate.
+- **Drop the `APP_TODAY` mock override** (`{ provide: APP_TODAY, useValue: MOCK_TODAY }` with `"2026-05-06"`) from `app.config.ts` — the root factory in `apps/web/src/app/i18n/local-date.ts` already returns the real local date. Consumers: `app-drawer.ts`, `session-header.ts`. Known cosmetic transition state: `MockChatService` (active until Task 6.2) keeps its fixed-date German demo content while header/drawer show the real date — acceptable and deliberate.
 - State semantics stay exactly: `undefined` loading, Resource `error` transport failure, `null` missing, `""` existing-empty, `[]` empty index. No caching, no request sharing — the boundary stays cache-free per spec.
 
 ### Acceptance
@@ -164,7 +170,7 @@ Replace the mock vault data path in `apps/web` with HTTP against Task 2. First v
 ### Key Discoveries
 
 - Abstract classes are the DI tokens (deliberate, spec'd) — the swap is exactly one `useClass` line per boundary; presentational components and Resources are untouched (spec AC: replacing mocks "must not require rewriting presentational components").
-- `provideHttpClient()` is already configured (XHR backend) — fine for request/response reads; streaming concerns only Task 8.
+- `provideHttpClient()` is already configured (XHR backend) — fine for request/response reads; streaming concerns only Task 6.2.
 
 ---
 
@@ -209,7 +215,7 @@ Create `packages/api`, the HTTP wire contract shared by `apps/server` and `apps/
 - **Error contract.** `API_ERROR_CODES` as a readonly tuple with the codes in use — `invalid_path`, `path_out_of_scope`, `file_not_found`, `not_found`, `internal_error`, `turn_in_flight` (409 per the core design; `error-handler.test.ts` already throws it) — and `ApiErrorCode` derived from it; later tasks extend the tuple together with the throw site. `ApiErrorPayload { code; message; requestId }`, `ErrorBody { error: ApiErrorPayload }`, and `apiErrorOf(body: unknown): ApiErrorPayload | undefined` — the single place that inspects an untrusted body (parsed JSON, text, `ProgressEvent`, `null`); it returns a payload only when `code` is a member of the tuple, so the type is honest.
 - **DTOs.** `FileContentBody { content: string }`, `DailyNoteRef { date: IsoDate; isToday: boolean }` (`IsoDate` from `@gtd/core/layout`). Success bodies stay trusted as typed — no zod, no runtime validation beyond the error guard (YAGNI until an untrusted hop exists).
 - **Server:** `ApiError.code: ApiErrorCode`; `ErrorBody`, `FileContentBody`, `DailyNoteRef` imported from `@gtd/api`, local declarations removed. **Web:** `http-vault.repository.ts` decides via `apiErrorOf(error.error)?.code === "file_not_found"`; `ApiErrorBody`, `FileContentBody` and the cast go; `vault.types.ts` re-exports `DailyNoteRef` so consumers keep their import path.
-- **OUT:** session/replay DTOs and SSE event types (Tasks 7/8 add them here when they exist), moving `canRead`/gates to the browser, Sheriff/ESLint boundary tooling (pnpm enforces the package direction; app-internal layering is a later chore, see the improvements register).
+- **OUT:** session/replay DTOs and SSE event types (Tasks 6.1/6.3 add them here when they exist), moving `canRead`/gates to the browser, Sheriff/ESLint boundary tooling (pnpm enforces the package direction; app-internal layering is a later chore, see the improvements register).
 
 ### Acceptance
 
@@ -286,7 +292,7 @@ interface TurnSink {
 
 ### Key Discoveries
 
-- Sink methods are sync `void` — the engine never awaits observers, which is exactly what makes Task 6's detached execution trivial: the engine already runs to completion regardless of who is listening.
+- Sink methods are sync `void` — the engine never awaits observers, which is exactly what makes Task 6.1's detached execution trivial: the engine already runs to completion regardless of who is listening.
 - `handleTurn`'s only user-facing writes go through the injected `TerminalOutput` — there is no direct stdout use inside the pipeline; the coupling is in the *types* (`FsSessionStore`, `FsTurnLogger`, `LocalFileRepository` instead of interfaces).
 - The stale comment at `turn-loop.ts:126-128` claims the provider-flag pin is a static regex; the real test is a runtime assertion on `providerOptions()` — it survives this refactor untouched.
 
@@ -342,78 +348,130 @@ Migrate `apps/cli/src/auto-replan-opener.ts` and the day-rollover guard onto the
 
 ---
 
-## Task 6: Detached chat-turn execution + session event stream
+## Task 6.1: Server chat turn — detached execution + session event stream
 
 ### Instructions
 
-The server chat surface. Turns run detached to completion; clients observe via one standing SSE stream. All state keyed by `userId`.
+The server half of the tracer bullet: `POST /api/chat` starts a turn through the core engine and answers 202 at once; the turn runs to completion and persists regardless of any client; observers get it through one standing SSE stream per client. All state keyed by `userId`. The opener, the user-local day, the turn cap and debug artifacts are later slices (6.4, 6.5) — this slice runs in the process's zone like the CLI.
 
-**Turn registry (in-memory):** per `userId`: the current session date, the user's latest `timeZone`, a `turnsToday` counter, a single in-flight-turn slot (second `POST /api/chat` → 409 `turn_in_flight`), an `AbortController` per turn, and the **day event log**: an append-only array of SSE events with a monotonic `seq` (starts at server boot, spans all turns of the day). The engine's `TurnSink` implementation appends events to the log and fans them out to subscribed SSE connections — fire-and-forget, so the turn completes and persists (phase-2 save) even with zero subscribers. Server restart empties the log (persisted truth lives in the session file; clients resync via Task 7).
+**Turn registry (in-memory, `apps/server/src/chat/turn-registry.ts`):** per `userId`: the current `Session` (loaded once per server-day through `SessionStore.loadOrCreate(formatToday(now()))`; reloaded when the date changes, which clears the event log while `seq` keeps counting; never swapped while a turn is in flight — the 409 check runs first), one in-flight slot `{ turnId, abort: AbortController, startSeq }` (a second `POST /api/chat` → 409 `turn_in_flight`), `settledEntries` (the session's entry count at the last `turnEnd`), and the day event log. The registry builds the `TurnEngineDeps` (repo, session store, logger bound to the originating request's `requestId` + `userId`, `model` + `providerOptions` from the server model provider, `now` = a clock snapshot taken at turn start, `fileVersionAt` = the vault mtime closure the CLI adapter uses, the per-turn sink) and calls `runTurn` **without awaiting it in the handler**. The engine's sync sink is what makes detachment free; the only rule is never to couple the `AbortController` to the HTTP connection. `startSeq` (the seq of the turn's own `turn-start`) and `settledEntries` are two lines here and the whole basis of the attach cursor in 6.3.
 
-**SSE event vocabulary** (SSE `id:` = seq; named events; JSON payloads):
+**Event log (`apps/server/src/chat/event-log.ts`):** append-only array per user-day of `{ seq, event }`. `seq` is monotonic within the process and seeded at boot from `Date.now()`, so a cursor from an earlier process is always older than the oldest retained event and triggers `resync` instead of silently skipping events. `append` stores the event and fans it out synchronously to every subscriber; `since(cursor)` returns the events with `seq > cursor`, the whole log without a cursor, and `"resync"` when the cursor lies before the oldest retained event or beyond the tip. Server restart empties the log — persisted truth is the session file.
+
+**SSE event vocabulary** — wire types in `@gtd/api` (`packages/api/src/chat.ts`); SSE `id:` = seq, `event:` = type, `data:` = JSON:
 
 ```
-turn-start    { turnId, kind: "user" | "auto-replan", message?: string }   // message = user text for kind "user" (lets other clients render it; synthetic content is never sent)
+turn-start    { turnId, kind: "user" | "opener", message?: string }  // message = the user text for kind "user" (lets other clients render it); "opener" turns arrive with 6.4 and carry no message
 text-delta    { turnId, text }
 tool-start    { turnId, toolCallId, tool, target, summary? }
-tool-end      { turnId, toolCallId }                                        // also emitted when a tool errors — settles the row
+tool-end      { turnId, toolCallId }                                    // also emitted when a tool errors — settles the row
 quick-replies { turnId, question, options }
-turn-end      { turnId, outcome: "ok" | "aborted" | "error" }
-error         { turnId?, error: { code, message, requestId } }              // payload byte-compatible with the HTTP error shape
+turn-end      { turnId, outcome: "ok" | "aborted" | "error", phase? }   // phase = engine phase on "error": session_save_phase1 | stream | session_save_phase2
+error         { turnId, error: { code: "turn_failed", message, requestId } }  // precedes turn-end on an error; `error` has the HTTP ErrorBody payload shape
+resync        {}                                                        // control event without id; the client reloads the session (6.3) and re-attaches
 ```
 
-`tool-start.target`/`summary` derivation mirrors the CLI's `formatToolStatusLabel` + the client `AssistantToolMessage` contract: `file_path` for read/edit/write_file, `query` for search_files, `prefix` for list_files, joined candidates for find_task_occurrences; `summary` = model-authored `change_summary` for edit/write. `suggest_quick_replies` never appears as tool events.
+`kind` is the persisted turn kind (`MessageOrigin` from core), one vocabulary for event, session entry and engine input. `tool`/`target`/`summary` derivation (`apps/server/src/chat/turn-events.ts`) mirrors the CLI's `formatToolStatusLabel` and the client's `AssistantToolMessage`: `file_path` for read/edit/write_file, `query` for search_files, `prefix` for list_files, candidates joined with `", "` for find_task_occurrences; `summary` = the model-authored `change_summary` for edit/write. `suggest_quick_replies` never appears as a tool event (the engine filters it). The `error` event carries the `requestId` of the `POST /api/chat` that started the turn and a generic message; details go to the server log as metadata only (XC-02).
 
-**Endpoints:**
-- `POST /api/chat` `{ message }` → sync checks: `validateUserInput` (core, **full gate incl. code-paste heuristic — this is its first intended consumer**; reject → 400 `input_rejected`, no LLM call), 409 if in flight, 429 `turn_limit_reached` if `turnsToday >= DAILY_TURN_LIMIT`. Then: day-rollover check (**user-local** `formatToday(now, timeZone)`; load/create session), opener-if-due runs first as its own turn on the feed (`kind: "auto-replan"`), then the user turn. Respond **202 `{ turnId }`** immediately — rendering flows through the stream.
-- `POST /api/chat/open` → runs the opener if due (202 `{ turnId }`), else 204. Called by the app on boot.
-- `POST /api/chat/cancel` → aborts the in-flight turn via the registry (204; no-op without one). **This is the only abort path — client disconnect never aborts a turn.**
-- `GET /api/chat/stream?cursor=N` → SSE. Replays buffered events with `seq > N`, then follows live. No cursor → replay the full day log. Cursor older than the oldest retained event (server restarted) → emit a `resync` control event; the client refetches the session replay (Task 7) and reconnects with the fresh cursor. Periodic heartbeat comments keep proxies from killing idle streams.
+**Endpoints (`apps/server/src/routes/chat.ts`):**
+- `POST /api/chat` `{ message }` — JSON body (`express.json()` mounted on this router; a body-parser failure or a non-string `message` → 400 `invalid_request`, which also resolves the error handler's "revisit once bodies are parsed" note). Order: `validateUserInput` (core — **its first intended consumer, full gate incl. the code-paste heuristic**; reject → 400 `input_rejected`, no model call) → 409 if in flight → day check → start the turn → **202 `{ turnId }`**.
+- `POST /api/chat/cancel` → aborts the in-flight turn via the registry (204; no-op without one). **The only abort path — a client disconnect never aborts.**
+- `GET /api/chat/stream?cursor=N` → SSE (`text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`, headers flushed immediately). Replay (`since`) and subscribe happen in one synchronous block, so no event can fall between them; `resync` when the cursor cannot be served; a comment line every 15 s keeps proxies from killing idle streams; the connection's `close` only unsubscribes.
 
-**Server model provider:** own thin module with the CLI's env contract (`GTD_PROVIDER`/`GTD_MODEL`, anthropic default `claude-sonnet-4-6`, API-key presence check at boot) and the same provider options shapes — plus a runtime pin test asserting `disableParallelToolUse`/`parallelToolCalls: false` (the retry-budget Map is race-free only under sequential dispatch; `buildTools` explicitly makes this the caller's duty). `DEBUG=1` → `FsTurnLogger` under the vault, as in the CLI.
+**Server model provider (`apps/server/src/model-provider.ts`):** a pure factory `createModelProvider({ provider, modelId })` → `{ model, providerOptions }`, plus `apiKeyEnvName(provider)` and the per-provider defaults (`anthropic` `claude-sonnet-4-6`, `deepseek` `deepseek-v4-pro`, `openai` `gpt-5.4-mini`). The env contract (`GTD_PROVIDER` default anthropic, `GTD_MODEL`, API-key presence at boot) is read in `config.ts` only — nothing below `index.ts` touches `process.env`. Same `providerOptions` shapes as the CLI; because the server module takes the provider as an argument, the sequential-dispatch pin covers all three branches in one test.
 
-**Client timezone (gap found 2026-10-24):** core's `formatToday(d)` uses local `Date` getters, i.e. the *server's* zone. A hosted server runs `TZ=UTC`, so without this the day would roll over at 01:00/02:00 German time — exactly the late-evening couch scenario lands in yesterday's daily note and triggers the opener at the wrong moment. Fix: core `formatToday(d, timeZone?)` formats through `Intl.DateTimeFormat("en-CA", { timeZone })` when a zone is given (process-local otherwise — CLI unchanged); `buildTools`, `LocalFileRepository`/`InMemoryFileRepository` options and the engine deps (Task 4) carry `timeZone`. The client sends `X-Timezone: <IANA>` (`Intl.DateTimeFormat().resolvedOptions().timeZone`) on every `/api/chat*` and `/api/sessions*` request; the registry stores the latest value per user and every `today` derivation on the server uses it. `createdAt`/`turnStartedAt` stamps stay real instants (never shifted dates) — shifting `now()` would corrupt the pruner's drift comparison against `fileVersionAt`.
-
-**Daily turn cap (cost brake for a shared API key):** `DAILY_TURN_LIMIT` env (default 60); the registry's `turnsToday` resets with the user's day; opener turns don't count. Exceeded → 429 `turn_limit_reached` with the stable error shape; Task 8 renders catalog copy. In-memory only — a server restart resets the counter, which is acceptable for a beta brake (not a billing control).
-
-**Documented caveat:** CLI and server share `.keppt/sessions/` last-writer-wins — don't run both simultaneously on the local path.
+**Documented caveat:** CLI and server share `.keppt/sessions/` last-writer-wins — don't run both at the same time on the local path.
 
 ### Acceptance
 
-- **T6-AC-01 (detached completion):** Start a turn, never attach any stream, wait for completion → the session file contains user message + full response; a client attaching afterwards gets the events via cursor replay.
-- **T6-AC-02 (late subscriber):** Attaching mid-turn with no cursor replays all buffered events in order, then delivers live events — assert seamless seq continuity.
-- **T6-AC-03 (cursor catch-up):** Attaching with cursor N delivers only events with seq > N.
-- **T6-AC-04:** Second `POST /api/chat` during an in-flight turn → 409 `turn_in_flight`, no second turn starts.
-- **T6-AC-05:** `POST /api/chat/cancel` aborts: stream shows `turn-end {outcome:"aborted"}`; phase-1 user message persists, no phase-2 append.
-- **T6-AC-06:** Code-paste input → 400 `input_rejected`, model never invoked (spy).
-- **T6-AC-07 (SSE error contract, 2a.0):** A mid-stream provider failure emits a structured `error` event carrying `requestId` before `turn-end {outcome:"error"}`; the server log entry is metadata-only (XC-02).
-- **T6-AC-08:** First request of a new day: feed carries opener turn (`kind:"auto-replan"`) before the user turn; second request same day: no opener.
-- **T6-AC-09:** Client disconnect mid-turn does NOT abort: turn completes and persists (XC-06).
-- **T6-AC-10:** Provider-options pin test (server twin of `workspace-wiring.test.ts`) asserts sequential tool dispatch flags.
-- **T6-AC-11 (timezone):** With the process in `TZ=UTC` and `X-Timezone: Europe/Berlin`, a request at 23:30 UTC on day D runs against session/daily D+1 (user-local), the system prompt's current date is D+1, and the opener-due check uses D+1; with `Pacific/Honolulu` the same instant stays on D. Core unit tests cover `formatToday` with and without a zone; CLI tests stay green with no zone.
-- **T6-AC-12 (turn cap):** The `DAILY_TURN_LIMIT`-th+1 user turn of a user-day returns 429 `turn_limit_reached` and starts no turn; opener turns never count; the counter resets on the user's day rollover.
+- **T6.1-AC-01 (detached completion, XC-06; was T6-AC-01):** Start a turn, attach no stream, wait for completion → the session file contains the user message + full response; a client attaching afterwards receives the turn's events via replay.
+- **T6.1-AC-02 (late subscriber; was T6-AC-02):** Attaching mid-turn with no cursor replays all buffered events in order, then delivers live events — seamless seq continuity.
+- **T6.1-AC-03 (cursor catch-up; was T6-AC-03):** Attaching with cursor N delivers only events with seq > N; a cursor before the oldest retained event or beyond the tip yields exactly one `resync` and nothing else.
+- **T6.1-AC-04 (was T6-AC-04):** Second `POST /api/chat` during an in-flight turn → 409 `turn_in_flight`, no second turn starts.
+- **T6.1-AC-05 (was T6-AC-05):** `POST /api/chat/cancel` aborts: stream shows `turn-end {outcome:"aborted"}`; phase-1 user message persists, no phase-2 append.
+- **T6.1-AC-06 (was T6-AC-06):** Code-paste input → 400 `input_rejected`, model never invoked (spy); malformed JSON or a non-string `message` → 400 `invalid_request`.
+- **T6.1-AC-07 (SSE error contract, XC-02; was T6-AC-07):** A mid-stream provider failure emits `error` carrying the originating `requestId` before `turn-end {outcome:"error", phase:"stream"}`; the server log entry is metadata-only.
+- **T6.1-AC-08 (XC-06; was T6-AC-09):** Client disconnect mid-turn does NOT abort: the turn completes and persists.
+- **T6.1-AC-09 (was T6-AC-10):** Provider-options pin asserts the sequential tool-dispatch flags for anthropic and openai and the documented best-effort shape for deepseek.
+- **T6.1-AC-10:** `tool-start` derivation: every vault tool's input maps to the documented `target`; edit/write carry `summary`; `suggest_quick_replies` produces no tool event.
+
+### Quick functional check
+
+Start the server (`pnpm dev:server` with `VAULT_PATH`, `DEV_USER_ID` and the provider key); `curl -N localhost:3333/api/chat/stream` in one terminal, `curl -X POST localhost:3333/api/chat -H 'content-type: application/json' -d '{"message":"Was steht heute an?"}'` in another → 202 `{ turnId }`, the stream shows `turn-start … tool-start/tool-end … text-delta … turn-end`, and the vault's daily/task files change. Ctrl-C on the stream curl mid-turn: the turn still lands in `.keppt/sessions/<date>.json`.
 
 ### Key Locations
 
-- New: `apps/server/src/chat/{turn-registry,event-log,sse}.ts`, `apps/server/src/routes/chat.ts`, `apps/server/src/model-provider.ts`, tests beside them
-- Modify: `packages/core/src/search.ts` (`formatToday` zone parameter), `packages/core/src/tools.ts` (`buildTools` options), `packages/core/src/{local-file-repository,in-memory-file-repository}.ts` (options), `apps/server/src/middleware/` (timezone header)
-- Reference: `packages/core/src/turn-engine.ts` (Task 4), `packages/core/src/input-validation.ts` (`validateUserInput`, `MAX_INPUT_CHARS`), `apps/cli/src/model-provider.ts` (shape to mirror), `apps/cli/test/workspace-wiring.test.ts` (pin pattern)
+- New: `apps/server/src/chat/{turn-registry,event-log,sse,turn-events}.ts`, `apps/server/src/routes/chat.ts`, `apps/server/src/model-provider.ts`, `packages/api/src/chat.ts`; tests `apps/server/src/__tests__/{chat-route,event-log,turn-events,model-provider}.test.ts` plus an SSE test client helper (real `listen(0)` + `fetch` — supertest buffers responses and cannot observe a stream).
+- Modify: `apps/server/src/{app,config,index}.ts` (registry wiring; `GTD_PROVIDER`/`GTD_MODEL`/API-key config), `apps/server/src/middleware/error-handler.ts` (body-parser errors → 400 `invalid_request`), `apps/server/package.json` (`ai`, `@ai-sdk/{anthropic,deepseek,openai}`), `packages/api/src/{errors,index}.ts` (`input_rejected`, `invalid_request`, `turn_failed`; chat exports), `apps/server/src/__tests__/config.test.ts`.
+- Reference: `packages/core/src/turn-engine.ts` + `turn-sink.ts` (engine contract: sync sink, `turnEnd` exactly once and last, `TurnResult` phases, `TurnInput` union), `packages/core/src/input-validation.ts`, `apps/cli/src/model-provider.ts` (shapes to mirror, DeepSeek caveat), `apps/cli/src/turn-adapter.ts` (`createEngineDeps`, `makeFileVersionAt`), `apps/cli/src/terminal-output.ts` (`formatToolStatusLabel`), `apps/cli/test/workspace-wiring.test.ts` (pin pattern), `packages/core/src/__tests__/turn-engine.test.ts` (`MockLanguageModelV4` stream fixtures, abort pattern).
 
 ### Key Discoveries
 
 - The engine's fire-and-forget sink (Task 4) is what makes detachment free — the endpoint's only job is *not* to couple the AbortController to the HTTP connection.
-- `REJECTION_MESSAGE` in core is English; the server may include it in the 400 body, but the client renders catalog copy from the `code` (Task 8) — server strings never reach the UI.
-- One event log per user-day (not per turn) is what makes the cursor a single monotonic axis for reconnects across turn boundaries.
+- One event log per user-day (not per turn) is what makes the cursor a single monotonic axis for reconnects across turn boundaries; the client only ever remembers the last `id:`.
+- The sink appends synchronously from the engine's stream loop, so an `await` between replay and subscribe is the only way to lose an event — hence one synchronous block.
+- The registry must serialize turns per user; the engine has no lock (Task 4). The in-flight check precedes the day check so the session object is never swapped under a running turn.
+- `REJECTION_MESSAGE` in core is English; the server may include it in the 400 body, but the client renders catalog copy from the `code` — server strings never reach the UI.
+- The web `ToolName` vocabulary (`apps/web/src/app/chat/chat-tool-registry.ts`) is the closed set `tool` must come from.
 
 ---
 
-## Task 7: Session read surface
+## Task 6.2: HttpChatService — the chat UI talks to the server
 
 ### Instructions
 
-One read endpoint over the session store — the persisted counterpart to Task 6's live feed. Cut on 2026-10-24: `GET /api/sessions` (date list) and `GET /api/sessions/:date` moved to Task 14 together with the history UI that consumes them; the MVP boots from today only.
+Replace `MockChatService` with `HttpChatService extends ChatService` (abstract class = DI token; `useClass` swap in `app.config.ts`; the mock stays for tests, XC-03). This is the minimal client for the end-to-end milestone: send, stream, render, chips, cancel. Session boot, re-attach and the welcome message are 6.3/6.4; until then the service opens the stream once at construction **without a cursor** (the server replays the whole day log), which already restores the day's turns after a page reload within one server run. Zoneless: all updates land in signals.
 
-- **`GET /api/sessions/today`** → replay DTO, built from a `Session` loaded through `SessionStore` (never from raw files) so Task 10's store swap does not touch this route:
+**Transport:** raw `fetch` + ReadableStream SSE parsing (`sse-client.ts`: named events, `id:` tracking, `AbortController` for the standing stream) — a deliberate deviation from `provideHttpClient(withFetch())` for cleaner named-event parsing and an abortable standing stream; documented caveat: bypasses HttpClient interceptors, so Task 9's bearer-token wiring must cover this path explicitly. Dev proxy: `apps/web/proxy.conf.json` already routes `/api`; **first check of the slice:** events must arrive while the turn runs — if they show up only at `turn-end`, the dev server buffers and the proxy config needs fixing.
+
+**Event mapping — reproduce the mock's lifecycle invariants exactly:**
+- `sendMessage`: status flips to `"thinking"` **synchronously before any await** (re-entrancy guard: `busy()` blocks double-send), append the user message optimistically, `POST /api/chat`, remember the 202 `turnId` as the own turn.
+- `turn-start` kind `"user"`: own turn (turnId match) → no duplicate user message; a foreign turn (second client) → append its `message` as a user message. Kind `"opener"`: no user message (its output arrives as content/tool events; the opener itself lands with 6.4).
+- Typing indicator: client-derived single live-edge cue exactly like the mock — inserted before the first tool event and before each prose run, removed when the tool row/content lands, never alongside a running tool row.
+- `tool-start` → append `AssistantToolMessage` `state: "running"` (id = `toolCallId`); `tool-end` → immutable update to `"done"`, same id (`track item.id` reuse). Tool internals stay collapsed (non-dev UX rule).
+- `text-delta` → grow **one content message per contiguous text run** (a new content message after intervening tool events — the mock's block model); status `"streaming"` while deltas flow.
+- `quick-replies` → merge the `question` into the trailing content message's markdown and attach the normalized labels as `quickReplies` (chips render only from the trailing content message via `activeQuickReplies`).
+- `turn-end` → remove typing, status `"idle"`.
+- `chooseQuickReply(label)` → `sendMessage(label)`.
+- **Errors in this slice:** 400 `input_rejected`, 409 `turn_in_flight` and an SSE `error` event (`turn_failed`) render localized catalog copy as an assistant content message (de/en) and return the status to `"idle"`. **Never render server `message` strings** (core's `REJECTION_MESSAGE` is English). The `status "error"` state and its UI belong to 6.3 (they are tied to the re-attach probe).
+
+**`cancel()`:** `POST /api/chat/cancel` + local rollback to the post-user-message checkpoint (all-or-nothing visual rollback, mock-identical). Adjust the over-promising doc comment on `ChatService.cancel`: vault mutations the turn already executed are NOT undone (same as CLI Ctrl+C); the rollback is visual.
+
+### Acceptance
+
+- **T6.2-AC-01 (was T8-AC-01):** Scripted SSE fixture (mocked fetch) proves the full lifecycle order: thinking-sync → typing → tool running→done (same id) → streamed content growth → chips on the trailing content → idle. Text→tools→text yields two content messages.
+- **T6.2-AC-02 (was T8-AC-02):** `cancel()` calls the endpoint and rolls the list back to the checkpoint; a `turn-end {aborted}` arriving afterwards causes no duplicate state.
+- **T6.2-AC-03 (was part of T8-AC-03):** The own turn's `turn-start` does not duplicate the optimistic user message; a foreign `turn-start` renders its message text; a `turn-start` of kind `"opener"` renders no user bubble.
+- **T6.2-AC-04 (was part of T8-AC-05):** 400 `input_rejected`, 409 `turn_in_flight` and an SSE `error` event render localized catalog copy as assistant content (both languages routable); no English core string appears; status returns to idle.
+- **T6.2-AC-05 (XC-03):** `MockChatService` stays injectable and green; `ng build` and `ng test` pass.
+- **T6.2-AC-06 (the Phase-2a milestone, manual; was T8-AC-07):** A real chat turn end-to-end from the app against the real server + vault: user text → collapsed tool rows → streamed answer → chips; the vault screen shows the changed file.
+
+### Quick functional check
+
+`pnpm dev:server` plus the Angular dev server; type "Was steht heute an?" in the chat → tool rows, streamed answer, chips; open the daily note in the vault screen and see the change the turn made.
+
+### Key Locations
+
+- New: `apps/web/src/app/chat/http-chat.service.ts`, `apps/web/src/app/chat/sse-client.ts` (+ specs)
+- Modify: `apps/web/src/app/app.config.ts` (provider swap), `apps/web/src/app/chat/chat.service.ts` (cancel doc comment), `apps/web/public/i18n/{de,en}.json` (error copy), `apps/web/proxy.conf.json` only if the stream is buffered
+- Reference: `apps/web/src/app/mock/mock-chat.service.ts` (lifecycle reference implementation), `apps/web/src/app/chat/chat.types.ts`, `apps/web/src/app/chat/chat.store.ts` (untouched — pure facade), `packages/api/src/chat.ts` (events, 6.1), `apps/web/src/app/vault/http-vault.repository.ts` (Task-3 HTTP pattern, `apiErrorOf`)
+
+### Key Discoveries
+
+- `ChatStore` and all presentational components are contract-clean — the swap touches only providers + the new service; the store's `activeQuickReplies` (chips only on the trailing content message) already implements the product rule.
+- Message ids are client-minted and must stay stable across updates (monotonic counter, never list-length-derived); `toolCallId` from the stream is a natural stable id for tool rows.
+- The typing indicator and `ChatStatus` are client-derived UI states, not protocol data — the adapter decides when to insert/remove them.
+- Without a cursor the server replays the whole day log on attach; after a server restart the log is empty and the chat starts blank until 6.3 boots from the session file.
+
+---
+
+## Task 6.3: Session boot + stream re-attach
+
+### Instructions
+
+The persisted counterpart to the live feed plus the client's boot and reconnect behavior. Cut on 2026-10-24: `GET /api/sessions` (date list) and `GET /api/sessions/:date` live in Task 14 with the history UI; the MVP boots from today only.
+
+**Server — `GET /api/sessions/today`** (`apps/server/src/routes/sessions.ts`, DTO types in `packages/api/src/sessions.ts`) → replay DTO built from the registry's in-memory `Session` (never from raw files, so Task 10's store swap does not touch this route):
 
 ```ts
 { messages: ReplayMessage[], cursor: number, inFlight: boolean }
@@ -423,83 +481,119 @@ type ReplayMessage =
   | { kind: "tool"; tool: string; target: string; summary?: string };   // state is always "done"
 ```
 
-Mapping rules (mirror the CLI session-boundary replay + the client `ChatMessage` vocabulary): user text messages pass through **except** those with origin `"synthetic"` (Task 5 marker — the opener blob never reaches a client); assistant text → `content`; assistant tool-calls → `tool` rows with `target`/`summary` derived exactly as in Task 6; `suggest_quick_replies` calls are skipped; tool-result payloads are never included. Quick-reply chips are deliberately not reconstructible from replay (they live in tool-results) — matches the product rule that chips survive exactly one turn.
+Mapping rules (`apps/server/src/chat/replay-dto.ts`; mirror the CLI session-boundary replay + the client `ChatMessage` vocabulary): hide a message when `session.originOf(msg) === "opener"` and it is user-role or a tool-call/tool row (the fabricated kickoff, reads and instruction never reach a client); the opener's assistant text is content like any other (the greeting). Real user text → `user`; assistant text → `content`; assistant tool-calls → `tool` rows with `target`/`summary` through the same derivation as the live `tool-start`; `suggest_quick_replies` calls are skipped; tool-result payloads are never included. Never filter by content. Chips are deliberately not reconstructible from replay (they live in tool-results) — chips survive exactly one turn.
 
-- **The `/today` atomic snapshot:** `cursor` is the event-log seq the client must attach with, computed atomically with the message snapshot: if a turn is in flight, `cursor` = the seq **before** that turn's `turn-start` (so the attach replays the entire in-flight turn, whose messages are not yet in the session file — only its phase-1 user message is, which the DTO therefore excludes to avoid duplication with the replayed `turn-start`); otherwise `cursor` = current tip. This kills the reload/attach race by construction.
-- "Today" is the user-local date from Task 6's timezone plumbing. Malformed session JSON → 500 with stable code, metadata-only log.
+**The atomic snapshot:** `messages` = the first `settledEntries` entries of the session (the count the registry records at every `turnEnd`); `cursor` = `startSeq − 1` of the in-flight turn, else the log tip; `inFlight` accordingly — read in one synchronous block of the registry. This kills the reload/attach race by construction: the in-flight turn's phase-1 user message is beyond `settledEntries`, so it arrives once, through the replayed `turn-start`. "Today" is the registry's current day (process zone until 6.5). Malformed session JSON → 500 with a stable code, metadata-only log (XC-02).
+
+**Client boot:** `GET /api/sessions/today` → map `ReplayMessage`s to `ChatMessage`s (mint client ids; tool rows `state: "done"`) → seed `messages` (replaces the no-cursor attach of 6.2) → open the standing stream with the DTO's `cursor`. Exactly two requests regardless of day length.
+
+**Re-attach policy (PWA):** a stream close is *not* an error. iOS Safari drops the connection every time the home-screen app goes to the background, so the client re-attaches with its last seen `seq` on every stream close, on `visibilitychange` → visible and on `online`, with exponential backoff (1 s doubling to a 30 s cap, reset on success). `resync` → refetch `/api/sessions/today`, reset messages from the DTO, reconnect with the fresh cursor. Each attach fetches a fresh bearer token once Task 9 exists — an expired token never surfaces as a reconnect failure.
+
+**Error state (first real error UI):** `status "error"` only when a `GET /api/sessions/today` probe also fails; render it in the chat template (nothing consumes it today): catalog copy + retry affordance + the `requestId` shown as a support ID when present. A stream failure alone never shows it.
 
 ### Acceptance
 
-- **T7-AC-01:** *Moved to Task 14 (2026-10-24)* — the filename-only date listing travels with the list endpoint.
-- **T7-AC-02:** A session containing user turns, tool calls, an opener turn, and quick-reply calls maps to the DTO with: synthetic user message absent, tool rows with correct target/summary, no tool-result content anywhere in the payload, no quick-reply data.
-- **T7-AC-03:** A legacy session file without origin markers loads (all messages treated as real user/assistant content).
-- **T7-AC-04:** `/today` with a turn in flight: `inFlight: true`, `cursor` points before the in-flight `turn-start`, and the in-flight turn's phase-1 user message is not duplicated between DTO and event replay.
-- **T7-AC-05:** `/today` with nothing in flight: `cursor` = current tip; attaching with it yields no replayed events.
+- **T6.3-AC-01 (was T7-AC-02):** A session containing user turns, tool calls, an opener turn and quick-reply calls maps to the DTO with: the opener's user and tool content absent, its greeting present as content, tool rows with correct target/summary, no tool-result content anywhere, no quick-reply data.
+- **T6.3-AC-02 (was T7-AC-04):** `/today` with a turn in flight: `inFlight: true`, `cursor` before the in-flight `turn-start`, and the phase-1 user message is not duplicated between DTO and event replay.
+- **T6.3-AC-03 (was T7-AC-05):** `/today` with nothing in flight: `cursor` = current tip; attaching with it yields no replayed events.
+- **T6.3-AC-04 (was part of T8-AC-03):** Boot maps a replay DTO (user/content/tool) into rendered messages and attaches with the DTO cursor.
+- **T6.3-AC-05 (was T8-AC-04):** Stream drop mid-turn: automatic re-attach with cursor resumes rendering without duplicated or missing events (fixture-driven); a simulated `visibilitychange` → visible after a closed stream triggers a re-attach; backoff grows and resets as specified (fake timers).
+- **T6.3-AC-06 (was T8-AC-06):** Stream failure plus a failing `/api/sessions/today` probe → `status "error"` UI with retry + requestId support ID; retry re-attaches. A stream failure alone never shows the error state.
+- **T6.3-AC-07:** A `resync` control event refetches the DTO, resets the messages and reconnects with the fresh cursor — no duplicated messages.
+- **T6.3-AC-08 (manual, XC-06):** Reload the app mid-turn → the chat is restored and the running turn keeps streaming on screen; stop and restart the server → the day's chat is there.
+- *T7-AC-03 (legacy session files) dropped 2026-11-06: there is no legacy reader since Task 5 amendment 4.*
+
+### Quick functional check
+
+Start a turn in the app and reload the page while it streams → the messages reappear and the answer keeps streaming; restart the server → the day's chat is shown after the reload.
 
 ### Key Locations
 
-- New: `apps/server/src/routes/sessions.ts`, `apps/server/src/chat/replay-dto.ts`, tests
-- Reference: `packages/core/src/sessions.ts` (origin API from Task 5), `apps/cli/src/session-boundary.ts` (replay rules), `apps/server/src/chat/turn-registry.ts` (snapshot coordination)
+- New: `apps/server/src/routes/sessions.ts`, `apps/server/src/chat/replay-dto.ts`, `packages/api/src/sessions.ts`, tests beside them
+- Modify: `apps/server/src/chat/turn-registry.ts` (snapshot), `apps/server/src/app.ts`, `packages/api/src/index.ts`, `apps/web/src/app/chat/{http-chat.service,sse-client}.ts` (+ specs), chat screen template/styles (error state), `apps/web/public/i18n/{de,en}.json`
+- Reference: `packages/core/src/sessions.ts` (`originOf`, entry list), `apps/cli/src/session-boundary.ts` (replay rules), `apps/server/src/chat/turn-events.ts` (shared target/summary derivation), Task-5 log "Context for Next Task" (display rule)
 
 ### Key Discoveries
 
 - Session files store full `ModelMessage` arrays including tool results with file contents — the DTO is a privacy/size trim, not just a reshape; that is why raw session JSON never goes to the client.
 - The client boots with exactly two requests (`/api/sessions/today` + stream attach) regardless of day length — no N+1 anywhere on the chat path.
+- The persisted origin vocabulary is the turn kind (`"user" | "opener"`); the DTO filters by origin, never by content.
 
 ---
 
-## Task 8: HttpChatService — wire the chat UI to the event stream
+## Task 6.4: Day start — Auto-Replan opener on the server, empty-vault welcome, debug artifacts
 
 ### Instructions
 
-Replace `MockChatService` with `HttpChatService extends ChatService` (abstract class = DI token; `useClass` swap in `app.config.ts`; mock stays for tests). Transport: **raw `fetch` + ReadableStream SSE parsing** — deliberate deviation from `provideHttpClient(withFetch())` (cleaner named-event parsing + AbortController for the standing stream); documented caveat: bypasses HttpClient interceptors, so Task 9's bearer-token wiring must cover this path explicitly. Zoneless: all updates land in signals.
+**Opener on the server.** Same sequence as `apps/cli/src/auto-replan-opener.ts`: the task files exist since boot (`initializeVault`); the opener is due when today's session is empty and `gatherAutoReplanContext(repo, today)` is not empty; then `runTurn(deps, { kind: "opener", session, openerMessages: buildAutoReplanOpener(context, today) })`. No marker state anywhere — the per-day session being non-empty is the "day has started" signal.
+- `POST /api/chat/open` → runs the opener if due (202 `{ turnId }`), else 204 — also 204 while a turn is in flight (the day has started) and on an empty vault. Called by the app after the stream attach.
+- `POST /api/chat` runs the opener first when due, then the user turn, as one in-flight chain; 202 carries the user turn's id. The user turn runs regardless of the opener's outcome. Cancel during the opener: the opener is not abortable and finishes; the user turn then starts with an already-aborted signal and ends `aborted` (its phase-1 message persists).
+- Opener turn on the feed: `turn-start { kind: "opener" }` without `message`; the fabricated reads produce no tool events; real tool calls the model makes during the opener do; `turn-end` last.
 
-**Boot:** `GET /api/sessions/today` → map ReplayMessages to `ChatMessage`s (mint client ids; tool rows `state: "done"`) → seed `messages` signal (replaces the mock's constructor greeting). Then `POST /api/chat/open` (fire-and-forget) and open the standing stream with the DTO's `cursor`.
+**Server debug artifacts.** `FsTurnLogger` moves from `apps/cli/src/fs-turn-logger.ts` into core (with its test), as `FsSessionStore` did in Task 4; `DEBUG=1` (read in `config.ts`) → one logger per user-day under `<vault>/.keppt/logs/sessions/<date>/turn-NNN.json`, created by the registry on day rollover, exactly as the CLI. The opener's live smoke needs the artifact: Task 5 found the wasted model step only there.
 
-**Event mapping — reproduce the mock's lifecycle invariants exactly:**
-- `sendMessage`: status flips to `"thinking"` **synchronously before any await** (re-entrancy guard: `busy()` blocks double-send), append the user message optimistically, remember the 202 `turnId` as "own turn".
-- `turn-start` kind `"user"`: if it is the own pending turn (turnId match) → no duplicate user message; a foreign turn (second client) → append its `message` text as a user message.
-- `turn-start` kind `"auto-replan"`: no user message (opener output arrives as content/tool events).
-- Typing indicator: client-derived single live-edge cue exactly like the mock — inserted before the first tool event and before each prose run, removed when the tool row/content lands, never alongside a running tool row.
-- `tool-start` → append `AssistantToolMessage` `state: "running"` (id from `toolCallId`); `tool-end` → immutable update to `"done"`, **same id** (`track item.id` reuse).
-- `text-delta` → grow **one content message per contiguous text run** (a new content message after intervening tool events — matches the mock's block model); status `"streaming"` while deltas flow.
-- `quick-replies` → append the `question` as (or merge into) the trailing content message's markdown and attach normalized labels as `quickReplies` (chips render only from the trailing content message via `activeQuickReplies`).
-- `turn-end` → remove typing, status `"idle"`.
-- `chooseQuickReply(label)` → `sendMessage(label)`.
-
-**`cancel()`:** `POST /api/chat/cancel` + local rollback to the post-user-message checkpoint (all-or-nothing visual rollback, mock-identical). Adjust the over-promising doc comment on `ChatService.cancel` — vault mutations already executed by the turn are NOT undone (same as CLI Ctrl+C); the rollback is visual.
-
-**Re-attach policy (amended 2026-10-24 for the PWA):** a stream close is *not* an error. iOS Safari drops the connection every time the home-screen app goes to the background, so the client re-attaches with its last seen `seq` on every stream close, on `visibilitychange` → visible, and on `online`, with exponential backoff (1 s doubling to a 30 s cap, reset on success). Status `"error"` is shown only when a `GET /api/sessions/today` probe also fails. Each attach fetches a fresh bearer token (Task 9) — an expired token never surfaces as a reconnect failure. The client sends `X-Timezone` on every request (Task 6).
-
-**Empty-vault welcome (gap found 2026-10-24; spec R12 "first start, empty state"):** the opener skips empty vaults silently, so a new tester would see a blank chat. When the boot DTO has zero messages, nothing is in flight, and `POST /api/chat/open` returned 204, the client renders one **non-persisted** assistant content message from the catalog (`chat.welcome.body`, e.g. "Sag mir einfach, was dir im Kopf ist — ich kümmere mich um den Rest.") with two catalog quick replies through the normal chip path (e.g. "Ich habe eine Liste im Kopf" / "Was kannst du?"). No LLM call, no server state; after the first real turn it is naturally gone on reload because the session is no longer empty.
-
-**Error story (first real error UI):**
-- Render `status === "error"` in the chat template (nothing consumes it today): catalog copy + retry affordance + the `requestId` shown as a support ID when present.
-- HTTP error codes map to catalog keys (de/en) rendered as friendly assistant-style content — `input_rejected` → the GTD-assistant rejection copy, `turn_in_flight` → "a response is still running" hint, `turn_limit_reached` → "daily limit reached, continues tomorrow" hint. **Never render server `message` strings** (core's `REJECTION_MESSAGE` is English).
-- `resync` control event → refetch `/api/sessions/today`, reset messages from DTO, reconnect with fresh cursor.
+**Client.** `POST /api/chat/open` fire-and-forget after the stream attach; the opener's output renders as content/tool events (6.2 already renders a `turn-start` of kind `"opener"` without a user bubble). **Empty-vault welcome** (spec R12 "first start, empty state"): the opener skips empty vaults silently, so a new tester would see a blank chat. When the boot DTO has zero messages, nothing is in flight and `open` returned 204, the client renders one **non-persisted** assistant content message from the catalog (`chat.welcome.body`, e.g. "Sag mir einfach, was dir im Kopf ist — ich kümmere mich um den Rest.") with two catalog quick replies through the normal chip path (e.g. "Ich habe eine Liste im Kopf" / "Was kannst du?"). No LLM call, no server state; after the first real turn it is naturally gone on reload because the session is no longer empty.
 
 ### Acceptance
 
-- **T8-AC-01:** Scripted SSE fixture (mocked fetch) proves the full lifecycle order: thinking-sync → typing → tool running→done (same id) → streamed content growth → chips on trailing content → idle. Text→tools→text yields two content messages.
-- **T8-AC-02:** `cancel()` calls the endpoint and rolls the list back to the checkpoint; a `turn-end {aborted}` arriving afterwards causes no duplicate state.
-- **T8-AC-03:** Boot maps a replay DTO (user/content/tool) into rendered messages and attaches with the DTO cursor; own-turn `turn-start` does not duplicate the optimistic user message; a foreign `turn-start` renders its message text.
-- **T8-AC-04:** Stream drop mid-turn: automatic re-attach with cursor resumes rendering without duplicated or missing events (fixture-driven); a simulated `visibilitychange` → visible after a closed stream triggers a re-attach; backoff grows and resets as specified (fake timers).
-- **T8-AC-05:** 400 `input_rejected` and 429 `turn_limit_reached` render localized catalog copy as assistant content (both languages routable); no English core string appears; status returns to idle.
-- **T8-AC-06:** Stream failure plus a failing `/api/sessions/today` probe → `status "error"` UI with retry + requestId support ID; retry re-attaches. A stream failure alone never shows the error state.
-- **T8-AC-07:** Manual smoke against the real server + vault: a real chat turn end-to-end from the app — the Phase-2a milestone. Tool internals stay collapsed (non-dev UX rule).
-- **T8-AC-08:** Empty session + `open` → 204 renders the welcome message with two chips; choosing a chip sends it as a normal message; a non-empty DTO never shows the welcome; the welcome is absent from any request payload.
+- **T6.4-AC-01 (was T6-AC-08):** First request of a new day: the feed carries the opener turn (`kind: "opener"`) before the user turn; a second request the same day runs no opener.
+- **T6.4-AC-02:** `POST /api/chat/open` → 202 with a turn when due; 204 on a non-empty session, on an empty vault and while a turn is in flight — in all three cases no turn starts.
+- **T6.4-AC-03:** The opener turn emits no tool events for its fabricated reads and a `turn-start` without `message`; an opener stream failure ends with `error` + `turn-end {error}` and the queued user turn still runs.
+- **T6.4-AC-04 (was T8-AC-08):** Empty session + `open` → 204 renders the welcome message with two chips; choosing a chip sends it as a normal message; a non-empty DTO never shows the welcome; the welcome is absent from any request payload.
+- **T6.4-AC-05 (XC-05):** CLI suite green after the `FsTurnLogger` move with import-line changes only; with `DEBUG=1` the server writes one `turn-NNN.json` per turn in the CLI's record shape.
+- **T6.4-AC-06 (manual):** A fresh day in the app opens with the greeting and chips before any typing; the first Anthropic run of the fabricated prefix (open issue from Task 5) is observed through the artifact.
+
+### Quick functional check
+
+Delete today's session file, reload the app → the Auto-Replan greeting with chips appears without typing; a vault with no content shows the welcome message instead.
 
 ### Key Locations
 
-- New: `apps/web/src/app/chat/http-chat.service.ts`, `apps/web/src/app/chat/sse-client.ts` (+ specs)
-- Modify: `apps/web/src/app/app.config.ts`, `apps/web/src/app/chat/chat.service.ts` (cancel doc comment), chat screen template/styles (error state), `apps/web/public/i18n/{de,en}.json` (error copy, `chat.welcome.*`)
-- Reference: `apps/web/src/app/chat/chat.types.ts`, `apps/web/src/app/mock/mock-chat.service.ts` (lifecycle reference implementation), `apps/web/src/app/chat/chat.store.ts` (untouched — pure facade), `docs/specs/architecture.md` → "Context-Aware Session Start" (R12 table, first row)
+- Modify: `apps/server/src/chat/turn-registry.ts` (opener chain, per-day turn logger), `apps/server/src/routes/chat.ts` (`/open`), `apps/server/src/{config,index}.ts` (`DEBUG`), `packages/core/src/index.ts`, `apps/cli/src/{index,turn-loop}.ts` + `apps/cli/test/turn-logger-integration.test.ts` (imports), `apps/web/src/app/chat/http-chat.service.ts` (+ spec), `apps/web/public/i18n/{de,en}.json` (`chat.welcome.*`)
+- New: `packages/core/src/fs-turn-logger.ts` + `packages/core/src/__tests__/fs-turn-logger.test.ts` (moved from the CLI; `apps/cli/src/fs-turn-logger.ts` and `apps/cli/test/fs-turn-logger.test.ts` deleted), server tests for `/open` and the chain
+- Reference: `apps/cli/src/auto-replan-opener.ts` (the sequence to mirror), `packages/core/src/auto-replan.ts` (`gatherAutoReplanContext`, `buildAutoReplanOpener`), `packages/core/src/turn-log.ts` (`TurnLogger.nextTurnId`), `docs/specs/architecture.md` → "Context-Aware Session Start" (R12 table, first row), Task-5 log "Context for Next Task"
 
 ### Key Discoveries
 
-- `ChatStore` and all presentational components are contract-clean — the swap touches only providers + the new service; the store's `activeQuickReplies` (chips only on trailing content message) already implements the product rule.
-- Message ids are client-minted and must stay stable across updates (monotonic counter, never list-length-derived); `toolCallId` from the stream is a natural stable id for tool rows.
-- The typing indicator and `ChatStatus` are client-derived UI states, not protocol data — the adapter decides when to insert/remove them.
+- The opener never yields `aborted`; `turnEnd` is always last. A post-stream save failure is `session_save_phase2` for both kinds — one phase vocabulary.
+- The opener request must end with the instruction user message — never append to `openerMessages`; `buildRequest` attaches the cache marker and context notes to the last user message. Fabricated tool-call ids are `auto-replan-N`; a real provider id never collides.
+- The welcome is client-only by design: an LLM greeting on an empty vault would be a replanning turn on nothing.
+
+---
+
+## Task 6.5: User-local day + daily turn cap
+
+### Instructions
+
+**Client timezone (gap found 2026-10-24):** core's `formatToday(d)` uses local `Date` getters, i.e. the *server's* zone. A hosted server runs `TZ=UTC` (XC-08), so without this the day would roll over at 01:00/02:00 German time — the late-evening couch scenario lands in yesterday's daily note and triggers the opener at the wrong moment.
+- Core: `formatToday(d, timeZone?)` formats through `Intl.DateTimeFormat("en-CA", { timeZone })` when a zone is given (local getters otherwise — CLI unchanged); the system prompt's date line (`buildSystemPrompt`, via `buildRequest`) takes the same zone so weekday/day/month/year are user-local; `BuildToolsOptions.timeZone`, `LocalFileRepository`/`InMemoryFileRepository` options and `TurnEngineDeps.timeZone` carry it. `createdAt`/`turnStartedAt` stamps stay real instants (never shifted dates) — shifting `now()` would corrupt the pruner's drift comparison against `fileVersionAt`.
+- Server: `X-Timezone` middleware (`apps/server/src/middleware/timezone.ts`): a valid IANA zone sets `req.timeZone`, an invalid one → 400 `invalid_request`, absent → process zone. The registry stores the latest zone per user; every "today" derivation on the server (session date and rollover, opener window, engine deps) uses it.
+- Client: `X-Timezone: Intl.DateTimeFormat().resolvedOptions().timeZone` on every `/api/chat*` and `/api/sessions*` request.
+
+**Daily turn cap (cost brake for a shared API key):** `DAILY_TURN_LIMIT` env (default 60); the registry's `turnsToday` counts started user turns and resets with the user's day; opener turns don't count. Checked after the day check and before the turn starts → 429 `turn_limit_reached` with the stable error shape; the client renders catalog copy ("daily limit reached, continues tomorrow"). In-memory only — a server restart resets the counter, acceptable for a beta brake (not a billing control).
+
+### Acceptance
+
+- **T6.5-AC-01 (was T6-AC-11; XC-08):** With the process in `TZ=UTC` and `X-Timezone: Europe/Berlin`, a request at 23:30 UTC on day D runs against session/daily D+1 (user-local), the system prompt's current date is D+1, and the opener-due check uses D+1; with `Pacific/Honolulu` the same instant stays on D.
+- **T6.5-AC-02 (XC-05):** Core unit tests cover `formatToday` and the prompt date line with and without a zone; CLI tests stay green with no zone.
+- **T6.5-AC-03:** An invalid `X-Timezone` → 400 `invalid_request`; a missing header keeps the process zone.
+- **T6.5-AC-04 (was T6-AC-12):** The `DAILY_TURN_LIMIT`-th+1 user turn of a user-day returns 429 `turn_limit_reached` and starts no turn; opener turns never count; the counter resets on the user's day rollover.
+- **T6.5-AC-05 (was part of T8-AC-05):** The client sends `X-Timezone` on chat and session requests and renders the 429 as localized catalog copy; no English core string appears; status returns to idle.
+
+### Quick functional check
+
+Run the server with `TZ=UTC` and post the same message once with `X-Timezone: Pacific/Kiritimati` and once with `Pacific/Honolulu` around 12:00 UTC → two session files with different dates appear under `.keppt/sessions/`; with `DAILY_TURN_LIMIT=1` the second post of the day returns 429.
+
+### Key Locations
+
+- Modify: `packages/core/src/{search,tools,local-file-repository,in-memory-file-repository,system-prompt,request-builder,turn-engine}.ts` + `packages/core/src/__tests__/{search,system-prompt,turn-engine}.test.ts`; `apps/server/src/{config,app}.ts`, `apps/server/src/chat/turn-registry.ts`, `apps/server/src/routes/chat.ts`, `packages/api/src/errors.ts` (`turn_limit_reached`), `apps/web/src/app/chat/{http-chat.service,sse-client}.ts`, `apps/web/public/i18n/{de,en}.json`
+- New: `apps/server/src/middleware/timezone.ts` + test
+- Reference: `apps/cli/src/index.ts` (the turn clock), Task-4 log decision 3 (why the zone was deferred), Task-5 log decision 11 (the one engine line the clock touches)
+
+### Key Discoveries
+
+- `buildSystemPrompt` derives weekday/month/day/year with local getters — the zone must reach it, not only `formatToday`, or the prompt and the gates disagree across midnight.
+- Opener turns don't count against the cap because the user cannot avoid them.
 
 ---
 
@@ -513,7 +607,7 @@ First beta-path task. Supabase Auth is the identity broker: Angular signs in wit
 
 **Server — `AUTH=stub|supabase`:** the Task-1 middleware is the single switch point. `supabase` mode: read `Authorization: Bearer <jwt>`, verify locally with `jose` (signature via cached JWKS from `<SUPABASE_URL>/auth/v1/.well-known/jwks.json`, `iss`, `aud === "authenticated"`, `exp`) — **no per-request network call to Supabase**; the stream path would otherwise pay a roundtrip per attach. `req.userId = sub`, `req.userEmail = email`. Missing/invalid → 401 `unauthorized`. Then the **invite allowlist**: `BETA_ALLOWLIST` env (comma-separated e-mails) — a valid JWT whose `email` is not listed → 403 `not_invited`. Deterministic, no table, no dashboard signup toggle to keep in sync; Lutz invites by editing one env var and redeploying. A **per-request Supabase client factory** (`createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { headers: { Authorization } } })`) is attached to `req` for Task 10, so every data access runs under the user's JWT and Postgres RLS applies. The `service_role` key is **not** part of the server runtime env at all. **SSE and expiry:** the stream is authorized at connect time and stays open if the token expires mid-stream; the next attach carries a fresh token. `stub` mode keeps `DEV_USER_ID` exactly as Task 1 built it.
 
-**Client:** `@supabase/supabase-js` with PKCE (the library default for browsers), `detectSessionInUrl` handling the `?code=` exchange after the redirect. A thin `AuthService` exposing a `session` signal; `/login` route with **one Google button** (no e-mail form); an auth guard on all app routes that redirects to `/login` only when `getSession()` is null (F5 never shows the login — the persisted session is read from `localStorage` and refreshed silently). Bearer token attached by an `HttpInterceptorFn` **and** by the `fetch`-based SSE client (Task 8's documented interceptor bypass), both reading `getSession()` per request so supabase-js's auto-refresh is always honored. On 401: one `getSession()` + retry, then sign-out → `/login`. `SIGNED_OUT` event → `/login`. A "Logout" entry in the drawer. The client always requires a Supabase session, also against a stub-mode server (which ignores the token) — keeps dev on the real login path daily, no second mechanism.
+**Client:** `@supabase/supabase-js` with PKCE (the library default for browsers), `detectSessionInUrl` handling the `?code=` exchange after the redirect. A thin `AuthService` exposing a `session` signal; `/login` route with **one Google button** (no e-mail form); an auth guard on all app routes that redirects to `/login` only when `getSession()` is null (F5 never shows the login — the persisted session is read from `localStorage` and refreshed silently). Bearer token attached by an `HttpInterceptorFn` **and** by the `fetch`-based SSE client (Task 6.2's documented interceptor bypass), both reading `getSession()` per request so supabase-js's auto-refresh is always honored. On 401: one `getSession()` + retry, then sign-out → `/login`. `SIGNED_OUT` event → `/login`. A "Logout" entry in the drawer. The client always requires a Supabase session, also against a stub-mode server (which ignores the token) — keeps dev on the real login path daily, no second mechanism.
 
 **Trigger-gated fallback, not built now:** e-mail OTP code login (`signInWithOtp` + `verifyOtp`, no redirect) — build it if (a) the iPhone home-screen PWA cannot complete the Google redirect in Task 12's smoke, or (b) a tester Lutz wants has no Google account. ~half a day; Supabase needs no extra configuration for it.
 
@@ -581,7 +675,7 @@ Second implementation of the two persistence interfaces, selected by `REPOSITORY
 
 - The repository interfaces were designed for this swap, but two things sit *outside* them and had to be re-homed: `fileVersionAt` (CLI `statSync`) and `ensureGtdTaskFiles` at boot (per-vault, not per-user). Both are now explicit in this task so the swap is actually interface-only for everything else.
 - The JSONB session blob is the pragmatic cut: `FsSessionStore` already persists exactly that shape, pruning works on the loaded `Session`, and no current feature queries messages individually. Normalizing to a `messages` table later is a data migration, not a code redesign.
-- Per-user turn serialization (one in-flight turn per user, 409 otherwise — Task 6) is what makes the repository safe without row locks: the recheck-vs-rename race from the Task-2 log cannot occur on the server path.
+- Per-user turn serialization (one in-flight turn per user, 409 otherwise — Task 6.1) is what makes the repository safe without row locks: the recheck-vs-rename race from the Task-2 log cannot occur on the server path.
 
 ---
 
@@ -624,7 +718,7 @@ Voice is the primary capture modality of the product ("evening on the couch"). T
 
 **PWA:** `manifest.webmanifest` (name, icons, `display: standalone`, theme/background colors from the Keppt tokens), `@angular/service-worker` with `ngsw-config.json`: app shell prefetch, `/api/**` excluded from every data group (never cache API), and `SwUpdate.versionUpdates` → reload on `VERSION_READY` so daily deploys never leave a tester on a stale shell. iOS needs no service worker for "Add to Home Screen"; Android Chrome's install prompt benefits from one.
 
-**Container + platform:** multi-stage Dockerfile (pnpm install → build core, web, server → slim Node 22 runtime), `TZ=UTC` (Task 6's timezone plumbing assumes it), health check on `GET /api/health`. Platform: **Fly.io (EU region) or a Hetzner Cloud VPS with Docker Compose + Caddy** — decided at task start against these requirements: **exactly one always-on instance** (registry and event log are in-process; no autoscale, no scale-to-zero, which would also kill idle SSE streams), persistent outbound HTTPS, SSE pass-through with a known idle timeout — the server's heartbeat interval must be below it, EU data residency (the privacy notice in Task 13 names the location). **Railway is ruled out (2026-10-24):** on 2026-10-21 it disclosed that an intruder may have accessed customers' encrypted environment variables and decrypted some of them, told *all* users to rotate every secret, paused builds for two days, and has new signups suspended; in May 2026 a Google-Cloud account suspension took its control plane down for ~8 hours. A PaaS whose env-var store is the breach surface is the wrong home for a server whose entire configuration is env vars. Secrets: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `BETA_ALLOWLIST`, `DAILY_TURN_LIMIT`, `REPOSITORY=supabase`, `AUTH=supabase`, `STT=openai`, `GTD_PROVIDER`/`GTD_MODEL`. **Blast-radius rule regardless of platform:** the prod API keys are dedicated keys (not Lutz's personal dev keys) with spend caps set at Anthropic and OpenAI, so a leaked env store costs a rotation, not a bill. Register the prod origin in Supabase redirect URLs and in the Google OAuth client. Deploy is a manual CLI command for the beta; no pipeline.
+**Container + platform:** multi-stage Dockerfile (pnpm install → build core, web, server → slim Node 22 runtime), `TZ=UTC` (Task 6.5's timezone plumbing assumes it), health check on `GET /api/health`. Platform: **Fly.io (EU region) or a Hetzner Cloud VPS with Docker Compose + Caddy** — decided at task start against these requirements: **exactly one always-on instance** (registry and event log are in-process; no autoscale, no scale-to-zero, which would also kill idle SSE streams), persistent outbound HTTPS, SSE pass-through with a known idle timeout — the server's heartbeat interval must be below it, EU data residency (the privacy notice in Task 13 names the location). **Railway is ruled out (2026-10-24):** on 2026-10-21 it disclosed that an intruder may have accessed customers' encrypted environment variables and decrypted some of them, told *all* users to rotate every secret, paused builds for two days, and has new signups suspended; in May 2026 a Google-Cloud account suspension took its control plane down for ~8 hours. A PaaS whose env-var store is the breach surface is the wrong home for a server whose entire configuration is env vars. Secrets: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `BETA_ALLOWLIST`, `DAILY_TURN_LIMIT`, `REPOSITORY=supabase`, `AUTH=supabase`, `STT=openai`, `GTD_PROVIDER`/`GTD_MODEL`. **Blast-radius rule regardless of platform:** the prod API keys are dedicated keys (not Lutz's personal dev keys) with spend caps set at Anthropic and OpenAI, so a leaked env store costs a rotation, not a bill. Register the prod origin in Supabase redirect URLs and in the Google OAuth client. Deploy is a manual CLI command for the beta; no pipeline.
 
 **Phone smoke protocol (the acceptance that matters):** on a real iPhone (Safari) and a real Android phone (Chrome): install to home screen → Google login from inside the installed app → mic permission + a dictated capture → a full chat turn with visible tool rows → file visible on a vault screen → background the app 5 minutes mid-turn → foreground: stream re-attached, turn complete → F5 mid-turn on desktop resumes seamlessly. If the iPhone login fails inside the installed app, Task 9's OTP trigger fires.
 
@@ -641,7 +735,7 @@ Voice is the primary capture modality of the product ("evening on the couch"). T
 
 - New: `apps/server/Dockerfile`, `fly.toml` or `railway.json` at repo root, `apps/web/public/manifest.webmanifest` + icons, `apps/web/ngsw-config.json`, `apps/server/src/static.ts` (SPA serving + headers)
 - Modify: `apps/web/angular.json` (service worker, assets), `apps/web/src/app/app.config.ts` (`provideServiceWorker`), `apps/web/src/index.html` (manifest link, theme color, apple-touch-icon), `apps/server/src/app.ts`
-- Reference: `apps/web/src/styles.scss` (tokens for theme colors), Task 6 heartbeat implementation
+- Reference: `apps/web/src/styles.scss` (tokens for theme colors), Task 6.1 heartbeat implementation
 
 ### Key Discoveries
 
@@ -681,15 +775,15 @@ Three small items a non-dev tester hits in the first ten minutes, none of them i
 
 ## Task 14: Session history UI — DEFERRED
 
-> **Deferred 2026-10-24.** Trigger to pull it in: a tester asks what was discussed on a previous day, or Lutz needs it for dogfooding on the beta path. Includes the endpoints removed from Task 7: `GET /api/sessions` (date list, newest first — on the local path from the `.keppt/sessions/*.json` filenames with zero content reads; on the Supabase path a `select date` on `sessions`, so `SessionStore` gains `listDates()`) and `GET /api/sessions/:date` (replay DTO, 404 `session_not_found`). The former T7-AC-01 (filename-only listing, spy: zero file reads) lands here.
+> **Deferred 2026-10-24.** Trigger to pull it in: a tester asks what was discussed on a previous day, or Lutz needs it for dogfooding on the beta path. Includes the endpoints removed from the session read surface (now Task 6.3): `GET /api/sessions` (date list, newest first — on the local path from the `.keppt/sessions/*.json` filenames with zero content reads; on the Supabase path a `select date` on `sessions`, so `SessionStore` gains `listDates()`) and `GET /api/sessions/:date` (replay DTO, 404 `session_not_found`). The former T7-AC-01 (filename-only listing, spy: zero file reads) lands here.
 
 ### Instructions
 
-The past-days surface over Task 7 — list and read-only replay, using the existing chat rendering.
+The past-days surface over Task 6.3 — list and read-only replay, using the existing chat rendering.
 
 - **Drawer:** add a "Chat-Verlauf" row to the existing History section (currently holds only Daily Notes). Registry-driven like all navigation: new screens in `SCREEN_REGISTRY` (`history`, `history-detail` with `:date` param — not vault screens; follow the `daily`/`daily-detail` pattern incl. route `data.screen` validation).
 - **List screen:** `GET /api/sessions` dates rendered newest-first with locale-formatted labels (`Intl.DateTimeFormat` in the active Transloco language + relative "Today"/"Yesterday" catalog copy — same conventions as the Daily list). Today's entry navigates to chat (`""` route) instead of a detail view. States: loading / error-retry / empty ("no past conversations" copy).
-- **Detail screen:** `GET /api/sessions/:date` → map ReplayMessages to `ChatMessage`s (same mapper as Task 8 boot — extract it to a shared module) → render through the **existing** `ChatMessageListComponent`/`groupMessagesForRender` pipeline. Read-only: no composer, no chips, no typing; back button like daily-detail. A guard mirrors `/daily/:date` (unknown date redirects to the list).
+- **Detail screen:** `GET /api/sessions/:date` → map ReplayMessages to `ChatMessage`s (same mapper as the Task 6.3 boot — extract it to a shared module) → render through the **existing** `ChatMessageListComponent`/`groupMessagesForRender` pipeline. Read-only: no composer, no chips, no typing; back button like daily-detail. A guard mirrors `/daily/:date` (unknown date redirects to the list).
 - **Deliberately deferred, documented in the task log:** "continue chatting in a past session" (spec Session Architecture allows appending to old sessions). Read-only is the MVP cut; revisit with beta feedback.
 - All new chrome (drawer label, screen titles, empty/error copy, a11y labels) as keys in both `de.json` and `en.json`.
 
@@ -703,14 +797,14 @@ The past-days surface over Task 7 — list and read-only replay, using the exist
 
 ### Key Locations
 
-- New: `apps/web/src/app/history/` (list + detail components, specs), shared replay mapper module (with Task 8)
+- New: `apps/web/src/app/history/` (list + detail components, specs), shared replay mapper module (with Task 6.3)
 - Modify: `apps/web/src/app/navigation/screen-registry.ts`, `apps/web/src/app/app.routes.ts`, `apps/web/src/app/navigation/app-drawer.html`, `apps/web/public/i18n/{de,en}.json`
 - Reference: `apps/web/src/app/vault/daily-notes-screen.ts` (list pattern), `apps/web/src/app/chat/components/chat-message-list.ts` (render pipeline)
 
 ### Key Discoveries
 
 - `ChatMessageListComponent` renders from an input of messages via `groupMessagesForRender` — reusing it read-only means history gets tool-row grouping, markdown styling, and future rendering fixes for free, at the cost of ensuring it accepts a plain input signal (verify; adjust without breaking the chat screen).
-- Chips are not in the replay DTO by design (Task 7) — the read-only screen has nothing interactive to suppress.
+- Chips are not in the replay DTO by design (Task 6.3) — the read-only screen has nothing interactive to suppress.
 
 ---
 
@@ -752,11 +846,11 @@ Port of the former keppt-ui Task 4.5, adjusted for the real write path and the h
 ## Cross-Cutting Acceptance
 
 - **XC-01** — `pnpm -r build`, `pnpm -r typecheck`, and `pnpm -r test` pass after every task. **Touches:** T1–T10.
-- **XC-02** — Server logs are metadata-only end to end: no chat text, GTD file contents, tool payloads, or provider bodies in any log line produced by the new server across all endpoints. **Touches:** T1, T2, T6, T7.
-- **XC-03** — Mock providers (`MockChatService`, `MockVaultRepository`, `MockVoiceCaptureService`) remain injectable and green for tests after every swap. **Touches:** T3, T8, T11, T15. (`/dev/ui` from the keppt-ui plan was never built and is not part of this plan.)
-- **XC-04** — Anthropic prompt-cache hit rate survives the engine extraction: cache markers stay on the system-message object and trailing user message, byte-stable across turns (verify via a `DEBUG=1` turn artifact's cache usage before/after T4 — **this smoke has been owed since Phase 1 and must actually be run this time**). **Touches:** T4, T5, T6.
-- **XC-05** — CLI dogfooding behavior is unchanged after the engine migration: same prompts, same tool loop, same session files, same terminal UX. **Touches:** T4, T5, T6 (timezone parameter defaults), T13 (language rule applies to both).
-- **XC-06** — A started turn always completes and persists server-side with zero connected clients; any client connecting later (cursor attach or fresh boot replay) converges on the same persisted result. **Touches:** T6, T7, T8.
+- **XC-02** — Server logs are metadata-only end to end: no chat text, GTD file contents, tool payloads, or provider bodies in any log line produced by the new server across all endpoints. **Touches:** T1, T2, T6.1, T6.3, T6.4.
+- **XC-03** — Mock providers (`MockChatService`, `MockVaultRepository`, `MockVoiceCaptureService`) remain injectable and green for tests after every swap. **Touches:** T3, T6.2, T11, T15. (`/dev/ui` from the keppt-ui plan was never built and is not part of this plan.)
+- **XC-04** — Anthropic prompt-cache hit rate survives the engine extraction: cache markers stay on the system-message object and trailing user message, byte-stable across turns (verify via a `DEBUG=1` turn artifact's cache usage before/after T4 — **this smoke has been owed since Phase 1 and must actually be run this time**). **Touches:** T4, T5, T6.1.
+- **XC-05** — CLI dogfooding behavior is unchanged after the engine migration: same prompts, same tool loop, same session files, same terminal UX. **Touches:** T4, T5, T6.4 (`FsTurnLogger` move), T6.5 (timezone parameter defaults), T13 (language rule applies to both).
+- **XC-06** — A started turn always completes and persists server-side with zero connected clients; any client connecting later (cursor attach or fresh boot replay) converges on the same persisted result. **Touches:** T6.1, T6.2, T6.3.
 - **XC-07** — Tenant isolation is enforced by Postgres RLS under the user's own JWT: every Supabase access on the request path uses the per-request client; the `service_role` key is absent from the server runtime and its presence aborts boot. **Touches:** T9, T10.
-- **XC-08** — The server is a single process with `TZ=UTC`: registry and event log are in-memory, the platform config pins one instance, and every "today" on the server is derived from the user's `X-Timezone`. **Touches:** T6, T7, T10, T12.
-- **XC-09** — Phone-usable: login, voice capture, a full chat turn, and background/foreground stream re-attach pass on a real iPhone and a real Android home-screen install before any tester is invited. **Touches:** T8, T9, T11, T12.
+- **XC-08** — The server is a single process with `TZ=UTC`: registry and event log are in-memory, the platform config pins one instance, and every "today" on the server is derived from the user's `X-Timezone`. **Touches:** T6.1, T6.5, T10, T12.
+- **XC-09** — Phone-usable: login, voice capture, a full chat turn, and background/foreground stream re-attach pass on a real iPhone and a real Android home-screen install before any tester is invited. **Touches:** T6.3, T9, T11, T12.
