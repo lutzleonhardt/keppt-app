@@ -7,6 +7,8 @@
 
 > **Amendment 2026-11-06 — tracer-bullet re-cut of Tasks 6–8.** Tasks 6 (server chat surface), 7 (session read) and 8 (HttpChatService) were layer sweeps: nothing would have been visible in the app before the third of them landed, while the integration risk (SSE through the dev proxy, fetch streaming, the event reducer against the mock's block model) sits exactly between the layers. They are re-cut into five vertical slices 6.1–6.5, each verifiable end-to-end right after it lands; the real chat in the app arrives after 6.2. Order: server turn + event stream (6.1) → minimal client (6.2) → session boot + re-attach (6.3) → opener, empty-vault welcome, debug artifacts (6.4) → user-local day + daily turn cap (6.5). The core timezone plumbing moves to the end because the dev path runs in the process zone like the CLI. Vocabulary fixed on the way: the event `kind` is the persisted turn kind `"user" | "opener"` (Task-5 decision 16; `"auto-replan"`/`"synthetic"` are gone), `turn-end` carries the engine `phase` on an error, and the error codes are `input_rejected`, `invalid_request`, `turn_failed`, `turn_limit_reached`. T7-AC-03 (legacy session files) is dropped: there is no legacy reader since Task 5 amendment 4. Each new AC names the ID it replaces (`was T6-AC-NN`).
 
+> **Amendment 2026-11-06 (2) — Task 16 added (deferred).** Task 6.1 fixed that a turn belongs to the day it started on and that the day switch runs only on `POST /api/chat`. An app left open across midnight therefore keeps showing yesterday until the user types, and the next turn (opener + user turn) would render under yesterday's conversation. The fix spans server (`resync` on the day switch, switch at every entry point), client (reset, banner, navigation, archive) and a UX decision that needs tester feedback — pulled out as Task 16 with a trigger instead of being half-solved in 6.3/6.4.
+
 ## Scope
 
 The shared core moves behind an Express server, and the Angular app's mocks are replaced by HTTP/SSE implementations. Two configurations of the same server: the **dev path** (`REPOSITORY=local`, `AUTH=stub`) runs against the real Obsidian vault and stays the daily-dogfooding surface throughout the build; the **beta path** (`REPOSITORY=supabase`, `AUTH=supabase`) is what testers get — Google login, Supabase persistence with RLS, web voice capture, installable PWA, hosted on a single container. End state: a tester logs in on the phone, speaks a brain dump on the couch, and watches the vault files change — the three core advantages (capture → files change, no maintenance via the Auto-Replan opener, trust via tool rows + readable files) are all live.
@@ -57,6 +59,7 @@ Execution order = numeric order. Tasks 1–8 run against the dogfooding vault; 9
 13. Launch hygiene: LLM reply-language rule, feedback entry, privacy notice
 14. **DEFERRED** — Session history UI (list + read-only replay) + the session list endpoints
 15. **DEFERRED** — Vault editor mode with autosave + `PUT /api/files/*`
+16. **DEFERRED** — Day rollover under an open app: `resync` on the day switch, client reset, navigation/archive, midnight-cut UX decision (added 2026-11-06)
 
 ---
 
@@ -840,6 +843,40 @@ Port of the former keppt-ui Task 4.5, adjusted for the real write path and the h
 
 - The editor is safe by product design only because every write is revertable history — that rationale must live as a comment on the contract so a future confirm/cancel "improvement" doesn't re-litigate it blindly.
 - Tappable checkboxes in the rendered view remain deferred (separate task, unchanged from the keppt-ui plan decision).
+
+---
+
+## Task 16: Day rollover under an open app — DEFERRED
+
+> **Deferred 2026-11-06.** Trigger to pull it in: a beta tester keeps the app open across midnight and reports a stale or confusing day, or the team decides the midnight-cut UX before launch. Until then the CLI model stands: the day is cut at midnight, the next turn starts the new day with the opener.
+
+### Instructions
+
+Since Task 6.1 a turn belongs to the day it started on: the in-flight check precedes the day check, one clock reading decides the day and is the turn's "today" (system prompt, tool gates, daily file), and both saves go to the same session object — a midnight-crossing turn is never split across two session files. The day switch happens only on `POST /api/chat`, so an app left open shows yesterday until the user types, and the next turn (opener + user turn, 6.4) would render under yesterday's conversation.
+
+Decision so far — no new event vocabulary. On a day switch the server clears the event log and sends `resync` to every open stream (their cursors are unservable anyway); the client's resync path (6.3: reload session → `/open` → re-attach) then covers midnight as one more case of "your view is stale". Three pieces that belong together:
+
+- **Server:** the day switch runs at every entry point (`POST /api/chat`, the 6.3 session load, 6.4 `/open`), not only on `POST`; the switch broadcasts `resync` (control event, no id) to the log's subscribers and the stream route ends those streams. A turn in flight still blocks the switch (the 409 check comes first) — the switch always happens between two turns. `EventLog.clear()` is the natural seam for the broadcast.
+- **Client:** the date in the session-load DTO is the day signal. On a new date: day banner (as the CLI's rollover banner), chat reset, opener via `/open`, re-attach with the new cursor; the daily-notes navigation refreshes and the finished day moves to the archive list.
+- **UX decision, deliberately open:** hard cut at midnight vs. letting the user finish yesterday's conversation (e.g. the day starts only when the user explicitly starts it). Decide on tester feedback; record the evidence in the task log.
+
+### Acceptance
+
+- **T16-AC-01:** A session load or `/open` after midnight switches the day exactly like a `POST`; with a turn in flight no entry point switches (in-flight first).
+- **T16-AC-02:** The switch sends exactly one `resync` to each open stream and ends it; a stream attached afterwards sees only the new day's events, `seq` continues.
+- **T16-AC-03:** The web client resets to the new day: banner with the date, empty chat, opener through `/open`, re-attached stream; navigation and archive reflect the new date.
+- **T16-AC-04:** The UX decision (hard cut vs. finish yesterday) is recorded with the tester evidence that triggered the task.
+
+### Key Locations
+
+- Modify: `apps/server/src/chat/turn-registry.ts` (`sessionForToday`), `apps/server/src/chat/event-log.ts` (`clear` → broadcast), `apps/server/src/routes/chat.ts` (stream ends on `resync`), the 6.3 session route and 6.4 `/open` (switch trigger), the web chat store/service (6.2/6.3) and the daily-notes navigation (Task 3 screens)
+- Reference: `apps/cli/src/turn-loop.ts` (`dayRolloverGuard` — the CLI's rollover model), Task 6.1 log (day-boundary invariants)
+
+### Key Discoveries
+
+- Data consistency is already guaranteed by 6.1; this task is about the client's view of "today", not about the session files.
+- `resync` means "rebuild your view from the session" and already covers restart and cleared log — midnight is a third cause, not a new mechanism; a dedicated `day-rollover` event would only tell the client *why*, which the session DTO's date tells anyway.
+- The 6.3 session load must apply the same rule as the registry: while a turn is in flight, "today" is the turn's day, or session and stream come from different days.
 
 ---
 
