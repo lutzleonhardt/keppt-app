@@ -48,6 +48,9 @@ importers:
       '@gtd/core':
         specifier: workspace:*
         version: link:../../packages/core
+      ai:
+        specifier: 7.0.0-beta.116
+        version: 7.0.0-beta.116(zod@4.4.3)
       express:
         specifier: ^5.3.0
         version: 5.3.0
@@ -151,7 +154,7 @@ importers:
     dependencies:
       '@gtd/core':
         specifier: workspace:*
-        version: link:../../packages/core
+        version: link:../core
     devDependencies:
       typescript:
         specifier: ^5.4.0

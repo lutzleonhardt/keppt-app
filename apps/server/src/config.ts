@@ -1,14 +1,24 @@
 // The server entrypoint is the only place that reads environment variables.
 // Core and the Express app receive plain values; nothing below `index.ts`
-// touches `process.env`.
+// touches `process.env`. The `@ai-sdk/*` providers read their API key from
+// the environment themselves, which is why its presence is verified here.
 
-import type { LogLevel } from "@gtd/core";
+import {
+  apiKeyEnvName,
+  selectModel,
+  UnknownProviderError,
+  type LogLevel,
+  type ModelSelection,
+  type ProviderKey,
+} from "@gtd/core";
 
 export interface ServerConfig {
   vaultPath: string;
   devUserId: string;
   port: number;
   logLevel: LogLevel;
+  provider: ProviderKey;
+  modelId: string;
 }
 
 export class ConfigError extends Error {
@@ -23,7 +33,10 @@ const DEFAULT_LOG_LEVEL: LogLevel = "info";
 const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 
 export function readServerConfig(env: NodeJS.ProcessEnv): ServerConfig {
-  const missing = ["VAULT_PATH", "DEV_USER_ID"].filter((name) => !env[name]);
+  const { provider, modelId } = readModelSelection(env);
+  const missing = ["VAULT_PATH", "DEV_USER_ID", apiKeyEnvName(provider)].filter(
+    (name) => !env[name],
+  );
   if (missing.length > 0) {
     throw new ConfigError(
       `Missing required environment variable(s): ${missing.join(", ")}`,
@@ -34,7 +47,20 @@ export function readServerConfig(env: NodeJS.ProcessEnv): ServerConfig {
     devUserId: env.DEV_USER_ID as string,
     port: readPort(env.PORT),
     logLevel: readLogLevel(env.LOG_LEVEL),
+    provider,
+    modelId,
   };
+}
+
+function readModelSelection(env: NodeJS.ProcessEnv): ModelSelection {
+  try {
+    return selectModel({ provider: env.GTD_PROVIDER, model: env.GTD_MODEL });
+  } catch (err) {
+    if (err instanceof UnknownProviderError) {
+      throw new ConfigError(`GTD_PROVIDER: ${err.message}`);
+    }
+    throw err;
+  }
 }
 
 function readPort(raw: string | undefined): number {
