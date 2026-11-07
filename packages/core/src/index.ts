@@ -34,7 +34,6 @@ export {
   type BuildToolsOptions,
   type EditFileError,
   type EditFileResult,
-  type QuickRepliesResult,
   type ReadFileResult,
   type WriteFileResult,
 } from "./tools.js";
@@ -86,12 +85,7 @@ export {
   type PruneToolResultsOptions,
   type PruneToolResultsResult,
 } from "./tool-result-pruning.js";
-export {
-  Session,
-  type MessageOrigin,
-  type SessionEntry,
-  type SessionStore,
-} from "./sessions.js";
+export { Session, type SessionEntry, type SessionStore } from "./sessions.js";
 export { FsSessionStore, type FsSessionStoreOps } from "./fs-session-store.js";
 export {
   MemoryTurnLogger,
@@ -108,7 +102,8 @@ export {
   type TurnInput,
   type UserTurnInput,
 } from "./turn-engine.js";
-export type { TurnErrorPhase, TurnResult, TurnSink } from "./turn-sink.js";
+export * from "./turn/index.js";
+export type { TurnSink } from "./turn-sink.js";
 export { writeTurnArtifact, type TurnLogContext } from "./turn-artifact.js";
 export {
   MAX_INPUT_CHARS,

@@ -1,20 +1,4 @@
-import type { QuickRepliesResult } from "./tools.js";
-
-export type TurnErrorPhase =
-  | "session_save_phase1"
-  | "stream"
-  | "session_save_phase2";
-
-/**
- * How a turn ended. `runTurn` resolves with it and hands the same object to
- * `TurnSink.turnEnd`, so the caller and the observers see one truth.
- * `aborted` means the abort signal fired mid-stream: the user message stays
- * persisted, no response messages were appended.
- */
-export type TurnResult =
-  | { outcome: "ok" }
-  | { outcome: "aborted" }
-  | { outcome: "error"; phase: TurnErrorPhase; err: unknown };
+import type { QuickRepliesResult, TurnResult } from "./turn/vocabulary.js";
 
 /**
  * Observer of one running turn. Every method is synchronous and never

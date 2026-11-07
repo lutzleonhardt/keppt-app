@@ -1,27 +1,22 @@
 import type { ModelMessage } from "ai";
-
-/**
- * The kind of turn a message belongs to — the engine's `TurnInput["kind"]`.
- * `opener` is the Auto-Replan opener: its kickoff and instruction messages
- * are user-role but were never typed, its read_file calls were fabricated.
- * Display surfaces hide opener user/tool content; the model always sees
- * the full history (`buildRequest` ignores the origin).
- */
-export type MessageOrigin = "user" | "opener";
+import { TURN_KINDS, type TurnKind } from "./turn/vocabulary.js";
 
 export interface SessionEntry {
   message: ModelMessage;
   /** ms epoch at which the turn containing the message started. */
   createdAt: number;
-  origin: MessageOrigin;
+  /**
+   * The kind of turn the message belongs to. Display surfaces hide opener
+   * user/tool content; the model always sees the full history
+   * (`buildRequest` ignores the origin).
+   */
+  origin: TurnKind;
 }
 
 interface SessionJSON {
   date: string;
   entries: SessionEntry[];
 }
-
-const MESSAGE_ORIGINS: readonly string[] = ["user", "opener"];
 
 /**
  * A conversation log for one calendar day. Identity is `date` (YYYY-MM-DD).
@@ -75,7 +70,7 @@ export class Session {
     return this.entryOf(msg)?.createdAt;
   }
 
-  originOf(msg: ModelMessage): MessageOrigin | undefined {
+  originOf(msg: ModelMessage): TurnKind | undefined {
     return this.entryOf(msg)?.origin;
   }
 
@@ -87,7 +82,7 @@ export class Session {
   appendTurn(
     messages: readonly ModelMessage[],
     createdAtMs: number,
-    origin: MessageOrigin = "user",
+    origin: TurnKind = "user",
   ): void {
     for (const message of messages) {
       this._entries.push({ message, createdAt: createdAtMs, origin });
@@ -156,13 +151,16 @@ function requireObject(value: unknown, what: string): object {
   return value;
 }
 
-function parseOrigin(value: unknown, index: number): MessageOrigin {
-  if (typeof value !== "string" || !MESSAGE_ORIGINS.includes(value)) {
+function parseOrigin(value: unknown, index: number): TurnKind {
+  if (
+    typeof value !== "string" ||
+    !(TURN_KINDS as readonly string[]).includes(value)
+  ) {
     throw new Error(
       `Session.fromJSON: entries[${index}].origin must be "user" or "opener"`,
     );
   }
-  return value as MessageOrigin;
+  return value as TurnKind;
 }
 
 /**

@@ -16,11 +16,15 @@
     "./layout": {
       "types": "./dist/layout/index.d.ts",
       "default": "./dist/layout/index.js"
+    },
+    "./turn": {
+      "types": "./dist/turn/index.d.ts",
+      "default": "./dist/turn/index.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.layout.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.layout.json && tsc -p tsconfig.turn.json",
     "test": "vitest run"
   },
   "devDependencies": {

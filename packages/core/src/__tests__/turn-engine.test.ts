@@ -9,10 +9,10 @@ import {
 import { InMemoryFileRepository } from "../in-memory-file-repository.js";
 import { MemoryLogger } from "../logging.js";
 import { Session, type SessionStore } from "../sessions.js";
-import type { QuickRepliesResult } from "../tools.js";
+import type { QuickRepliesResult, TurnResult } from "../turn/vocabulary.js";
 import { runTurn, type TurnEngineDeps } from "../turn-engine.js";
 import { MemoryTurnLogger } from "../turn-log.js";
-import type { TurnResult, TurnSink } from "../turn-sink.js";
+import type { TurnSink } from "../turn-sink.js";
 
 // `@ai-sdk/provider` is not a direct dependency of core, so the stream
 // types come from the mock model's own signature.

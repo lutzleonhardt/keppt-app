@@ -18,10 +18,15 @@ import type { FileRepository } from "./file-repository.js";
 import type { Logger } from "./logging.js";
 import { buildRequest, type BuildRequestResult } from "./request-builder.js";
 import type { Session, SessionStore } from "./sessions.js";
-import { buildTools, type QuickRepliesResult } from "./tools.js";
+import { buildTools } from "./tools.js";
 import { writeTurnArtifact, type TurnLogContext } from "./turn-artifact.js";
 import type { TurnLogger } from "./turn-log.js";
-import type { TurnResult, TurnSink } from "./turn-sink.js";
+import type { TurnSink } from "./turn-sink.js";
+import {
+  QUICK_REPLIES_TOOL_NAME,
+  type QuickRepliesResult,
+  type TurnResult,
+} from "./turn/vocabulary.js";
 
 const MAX_STEPS = 10;
 
@@ -131,7 +136,7 @@ async function streamTurn(
       system,
       messages,
       tools,
-      stopWhen: [hasToolCall("suggest_quick_replies"), isStepCount(MAX_STEPS)],
+      stopWhen: [hasToolCall(QUICK_REPLIES_TOOL_NAME), isStepCount(MAX_STEPS)],
       abortSignal,
       providerOptions: deps.providerOptions,
       // The SDK default logs raw stream errors to stderr; the error part is
@@ -315,12 +320,12 @@ async function consumeStream(
         sink.assistantText(part.text);
         break;
       case "tool-call":
-        if (part.toolName !== "suggest_quick_replies") {
+        if (part.toolName !== QUICK_REPLIES_TOOL_NAME) {
           sink.toolStart(part.toolCallId, part.toolName, part.input);
         }
         break;
       case "tool-result":
-        if (part.toolName !== "suggest_quick_replies") {
+        if (part.toolName !== QUICK_REPLIES_TOOL_NAME) {
           sink.toolEnd(part.toolCallId, part.toolName);
         } else if (part.dynamic !== true) {
           // Static results come from our validated local tool execution;
@@ -329,7 +334,7 @@ async function consumeStream(
         }
         break;
       case "tool-error":
-        if (part.toolName === "suggest_quick_replies") {
+        if (part.toolName === QUICK_REPLIES_TOOL_NAME) {
           quickReplies = null;
         } else {
           sink.toolError(part.toolCallId, part.toolName, part.error);

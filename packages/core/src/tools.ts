@@ -1,4 +1,4 @@
-import { tool, type ToolSet } from "ai";
+import { tool, type Tool } from "ai";
 import { z } from "zod";
 import type { EditError, EditResult } from "./edit.js";
 import {
@@ -76,7 +76,7 @@ export type EditFileResult =
   | { ok: true; reminder?: string }
   | { ok: false; error: EditFileError };
 
-export type QuickRepliesResult = { question: string; options: string[] };
+import type { QuickRepliesResult, ToolName } from "./turn/vocabulary.js";
 
 // Two attempts: first round-trips currentContent, second is the legitimate
 // "extend search context" retry. Third would just burn tokens.
@@ -388,9 +388,10 @@ export function buildTools(
   // offset/limit, à la Claude Code grep/head/tail but as first-class tools).
   // Natural execution slot is Task 6 hardening or earlier if a trigger fires.
   // Do not speculatively add a cap here — the spec is the source of truth.
-  // `satisfies` checks the tool-map contract without erasing concrete tool
-  // names and output types. A `: ToolSet` return annotation would turn typed
-  // stream results back into generic/unknown outputs in downstream consumers.
+  // `satisfies` pins the tool map to the shared vocabulary — a tool added or
+  // renamed here without `VAULT_TOOL_NAMES` fails to compile — without
+  // erasing concrete tool names and output types (a return annotation would
+  // turn typed stream results back into generic outputs downstream).
   return {
     read_file: tool({
       description:
@@ -506,5 +507,5 @@ export function buildTools(
         options,
       }),
     }),
-  } satisfies ToolSet;
+  } satisfies Record<ToolName, Tool>;
 }
