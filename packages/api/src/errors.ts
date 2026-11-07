@@ -8,6 +8,9 @@ export const API_ERROR_CODES = [
   "not_found",
   "internal_error",
   "turn_in_flight",
+  "input_rejected",
+  "invalid_request",
+  "turn_failed",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
