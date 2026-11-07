@@ -31,6 +31,9 @@ function appWithFailingRoutes(logger: MemoryLogger) {
   app.get("/conflict", (_req, _res, next) => {
     next(new ApiError(409, "turn_in_flight", "A turn is already running"));
   });
+  app.post("/json", express.json(), (req, res) => {
+    res.json(req.body);
+  });
   app.use(notFoundHandler);
   app.use(errorHandler(logger));
   return app;
@@ -104,5 +107,23 @@ describe("errorHandler", () => {
     // @ts-expect-error — `code` is the closed `ApiErrorCode` union, not string
     const error = new ApiError(409, "no_such_code", "typo in the code");
     expect(error).toBeInstanceOf(ApiError);
+  });
+
+  it("maps a body-parser rejection to 400 invalid_request without an error log line", async () => {
+    const logger = new MemoryLogger();
+    const res = await request(appWithFailingRoutes(logger))
+      .post("/json")
+      .set("content-type", "application/json")
+      .send("{not json");
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({
+      error: {
+        code: "invalid_request",
+        message: "Malformed request body",
+        requestId: res.headers[REQUEST_ID_HEADER.toLowerCase()],
+      },
+    });
+    expect(logger.byCode("http.unhandled_error")).toHaveLength(0);
   });
 });

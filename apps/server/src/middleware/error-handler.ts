@@ -27,17 +27,18 @@ export function errorHandler(logger: Logger): ErrorRequestHandler {
       return;
     }
     const requestId = req.requestId;
-    if (err instanceof ApiError) {
+    const apiError = err instanceof ApiError ? err : asInvalidRequest(err);
+    if (apiError) {
       const body: ErrorBody = {
-        error: { code: err.code, message: err.message, requestId },
+        error: { code: apiError.code, message: apiError.message, requestId },
       };
-      res.status(err.status).json(body);
+      res.status(apiError.status).json(body);
       return;
     }
     // Errors the router raises with their own `status` (e.g. `URIError` 400 on
     // malformed percent-encoding in `/api/files/%zz`) deliberately land here
     // as 500: clients send fixed vault paths, so such a request is a client
-    // bug worth an error log line. Revisit once request bodies are parsed.
+    // bug worth an error log line.
     (req.log ?? logger).error({
       code: "http.unhandled_error",
       message: "Unhandled error while handling request",
@@ -53,4 +54,18 @@ export function errorHandler(logger: Logger): ErrorRequestHandler {
     };
     res.status(500).json(body);
   };
+}
+
+// Body-parser rejections (malformed JSON, oversized or mis-encoded bodies)
+// carry a dotted `type` such as `entity.parse.failed` and a 4xx status. They
+// are the client's fault and get one stable code; the parser's own wording
+// stays out of the response.
+function asInvalidRequest(err: unknown): ApiError | undefined {
+  if (!(err instanceof Error)) return undefined;
+  const { type, status } = err as Error & { type?: unknown; status?: unknown };
+  const isClientError =
+    typeof status === "number" && status >= 400 && status < 500;
+  return typeof type === "string" && isClientError
+    ? new ApiError(400, "invalid_request", "Malformed request body")
+    : undefined;
 }

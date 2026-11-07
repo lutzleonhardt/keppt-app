@@ -11,6 +11,7 @@ import {
 } from "@gtd/core";
 
 import { createApp } from "../app.js";
+import { stubTurnRegistry } from "./chat-harness.js";
 import { spyFileRepository } from "./spy-file-repository.js";
 
 const vaults: string[] = [];
@@ -35,6 +36,7 @@ function appWith(fileRepository: FileRepository) {
     logger: new MemoryLogger(),
     devUserId: "lutz",
     fileRepository,
+    turnRegistry: stubTurnRegistry(),
   });
 }
 

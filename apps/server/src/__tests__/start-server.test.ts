@@ -4,12 +4,14 @@ import { InMemoryFileRepository, MemoryLogger } from "@gtd/core";
 
 import { createApp } from "../app.js";
 import { startServer } from "../start-server.js";
+import { stubTurnRegistry } from "./chat-harness.js";
 
 function app() {
   return createApp({
     logger: new MemoryLogger(),
     devUserId: "lutz",
     fileRepository: new InMemoryFileRepository(),
+    turnRegistry: stubTurnRegistry(),
   });
 }
 

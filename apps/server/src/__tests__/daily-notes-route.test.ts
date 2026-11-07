@@ -11,6 +11,7 @@ import {
 
 import { createApp } from "../app.js";
 import { toDailyNoteRefs } from "../routes/daily-notes.js";
+import { stubTurnRegistry } from "./chat-harness.js";
 import { spyFileRepository } from "./spy-file-repository.js";
 
 // Local noon keeps `formatToday` (local getters) on the same calendar day in any zone.
@@ -28,6 +29,7 @@ function appWith(fileRepository: FileRepository) {
     logger: new MemoryLogger(),
     devUserId: "lutz",
     fileRepository,
+    turnRegistry: stubTurnRegistry(),
     now: NOW,
   });
 }

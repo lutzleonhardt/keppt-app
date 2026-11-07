@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { InMemoryFileRepository, MemoryLogger } from "@gtd/core";
 
 import { createApp } from "../app.js";
+import { stubTurnRegistry } from "./chat-harness.js";
 
 describe("createApp", () => {
   it("GET /api/health → 200 { status: ok } with a request id header", async () => {
@@ -10,6 +11,7 @@ describe("createApp", () => {
       logger: new MemoryLogger(),
       devUserId: "lutz",
       fileRepository: new InMemoryFileRepository(),
+      turnRegistry: stubTurnRegistry(),
     });
     const res = await request(app).get("/api/health");
 
@@ -24,6 +26,7 @@ describe("createApp", () => {
       logger: new MemoryLogger(),
       devUserId: "lutz",
       fileRepository: new InMemoryFileRepository(),
+      turnRegistry: stubTurnRegistry(),
     });
     const res = await request(app).get("/api/does-not-exist");
 
