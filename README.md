@@ -71,6 +71,8 @@ graph LR
 
 Single process, no server, no Supabase, no auth. The same `Core` that the CLI uses in Phase 1 will sit behind an Express server in Phase 2a — only the entrypoint and the `FileRepository` implementation change. Full design: [`docs/specs/architecture.md`](docs/specs/architecture.md).
 
+Phase 2a adds the Express server and the Angular app around that core. Which package may import which, what the contract between server and client is, and where Node APIs are allowed: [`docs/development.md`](docs/development.md).
+
 ## How I'm building this — the Skill Kit Adjutant Workflow
 
 Every task in this repo is shipped through the same agentic workflow I've been documenting publicly:
@@ -110,8 +112,10 @@ pnpm -r test
 
 To run the CLI against a vault, set `VAULT_PATH` plus the API key for the
 selected provider. Anthropic remains the default. Use `GTD_PROVIDER=openai`
-with `OPENAI_API_KEY` to run GPT 5.4 mini (`gpt-5.4-mini`), or override any
-provider default with `GTD_MODEL`.
+with `OPENAI_API_KEY` to run GPT 5.4 mini (`gpt-5.4-mini`) or
+`GTD_PROVIDER=deepseek` with `DEEPSEEK_API_KEY`, and override any provider
+default with `GTD_MODEL`. An unknown `GTD_PROVIDER` aborts the start. The
+server reads the same three variables.
 
 ```sh
 VAULT_PATH=/path/to/vault \
@@ -121,17 +125,32 @@ pnpm --filter @gtd/cli dev
 ```
 
 To run the Express server (Phase 2a dev path: local vault, stub auth), set
-the vault path and the stub user. `PORT` (default 3333) and `LOG_LEVEL`
+the vault path, the stub user and the API key of the selected provider
+(`GTD_PROVIDER`, default `anthropic`; `GTD_MODEL` overrides the provider
+default, same as for the CLI). `PORT` (default 3333) and `LOG_LEVEL`
 (`debug|info|warn|error`, default `info`) are optional. Logs are JSON lines
 on stdout; pipe through `pnpm dlx pino-pretty` to read them.
 
 ```sh
 VAULT_PATH=/path/to/vault \
 DEV_USER_ID=lutz \
+ANTHROPIC_API_KEY=... \
 pnpm dev:server
 ```
 
-Check with `curl -i localhost:3333/api/health` → `{"status":"ok"}`.
+Check with `curl -i localhost:3333/api/health` → `{"status":"ok"}`. For a
+chat turn, open the event stream in one terminal and post a message in
+another; the stream shows the turn's events, the vault files change:
+
+```sh
+curl -N localhost:3333/api/chat/stream
+curl -X POST localhost:3333/api/chat \
+  -H 'content-type: application/json' \
+  -d '{"message":"Was steht heute an?"}'
+```
+
+The CLI and the server share `<vault>/.keppt/sessions/` last-writer-wins:
+do not run both against the same vault at the same time.
 
 To run the Angular app, start the server as above (the vault screens read
 through it), then in a second terminal:
@@ -160,6 +179,7 @@ apps/web/             # Angular app (Phase 2a): chat UI + vault screens
 packages/core/        # Shared core: file repository, history log, (later) prompts, tools, sessions
 packages/api/         # HTTP wire contract shared by server and web (error codes, DTOs)
 docs/specs/           # Architecture & product specs
+docs/development.md   # Package boundaries, server↔client contract, build order
 docs/plans/           # Phase plans, broken into single-commit tasks
 docs/task-log/        # Per-task wrap-ups (the build log)
 assets/               # README assets

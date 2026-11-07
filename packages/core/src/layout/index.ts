@@ -1,6 +1,6 @@
 // Browser-safe entry (`@gtd/core/layout`): the vault layout rule without any
 // Node dependency. Nothing in this folder may import from outside it;
-// `tsconfig.layout.json` enforces Node-freedom.
+// `tsconfig.layout.json` enforces Node-freedom. See docs/development.md.
 export { dailyNoteDate, offsetDate, type IsoDate } from "./daily-note.js";
 export {
   GTD_TASK_FILES,

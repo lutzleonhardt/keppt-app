@@ -31,3 +31,7 @@ Pre-existing findings surfaced by CodeScene change gates. Entries are deduplicat
 - [ ] `packages/core/src/sessions.ts` — `Session.fromJSON:77` (Complex Conditional, 2 complex conditional expressions, L77) — pre-existing; grazed by task 4 · source: cs
 
 - [ ] `packages/core/src/turn-engine.ts` — `consumeStream` (Complex Method, cc = 12, L296) — pre-existing; grazed by task 5 · source: cs
+
+- [ ] `apps/server/src/__tests__/files-route.test.ts` — `"rejects the unsafe path %s with 400 invalid_path before touching the repository"` (Code Duplication, L88) — pre-existing; grazed by task 6.1 · source: cs
+- [ ] `apps/server/src/__tests__/files-route.test.ts` — `"rejects the out-of-layout path %s with 403 path_out_of_scope before touching the repository"` (Code Duplication, L109) — pre-existing; grazed by task 6.1 · source: cs
+- [ ] `apps/server/src/config.ts` — `readPort:69` (Complex Conditional, 2 complex conditional expressions, L69) — pre-existing; grazed by task 6.1 · source: cs
