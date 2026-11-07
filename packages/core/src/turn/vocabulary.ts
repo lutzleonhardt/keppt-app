@@ -28,6 +28,10 @@ export const VAULT_TOOL_NAMES = [
 
 export type VaultToolName = (typeof VAULT_TOOL_NAMES)[number];
 
+export function isVaultToolName(name: string): name is VaultToolName {
+  return VAULT_TOOL_NAMES.some((tool) => tool === name);
+}
+
 /** The protocol tool: its validated result arrives as quick replies, never as a tool row. */
 export const QUICK_REPLIES_TOOL_NAME = "suggest_quick_replies";
 

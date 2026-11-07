@@ -7,6 +7,7 @@
 
 import { stdout, stderr } from "node:process";
 import { formatCliError } from "./cli-errors.js";
+import { describeToolCall, isVaultToolName } from "@gtd/core";
 
 export interface TerminalOutput {
   // Streamed assistant text written verbatim, no framing or newlines added.
@@ -54,31 +55,15 @@ export interface TerminalOutput {
   endStream(): void;
 }
 
-// Per-tool mapping from the SDK-supplied input object to a single short
-// argument shown next to the tool name. Kept narrow on purpose: file paths
-// for the file tools, the query for search, and the optional prefix for
-// list_files. Unknown tools or missing/empty fields fall back to just the
-// name. Exported so the replay path in session-boundary can render the
-// same label shape that the live REPL prints.
+// The tool name plus the call's primary argument (core's `describeToolCall`,
+// the same rule the server's tool-row event uses); unknown tools or a missing
+// argument fall back to just the name. Exported so the replay path in
+// session-boundary renders the same label shape the live REPL prints.
 export function formatToolStatusLabel(name: string, input?: unknown): string {
-  const arg = pickStatusArg(name, input);
-  return arg !== undefined ? `${name} ${arg}` : name;
-}
-
-function pickStatusArg(name: string, input: unknown): string | undefined {
-  if (!input || typeof input !== "object") return undefined;
-  const obj = input as Record<string, unknown>;
-  const field =
-    name === "read_file" || name === "edit_file" || name === "write_file"
-      ? "file_path"
-      : name === "search_files"
-        ? "query"
-        : name === "list_files"
-          ? "prefix"
-          : undefined;
-  if (field === undefined) return undefined;
-  const value = obj[field];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+  const target = isVaultToolName(name)
+    ? describeToolCall(name, input).target
+    : "";
+  return target ? `${name} ${target}` : name;
 }
 
 export function createStdTerminalOutput(): TerminalOutput {

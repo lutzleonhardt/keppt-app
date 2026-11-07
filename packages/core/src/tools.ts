@@ -14,26 +14,20 @@ import {
 } from "./access-policy.js";
 import { type Logger, NoopLogger, safeLog } from "./logging.js";
 import { formatToday } from "./search.js";
+import {
+  editFileInput,
+  findTaskOccurrencesInput,
+  listFilesInput,
+  readFileInput,
+  searchFilesInput,
+  writeFileInput,
+} from "./tool-inputs.js";
 import { findTaskOccurrences } from "./task-occurrences.js";
 import type { SearchResult } from "./file-repository.js";
 import {
   preprocessQuickReplyLabel,
   QUICK_REPLY_LABEL_MAX_LENGTH,
 } from "./quick-replies.js";
-
-const filePathSchema = z.string();
-const changeSummarySchema = z.string();
-
-const editsSchema = z
-  .array(
-    z.object({
-      search: z.string().min(1),
-      replace: z.string(),
-    }),
-  )
-  .min(1);
-
-const scopeSchema = z.enum(["active", "archive", "all"]).optional();
 
 // Salience hint attached to successful writes/edits on canonical task files
 // (the five tasks/*.md plus today's daily note). Byte-stable on purpose: tests
@@ -396,7 +390,7 @@ export function buildTools(
     read_file: tool({
       description:
         "Reads the markdown content of a file relative to the vault root.",
-      inputSchema: z.object({ file_path: filePathSchema }),
+      inputSchema: readFileInput,
       execute: async ({ file_path }) =>
         readFileTool(repo, file_path, today(), logger),
     }),
@@ -407,11 +401,7 @@ export function buildTools(
         "but if currentContent is the empty string, the file does not exist; switch to write_file to create it instead of retrying edit_file. " +
         "'out_of_scope' or 'invalid_path' means the path is not editable; " +
         "'retry_budget_exhausted' (with currentContent) means two prior 'match' attempts on this file already failed in the current turn — stop retrying and consider asking the user or trying a different file.",
-      inputSchema: z.object({
-        file_path: filePathSchema,
-        edits: editsSchema,
-        change_summary: changeSummarySchema,
-      }),
+      inputSchema: editFileInput,
       execute: async ({ file_path, edits, change_summary }) =>
         editFileTool(
           repo,
@@ -426,11 +416,7 @@ export function buildTools(
     write_file: tool({
       description:
         "Writes the entire content. Only for create or full rewrite — otherwise use edit_file.",
-      inputSchema: z.object({
-        file_path: filePathSchema,
-        content: z.string(),
-        change_summary: changeSummarySchema,
-      }),
+      inputSchema: writeFileInput,
       execute: async ({ file_path, content, change_summary }) =>
         writeFileTool(
           repo,
@@ -445,7 +431,7 @@ export function buildTools(
       description:
         "Lists paths, optionally filtered by prefix. Results are restricted " +
         "to the GTD layout (5 task files, any date-formatted daily note under daily/).",
-      inputSchema: z.object({ prefix: z.string().optional() }),
+      inputSchema: listFilesInput,
       execute: async ({ prefix }) => listFilesTool(repo, prefix, today()),
     }),
     search_files: tool({
@@ -454,10 +440,7 @@ export function buildTools(
         "scope=active (default) covers that surface; archive is reserved for future non-daily " +
         "archived paths and is currently empty; all is the union. " +
         "Snippets from out-of-scope paths are filtered out.",
-      inputSchema: z.object({
-        query: z.string(),
-        scope: scopeSchema,
-      }),
+      inputSchema: searchFilesInput,
       execute: async ({ query, scope }) =>
         searchFilesTool(repo, query, scope ?? "active", today()),
     }),
@@ -468,9 +451,7 @@ export function buildTools(
         "date-formatted daily notes. Provide one task-like item as candidates: the user's wording " +
         "plus close variants. Returns raw Markdown context blocks only, not status or classifier truth. " +
         "A negative result means not found in this bounded placement horizon; use search_files/read_file for broader history questions.",
-      inputSchema: z.object({
-        candidates: z.array(z.string().min(1)).min(1),
-      }),
+      inputSchema: findTaskOccurrencesInput,
       execute: async ({ candidates }) =>
         findTaskOccurrences(repo, today(), candidates),
     }),

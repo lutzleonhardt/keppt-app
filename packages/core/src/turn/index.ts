@@ -4,6 +4,7 @@
 // its hosts observe a turn. Nothing in this folder may import from outside
 // it; `tsconfig.turn.json` enforces Node-freedom. See docs/development.md.
 export {
+  isVaultToolName,
   QUICK_REPLIES_TOOL_NAME,
   TURN_KINDS,
   VAULT_TOOL_NAMES,

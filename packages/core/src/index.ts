@@ -37,6 +37,7 @@ export {
   type ReadFileResult,
   type WriteFileResult,
 } from "./tools.js";
+export { describeToolCall, type ToolCallDescription } from "./tool-inputs.js";
 export { QUICK_REPLY_LABEL_MAX_LENGTH } from "./quick-replies.js";
 export * from "./layout/index.js";
 export {
