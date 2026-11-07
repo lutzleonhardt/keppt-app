@@ -15,6 +15,7 @@ import {
   runTurn,
   type FileRepository,
   type Logger,
+  type ModelProvider,
   type Session,
   type SessionStore,
 } from "@gtd/core";
@@ -37,6 +38,7 @@ export interface TurnDeps {
   sessionStore: SessionStore;
   cliLogger: Logger;
   terminal: TerminalOutput;
+  modelProvider: ModelProvider;
 }
 
 export interface TurnRefs {

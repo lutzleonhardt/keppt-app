@@ -6,9 +6,9 @@ import type {
   LanguageModelV4StreamPart,
   LanguageModelV4StreamResult,
 } from "@ai-sdk/provider";
-import { simulateReadableStream } from "ai";
+import { simulateReadableStream, type LanguageModel } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   formatToday,
@@ -17,20 +17,20 @@ import {
   MemoryLogger,
   Session,
   type FsSessionStoreOps,
+  type ModelProvider,
 } from "@gtd/core";
 import type { TerminalOutput } from "../src/terminal-output.js";
 
-const modelState = vi.hoisted((): { model: unknown } => ({ model: undefined }));
+import { handleTurn, type TurnDeps, type TurnRefs } from "../src/turn-loop.js";
 
-vi.mock("../src/model-provider.js", () => ({
-  MODEL_ID: "mock-model",
-  model: () => modelState.model,
-  providerOptions: () => ({}),
-}));
-
-const { handleTurn } = await import("../src/turn-loop.js");
-type TurnDeps = import("../src/turn-loop.js").TurnDeps;
-type TurnRefs = import("../src/turn-loop.js").TurnRefs;
+// Tests pick the model after the harness exists, so the provider reads it lazily.
+const modelState: { model: unknown } = { model: undefined };
+const modelProvider: ModelProvider = {
+  get model() {
+    return modelState.model as LanguageModel;
+  },
+  providerOptions: {},
+};
 
 // How handleTurn renders each TurnResult on the terminal: the error prefixes,
 // the log-path suffix, and the order endStream → chips → error line.
@@ -141,7 +141,14 @@ async function makeHarness(failRenameOn?: number): Promise<{
     logger: cliLogger,
   });
   return {
-    deps: { vaultPath, repo, sessionStore: store, cliLogger, terminal },
+    deps: {
+      vaultPath,
+      repo,
+      sessionStore: store,
+      cliLogger,
+      terminal,
+      modelProvider,
+    },
     refs,
     terminal,
     store,

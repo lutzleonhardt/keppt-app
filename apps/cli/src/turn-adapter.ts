@@ -12,7 +12,6 @@ import type {
   TurnResult,
   TurnSink,
 } from "@gtd/core";
-import { model, providerOptions } from "./model-provider.js";
 import { appendCliErrorLog } from "./cli-error-log.js";
 import { formatCliError } from "./cli-errors.js";
 import type { TerminalOutput } from "./terminal-output.js";
@@ -27,8 +26,8 @@ export function createEngineDeps(
     repo: deps.repo,
     sessionStore: deps.sessionStore,
     logger: deps.cliLogger,
-    model: model(),
-    providerOptions: providerOptions(),
+    model: deps.modelProvider.model,
+    providerOptions: deps.modelProvider.providerOptions,
     now: () => refs.turnNow,
     fileVersionAt: makeFileVersionAt(deps.vaultPath),
     turnLogger: refs.turnLogger ?? undefined,

@@ -5,9 +5,9 @@ import type {
   LanguageModelV4StreamPart,
   LanguageModelV4StreamResult,
 } from "@ai-sdk/provider";
-import { simulateReadableStream } from "ai";
+import { simulateReadableStream, type LanguageModel } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   formatToday,
@@ -15,6 +15,7 @@ import {
   LocalFileRepository,
   MemoryLogger,
   Session,
+  type ModelProvider,
 } from "@gtd/core";
 import { expandQuickReplyLine } from "../src/quick-replies.js";
 import {
@@ -22,17 +23,16 @@ import {
   type TerminalOutput,
 } from "../src/terminal-output.js";
 
-const modelState = vi.hoisted((): { model: unknown } => ({ model: undefined }));
+import { handleTurn, type TurnDeps, type TurnRefs } from "../src/turn-loop.js";
 
-vi.mock("../src/model-provider.js", () => ({
-  MODEL_ID: "mock-model",
-  model: () => modelState.model,
-  providerOptions: () => ({}),
-}));
-
-const { handleTurn } = await import("../src/turn-loop.js");
-type TurnDeps = import("../src/turn-loop.js").TurnDeps;
-type TurnRefs = import("../src/turn-loop.js").TurnRefs;
+// Tests pick the model after the harness exists, so the provider reads it lazily.
+const modelState: { model: unknown } = { model: undefined };
+const modelProvider: ModelProvider = {
+  get model() {
+    return modelState.model as LanguageModel;
+  },
+  providerOptions: {},
+};
 
 const ZERO_USAGE = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
@@ -166,7 +166,14 @@ async function makeHarness(): Promise<{
   });
 
   return {
-    deps: { vaultPath, repo, sessionStore: store, cliLogger, terminal },
+    deps: {
+      vaultPath,
+      repo,
+      sessionStore: store,
+      cliLogger,
+      terminal,
+      modelProvider,
+    },
     refs,
     terminal,
     store,

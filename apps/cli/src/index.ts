@@ -2,11 +2,16 @@
 import { createInterface } from "node:readline";
 import { stdin, stdout } from "node:process";
 import {
+  apiKeyEnvName,
+  createModelProvider,
   ensureGtdTaskFiles,
   formatToday,
   FsSessionStore,
   LocalFileRepository,
   MAX_INPUT_CHARS,
+  selectModel,
+  UnknownProviderError,
+  type ModelSelection,
 } from "@gtd/core";
 import { FsTurnLogger } from "./fs-turn-logger.js";
 import { createCliLogger } from "./cli-logger.js";
@@ -18,7 +23,6 @@ import {
 import { announceSessionBoundary } from "./session-boundary.js";
 import { handleTurn, type TurnDeps, type TurnRefs } from "./turn-loop.js";
 import { expandQuickReplyLine } from "./quick-replies.js";
-import { apiKeyEnvName } from "./model-provider.js";
 import { maybeRunAutoReplanOpener } from "./auto-replan-opener.js";
 
 const DEBUG = process.env.DEBUG === "1";
@@ -32,10 +36,25 @@ function requireEnv(name: string, terminal: TerminalOutput): string {
   return value;
 }
 
+// The same `GTD_PROVIDER`/`GTD_MODEL` contract as the server's `readServerConfig`.
+function readModelSelection(terminal: TerminalOutput): ModelSelection {
+  try {
+    return selectModel({
+      provider: process.env.GTD_PROVIDER,
+      model: process.env.GTD_MODEL,
+    });
+  } catch (err) {
+    if (!(err instanceof UnknownProviderError)) throw err;
+    terminal.errorSummary(`Error: GTD_PROVIDER: ${err.message}`);
+    process.exit(1);
+  }
+}
+
 async function main(): Promise<void> {
   const terminal = createStdTerminalOutput();
   const vaultPath = requireEnv("VAULT_PATH", terminal);
-  requireEnv(apiKeyEnvName(), terminal);
+  const selection = readModelSelection(terminal);
+  requireEnv(apiKeyEnvName(selection.provider), terminal);
 
   const cliLogger = createCliLogger({ vaultPath, terminal });
 
@@ -95,6 +114,7 @@ async function main(): Promise<void> {
     sessionStore,
     cliLogger,
     terminal,
+    modelProvider: createModelProvider(selection),
   };
 
   await maybeRunAutoReplanOpener(deps, refs);

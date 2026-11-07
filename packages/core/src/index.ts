@@ -102,6 +102,18 @@ export {
   type TurnInput,
   type UserTurnInput,
 } from "./turn-engine.js";
+export {
+  apiKeyEnvName,
+  createModelProvider,
+  DEFAULT_MODEL_BY_PROVIDER,
+  isProviderKey,
+  PROVIDER_KEYS,
+  selectModel,
+  UnknownProviderError,
+  type ModelProvider,
+  type ModelSelection,
+  type ProviderKey,
+} from "./model-provider.js";
 export * from "./turn/index.js";
 export type { TurnSink } from "./turn-sink.js";
 export { writeTurnArtifact, type TurnLogContext } from "./turn-artifact.js";
