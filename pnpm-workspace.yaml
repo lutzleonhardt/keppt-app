@@ -1,8 +1,16 @@
 packages:
   - "apps/*"
   - "packages/*"
+# One version of the AI SDK and zod across the workspace: core calls the SDK,
+# the apps share its types (LanguageModel, APICallError), so they must agree.
+catalog:
+  "@ai-sdk/anthropic": 4.0.0-beta.42
+  "@ai-sdk/deepseek": 3.0.0-beta.33
+  "@ai-sdk/openai": 4.0.0-beta.42
+  ai: 7.0.0-beta.116
+  zod: ^4.4.3
 allowBuilds:
-  '@parcel/watcher': true
+  "@parcel/watcher": true
   esbuild: true
   lmdb: true
   msgpackr-extract: true

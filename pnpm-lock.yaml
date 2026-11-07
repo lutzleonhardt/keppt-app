@@ -4,6 +4,24 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@ai-sdk/anthropic':
+      specifier: 4.0.0-beta.42
+      version: 4.0.0-beta.42
+    '@ai-sdk/deepseek':
+      specifier: 3.0.0-beta.33
+      version: 3.0.0-beta.33
+    '@ai-sdk/openai':
+      specifier: 4.0.0-beta.42
+      version: 4.0.0-beta.42
+    ai:
+      specifier: 7.0.0-beta.116
+      version: 7.0.0-beta.116
+    zod:
+      specifier: ^4.4.3
+      version: 4.4.3
+
 importers:
 
   .:
@@ -27,10 +45,10 @@ importers:
         specifier: workspace:*
         version: link:../../packages/core
       ai:
-        specifier: 7.0.0-beta.116
+        specifier: 'catalog:'
         version: 7.0.0-beta.116(zod@4.4.3)
       zod:
-        specifier: ^4.4.3
+        specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
       tsx:
@@ -49,7 +67,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/core
       ai:
-        specifier: 7.0.0-beta.116
+        specifier: 'catalog:'
         version: 7.0.0-beta.116(zod@4.4.3)
       express:
         specifier: ^5.3.0
@@ -166,19 +184,19 @@ importers:
   packages/core:
     dependencies:
       '@ai-sdk/anthropic':
-        specifier: 4.0.0-beta.42
+        specifier: 'catalog:'
         version: 4.0.0-beta.42(zod@4.4.3)
       '@ai-sdk/deepseek':
-        specifier: 3.0.0-beta.33
+        specifier: 'catalog:'
         version: 3.0.0-beta.33(zod@4.4.3)
       '@ai-sdk/openai':
-        specifier: 4.0.0-beta.42
+        specifier: 'catalog:'
         version: 4.0.0-beta.42(zod@4.4.3)
       ai:
-        specifier: 7.0.0-beta.116
+        specifier: 'catalog:'
         version: 7.0.0-beta.116(zod@4.4.3)
       zod:
-        specifier: ^4.4.3
+        specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
       '@types/node':
